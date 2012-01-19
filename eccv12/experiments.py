@@ -3,6 +3,8 @@ put bandit algos here
 """
 from math import log
 
+import numpy as np
+
 import hyperopt.base
 import hyperopt.utils
 import hyperopt.experiments 
