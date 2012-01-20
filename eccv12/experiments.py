@@ -13,8 +13,11 @@ class SerialBoostedBinaryExperiment(hyperopt.base.Experiment):
     """
     """
 
-    def __init__(self, bandit_algo):
-        super(SerialBoostedBinaryExperiment, self).__init__(bandit_algo)
+    def __init__(self, bandit_algo_class, bandit_class):
+        self.bandit_algo_class = bandit_algo_class
+        self.bandit_class = bandit_class
+        self.trials = []
+        self.results = []
         self.weights = None
         self.labels = None
         self.selected_inds = []
@@ -26,11 +29,12 @@ class SerialBoostedBinaryExperiment(hyperopt.base.Experiment):
         self.boost_round = 0
 
     def run(self, boost_rounds, opt_runs):
-        algo = self.bandit_algo
-        bandit = algo.bandit
+        algo_class = self.bandit_algo_class
+        bandit_class = self.bandit_class
         for _round in xrange(boost_rounds):
-            bandit.training_weights = self.weights
-            exp = hyperopt.experiments.SerialExperiment(bandit_algo)
+            bandit = bandit_class(self.weights)
+            bandit_algo = bandit_algo_class(bandit)
+            exp = hyperopt.experiment.SerialExperiment(bandit_algo)
             exp.run(opt_runs)
             self.trial_rounds.append(exp.trials)
             self.result_rounds.append(exp.results)
