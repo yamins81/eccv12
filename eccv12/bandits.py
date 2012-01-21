@@ -1,6 +1,8 @@
 """
 put bandits here
 """
+import cPickle
+
 import hyperopt.genson_bandits as gb
 import hyperopt.genson_helpers as gh
 
@@ -11,17 +13,30 @@ import model_params
 class BaseBandit(gb.GensonBandit):
     param_gen = model_params.l3_params 
 
-    def __init__(self, training_weights):
+    def __init__(self, train_decisions, test_decisions):
         super(BaseBandit, self).__init__(source_string=gh.string(self.param_gen))
-        self.training_weights = training_weights
+        self.train_decisions = train_decisions
+        self.test_decisions = test_decisions
 
     def evaluate(self, config, ctrl):
-        return self.performance_func(config, self.training_weights)
+        result = self.performance_func(config, 
+                                       self.train_decisions,
+                                       self.test_decisions)
+        assert 'train_decisions' in result
+        assert 'test_decisions' in result   
+        model_data = {'weights': result.pop('weights'),
+                      'bias': result.pop('bias')}
+        model_blob = cPickle.dumps(model_data)
+        ctrl.set_attachment(model_blob, 'model_data')
+        return result
+
         
 
 class LFWBase(object):
-    def performance_func(config, ctrl, training_weights):
-        return lfw.get_performance(config, training_weights=training_weights)
+    def performance_func(config, ctrl, train_decisions, test_decisions):
+        return lfw.get_performance(config,
+                                   train_decisions
+                                   test_decisions)
     
     
 class LFWBandit(BaseBandit, LFWBase):

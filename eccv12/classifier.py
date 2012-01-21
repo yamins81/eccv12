@@ -9,7 +9,6 @@ import asgd #use branch with eight acceptance
 from thoreano.early_stopping import fit_w_early_stopping, EarlyStopping
 
 
-
 def train_asgd_classifier_normalize(trainXy, testXy, verbose=False, batchsize=10,
         step_sizes=(3e-4, 1e-4, 3e-5, 1e-5, 3e-6, 1e-6), trace_normalize=False):
 

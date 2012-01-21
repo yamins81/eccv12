@@ -14,11 +14,11 @@ import numpy as np
 from thoreano.slm import (TheanoExtractedFeatures,
                           use_memmap)
                           
-from classifier import (evaluate_classifier_normalize,
-                        train_asgd_classifier_normalize)
+from thoreano.classifier import (train_only_asgd, 
+                                 get_result)
 import comparisons as comp_module
 
-DEFAULT_COMPARISONS = ['mult', 'sqrtabsdiff']
+DEFAULT_COMPARISON = 'mult'
 
 ##################################
 ########lfw task evaluation
@@ -49,18 +49,11 @@ def get_test_performance(outfile, config, use_theano=True, flip_lr=False, compar
                            comparisons=comparisons)
 
 
-def get_performance(configs, training_weights=None, train_test_splits=None, use_theano=True,
-                    flip_lr=False, tlimit=35, comparisons=DEFAULT_COMPARISONS):
-    """Given a config and list of splits, test config on those splits.
-
-    Splits can either be "view1-like", e.g. train then test or "view2-like", e.g.
-    train/validate and then test.  splits specified by a list of dictionaries
-    with keys in ["train","validate","test"] and values are split names recognized
-    by skdata.lfw.Aligned.raw_verification_task
-
-    This function both extracts features AND runs SVM evaluation. See functions
-    "get_features" and "train_feature"  below that split these two things up.
-    At some point this function should be simplified by calls to those two.
+def get_performance(configs,
+                    train_decisions,
+                    test_decisions,
+                    comparison=DEFAULT_COMPARISON):
+    """
     """
     import skdata.lfw
     c_hash = get_config_string(configs)
@@ -68,62 +61,54 @@ def get_performance(configs, training_weights=None, train_test_splits=None, use_
         configs = [configs]
     assert all([hasattr(comp_module,comparison) for comparison in comparisons])
     dataset = skdata.lfw.Aligned()
-    train_test_splits = [{'train': 'DevTrain', 'test': 'DevTest'}]
-    train_splits = [tts['train'] for tts in train_test_splits]
-    test_splits = [tts['test'] for tts in train_test_splits]
-    all_splits = test_splits + validate_splits + train_splits
-    X, y, Xr = get_relevant_images(dataset, splits = all_splits, dtype='float32')
+    X, y, Xr = get_relevant_images(dataset, splits = ['DevTrain', 'DevTest'], dtype='float32')
     batchsize = 4
     performance_comp = {}
     feature_file_names = ['features_' + c_hash + '_' + str(i) +  '.dat' for i in range(len(configs))]
     train_pairs_filename = 'train_pairs_' + c_hash + '.dat'
     test_pairs_filename = 'test_pairs_' + c_hash + '.dat'
-    with TheanoExtractedFeatures(X, batchsize, configs, feature_file_names,
-                                 use_theano=use_theano, tlimit=tlimit) as features_fps:
-
+    comparison_obj = getattr(comp_module,comparison)
+    with TheanoExtractedFeatures(X, batchsize, configs, feature_file_names) as features_fps:
         feature_shps = [features_fp.shape for features_fp in features_fps]
-        datas = {}
-        for comparison in comparisons:
-            print('Doing comparison %s' % comparison)
-            perf = []
-            datas[comparison] = []
-            comparison_obj = getattr(comp_module,comparison)
-            #how does tricks interact with n_features, if at all?
-            n_features = sum([comparison_obj.get_num_features(f_shp) for f_shp in feature_shps])
-            f_info = {'feature_shapes': feature_shps, 'n_features': n_features}
-            for tts in train_test_splits:
-                print('Split', tts)
-                train_split = tts['train']
-                test_split = tts['test']
-                with PairFeatures(dataset, train_split, Xr,
-                        n_features, features_fps, comparison_obj,
-                                  train_pairs_filename, flip_lr=flip_lr) as train_Xy:
-                    with PairFeatures(dataset, test_split,
-                            Xr, n_features, features_fps, comparison_obj,
-                                      test_pairs_filename) as test_Xy:
-                        model, earlystopper, data = train_asgd_classifier_normalize(train_Xy,
-                                                test_Xy)
-                        
-                        n_test_examples = len(test_Xy[0])
-                        data['split'] = tts
-                        data.update(f_info)
-                        datas[comparison].append(data)
-
-            performance_comp[comparison] = float(np.array(perf).mean())
-
-    performance = float(np.array(performance_comp.values()).min())
-    result = dict(
-            loss=performance,
-            loss_variance=performance * (1 - performance) / n_test_examples,
-            performances=performance_comp,
-            data=datas,
-            status='ok')
-
-    if outfile is not None:
-        outfh = open(outfile,'w')
-        cPickle.dump(result, outfh)
-        outfh.close()
+        print('Doing comparison %s' % comparison)
+        n_features = sum([comparison_obj.get_num_features(f_shp) for f_shp in feature_shps])
+        f_info = {'feature_shapes': feature_shps, 'n_features': n_features}
+        #TODO: figure out whoat to do here  and ensure training_errors, predictions, labels are returned 
+        #correctly
+        with PairFeatures(dataset, 'DevTrain', Xr,
+                          n_features, features_fps, comparison_obj, 
+                          train_pairs_filename) as train_Xy:
+            train_features, train_labels = train_Xy
+            train_margins = train_labels * train_decisions       
+            model, training_data = train_only_asgd(train_Xy,
+                                                   margin_biases=train_margins)
+            new_train_decisions = model.decision_function(train_features)
+        with PairFeatures(dataset, 'DevTest', Xr,
+                          n_features, features_fps, comparison_obj, 
+                          test_pairs_filename) as test_Xy:
+            test_features, test_labels = test_Xy
+            new_test_decisions = model.decision_function(test_features)
+     
+    train_decisions += new_train_decisions
+    test_decisions += new_test_decisions
+    train_predictions = np.sign(train_decisions)
+    test_predictions = np.sign(test_decisions)
+ 
+    result = {} 
+    result.update(f_info)
+    result['weights'] = model.asgd_weights
+    result['bias'] = model.asgd_bias
+    result['train_decisions'] = train_decisions.tolist() 
+    result['test_decisions'] = test_decisions.tolist() 
+    stats = get_result(train_labels,
+                             test_labels,
+                             train_predictions,
+                             test_predictions,
+                             [-1, 1])
+    result.update(stast)
+    result['loss'] = float(1 - result['test_accuracy']/100.)
     return result
+
 
 def get_relevant_images(dataset, splits=None, dtype='uint8'):
     # load & resize logic is LFW Aligned -specific
@@ -185,11 +170,12 @@ class PairFeatures(object):
         Ar = np.array([os.path.split(ar)[-1] for ar in A])
         Br = np.array([os.path.split(br)[-1] for br in B])
         labels = np.array(labels)
+        if set(labels)  == set([0, 1]):
+            labels = 2*labels - 1
         Aind = np.searchsorted(X, Ar)
         Bind = np.searchsorted(X, Br)
         assert len(Aind) == len(Bind)
         pair_shp = (len(labels), n_features)
-
 
         if flip_lr:
             pair_shp = (4 * pair_shp[0], pair_shp[1])
