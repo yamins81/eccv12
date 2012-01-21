@@ -29,7 +29,9 @@ class SerialBoostedBinaryExperiment(hyperopt.base.Experiment):
         algo_class = self.bandit_algo_class
         bandit_class = self.bandit_class
         for _round in xrange(boost_rounds):
-            bandit = bandit_class(self.train_decisions, self.test_decisions)
+            bandit = bandit_class(self.train_decisions,
+                                  self.test_decisions,
+                                  attach_weights=False)
             bandit_algo = bandit_algo_class(bandit)
             exp = hyperopt.experiment.SerialExperiment(bandit_algo)
             exp.run(opt_runs)

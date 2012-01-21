@@ -13,7 +13,7 @@ import model_params
 class BaseBandit(gb.GensonBandit):
     param_gen = model_params.l3_params 
 
-    def __init__(self, train_decisions, test_decisions):
+    def __init__(self, train_decisions, test_decisions, attach_weights=False):
         super(BaseBandit, self).__init__(source_string=gh.string(self.param_gen))
         self.train_decisions = train_decisions
         self.test_decisions = test_decisions
@@ -23,11 +23,14 @@ class BaseBandit(gb.GensonBandit):
                                        self.train_decisions,
                                        self.test_decisions)
         assert 'train_decisions' in result
-        assert 'test_decisions' in result   
-        model_data = {'weights': result.pop('weights'),
-                      'bias': result.pop('bias')}
-        model_blob = cPickle.dumps(model_data)
-        ctrl.set_attachment(model_blob, 'model_data')
+        assert 'test_decisions' in result
+        
+        if attach_weights:
+            model_data = {'weights': result.pop('weights'),
+                      'bias': result.pop('bias')}                   
+            model_blob = cPickle.dumps(model_data)
+            ctrl.set_attachment(model_blob, 'model_data')
+            
         return result
 
         
