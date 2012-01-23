@@ -124,6 +124,9 @@ def init_mongo_exp(algo_name,
                    force_lock=False,
                    mongo_opts='localhost/hyperopt'):
 
+    ###XXX:  OK so this is ripped off from the code in hyperopt.mongoexp
+    ###Perhaps it would be useful to modulized this functionality in a 
+    ###new function in hyperopt.mongoexp, and then just call it here?
 
     if bandit_kwargs is None:
         bandit_kwargs = {}
@@ -138,6 +141,7 @@ def init_mongo_exp(algo_name,
     bandit_argfile_text = cPickle.dumps(bandit_argv, bandit_kwargs)
     algo_argfile_text = cPickle.dumps(algo_argv, algo_kwargs)
  
+    ###XXX: why do we use md5 and not sha1?  
     m = hashlib.md5()
     m.update(bandit_argfile_text)
     m.update(algo_argfile_text)
@@ -148,7 +152,7 @@ def init_mongo_exp(algo_name,
 
     mj = MongoJobs.new_from_connection_str(as_mongo_str(mongo_opts) + '/jobs')
 
-    #should these really by passed as kwargs?
+    ###XXX: should these really by passed as kwargs?
     experiment = MongoExperiment(bandit_algo=algo,
                                  mongo_handle=mj,
                                  workdir=workdir,
@@ -174,13 +178,8 @@ def init_mongo_exp(algo_name,
             print >> sys.stdout, "aborting"
             del self
             return 1
-
         experiment.ddoc_lock(force=force_lock)
         experiment.clear_from_db()
-        # -- clearing self from db deletes the document used for locking
-        #    so no need to release the lock
-
-        # -- re-insert a new driver document
         experiment.ddoc_get()
         experiment.ddoc_attach_bandit_tuple(bandit_name,
                                             bandit_argv,
