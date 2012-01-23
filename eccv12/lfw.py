@@ -39,7 +39,7 @@ def test_splits():
     return splits
 
 
-def get_test_performance(outfile, config, use_theano=True, flip_lr=False, comparisons=DEFAULT_COMPARISONS):
+def get_test_performance(outfile, config, use_theano=True, flip_lr=False, comparison=DEFAULT_COMPARISON):
     """adapter to construct split notation for 10-fold split and call
     get_performance on it (e.g. this is like "test a config on View 2")
     """
@@ -59,7 +59,7 @@ def get_performance(configs,
     c_hash = get_config_string(configs)
     if isinstance(configs, dict):
         configs = [configs]
-    assert all([hasattr(comp_module,comparison) for comparison in comparisons])
+    assert hasattr(comp_module,comparison)
     dataset = skdata.lfw.Aligned()
     X, y, Xr = get_relevant_images(dataset, splits = ['DevTrain', 'DevTest'], dtype='float32')
     batchsize = 4
@@ -105,7 +105,7 @@ def get_performance(configs,
                              train_predictions,
                              test_predictions,
                              [-1, 1])
-    result.update(stast)
+    result.update(stats)
     result['loss'] = float(1 - result['test_accuracy']/100.)
     return result
 

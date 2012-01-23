@@ -12,8 +12,9 @@ import model_params
 
 class BaseBandit(gb.GensonBandit):
     param_gen = model_params.l3_params 
+    attach_weights = False
 
-    def __init__(self, train_decisions, test_decisions, attach_weights=False):
+    def __init__(self, train_decisions, test_decisions):
         super(BaseBandit, self).__init__(source_string=gh.string(self.param_gen))
         self.train_decisions = train_decisions
         self.test_decisions = test_decisions
@@ -25,9 +26,9 @@ class BaseBandit(gb.GensonBandit):
         assert 'train_decisions' in result
         assert 'test_decisions' in result
         
-        if attach_weights:
+        if self.attach_weights:
             model_data = {'weights': result.pop('weights'),
-                      'bias': result.pop('bias')}                   
+                          'bias': result.pop('bias')}                   
             model_blob = cPickle.dumps(model_data)
             ctrl.set_attachment(model_blob, 'model_data')
             
@@ -36,9 +37,9 @@ class BaseBandit(gb.GensonBandit):
         
 
 class LFWBase(object):
-    def performance_func(config, ctrl, train_decisions, test_decisions):
+    def performance_func(self, config, train_decisions, test_decisions):
         return lfw.get_performance(config,
-                                   train_decisions
+                                   train_decisions,
                                    test_decisions)
     
     
