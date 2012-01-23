@@ -12,12 +12,12 @@ import model_params
 
 class BaseBandit(gb.GensonBandit):
     param_gen = model_params.l3_params 
-    attach_weights = False
 
-    def __init__(self, train_decisions, test_decisions):
+    def __init__(self, train_decisions, test_decisions, attach_weights):
         super(BaseBandit, self).__init__(source_string=gh.string(self.param_gen))
         self.train_decisions = train_decisions
         self.test_decisions = test_decisions
+        self.attach_weights = attach_weights
 
     def evaluate(self, config, ctrl):
         result = self.performance_func(config, 
@@ -34,8 +34,7 @@ class BaseBandit(gb.GensonBandit):
             
         return result
 
-        
-
+    
 class LFWBase(object):
     def performance_func(self, config, train_decisions, test_decisions):
         return lfw.get_performance(config,
