@@ -10,6 +10,8 @@ from fabric.contrib.project import rsync_project
 env.hosts = []
 env.hosts.append('jbergstra@honeybadger.rowland.org:12122')
 
+def baserun(cmd):
+    return run('source .virtualenv/base/bin/activate; ' + cmd)
 
 def push_skdata(dataset):
     """
@@ -21,7 +23,7 @@ def push_skdata(dataset):
             local_dir="~/.skdata/%s" % dataset,)
 
 
-def rgit_branch(root):
+def get_rgit_branch(root):
     with cd(root):
         for line in run("git branch").split('\n'):
             if '*' in line:
@@ -42,7 +44,7 @@ def rgit_pull(name, gitsrc, add_pythonpath, branch=None):
         run('mkdir -p %s' % CVS)
         with cd(CVS):
             run("git clone %(gitsrc)s %(name)s" % locals())
-            if branch is not None and branch != rgit_branch(name):
+            if branch is not None and branch != get_rgit_branch(name):
                 with cd(name):
                     run("git checkout -b %(branch)s origin/%(branch)s"
                             % locals())
@@ -58,10 +60,69 @@ def rgit_pull(name, gitsrc, add_pythonpath, branch=None):
             run("git pull")
 
 
-
 def rgit_pull_all():
-    for r in repos:
+    """
+    Retrieve all of the development code used by the cvpr/eccv experiment.
+    """
+    for r in _git_repo.repos:
         rgit_pull(**r)
+
+
+def install_dotfiles():
+    with cd('cvs/dotfiles'):
+        run('./install.sh')
+
+
+def setup_venv():
+    with settings(warn_only=True):
+        if run('touch .virtualenv/base/bin/activate').failed:
+            with settings(warn_only=False):
+                run('mkdir .virtualenv')
+                run('virtualenv .virtualenv/base')
+                run('echo "source .virtualenv/base/bin/activate" >> .bashrc')
+
+
+def setup_python_base():
+    """
+    Install non-standard python libraries into the virtual env that is set up
+    by setup_venv()
+    """
+    setup_venv()
+    simple_packages = ['bson',
+            'lockfile',
+            'pyparsing',
+            'codepy',
+            'PIL',
+            ]
+
+    for pkg in simple_packages:
+        with settings(warn_only=True):
+            if baserun('python -c "import %s"' % pkg).failed:
+                with settings(warn_only=False):
+                    baserun('pip install %s' % pkg)
+
+    # install ordereddict for genson
+    odict_test1 = 'python -c "import collections; collections.OrderedDict"'
+    odict_test2 = 'python -c "import ordereddict"'
+    with settings(warn_only=True):
+        if baserun(odict_test1).failed and baserun(odict_test2).failed:
+            with settings(warn_only=False):
+                baserun('pip install -vUI ordereddict')
+
+
+def setup_all():
+    rgit_pull_all()
+    setup_venv()
+    setup_python_base()
+
+
+def add_cvs_to_PYTHONPATH():
+    paths = run(". .bashrc ; echo '$PYTHONPATH'").split(':')
+    print paths
+    for path in paths:
+        if path.endswith('cvs/PYTHONPATH'):
+            return
+    run ("echo export 'PYTHONPATH=~/cvs/PYTHONPATH:$PYTHONPATH' >> .bashrc")
 
 
 #####################################################################
@@ -120,3 +181,8 @@ _git_repo('fbconv3-gcg',
         'git@github.com:jaberg/fbconv3-gcg.git',
         add_pythonpath="",
         branch='bandit')
+
+
+_git_repo('dotfiles',
+    'git@github.com:jaberg/dotfiles.git',
+    add_pythonpath="")
