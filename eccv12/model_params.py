@@ -1,14 +1,13 @@
 import copy
-import itertools
-from hyperopt.genson_helpers import (null,
-                         false,
-                         true,
-                         choice,
-                         uniform,
-                         gaussian,
-                         lognormal,
-                         qlognormal,
-                         ref)
+from hyperopt.genson_helpers import null
+#from hyperopt.genson_helpers import false
+#from hyperopt.genson_helpers import true
+from hyperopt.genson_helpers import choice
+from hyperopt.genson_helpers import uniform
+#from hyperopt.genson_helpers import gaussian
+#from hyperopt.genson_helpers import lognormal
+#from hyperopt.genson_helpers import qlognormal
+from hyperopt.genson_helpers import ref
 
 
 lnorm = {'kwargs':{'inker_shape' : choice([(3,3),(5,5),(7,7),(9,9)]),
@@ -45,7 +44,7 @@ filter3['initialize']['n_filters'] = choice([16, 32, 64, 128, 256])
 filter3['initialize']['generate'] = ('random:uniform', {'rseed': choice(range(10,15))})
 
 
-l3_params = {'desc': [[('lnorm', lnorm)],
+l3_desc = [[('lnorm', lnorm)],
             [('fbcorr', filter1),
              ('activ', activ),
              ('lpool', lpool),
@@ -61,5 +60,5 @@ l3_params = {'desc': [[('lnorm', lnorm)],
              ('lpool', lpool),
              ('rescale', rescale),
              ('lnorm', lnorm)],
-           ]}
+           ]
 

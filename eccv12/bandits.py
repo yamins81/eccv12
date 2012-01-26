@@ -36,10 +36,17 @@ class BaseBandit(gb.GensonBandit):
 
     
 class LFWBase(object):
+    """
+    config is a dictionary with keys:
+    - slm - config for SLM model (e.g. TheanoSLM),
+    - comparison - name from ".comparison" module
+
+    """
     def performance_func(self, config, train_decisions, test_decisions):
-        return lfw.get_performance(config,
+        return lfw.get_performance(config['slm'],
                                    train_decisions,
-                                   test_decisions)
+                                   test_decisions,
+                                   config['comparison'])
     
     
 class LFWBandit(BaseBandit, LFWBase):

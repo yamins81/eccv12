@@ -1,15 +1,10 @@
-import copy
-import itertools
 import sys
-import time
 import os
-import tempfile
-import os.path as path
 import hashlib
 
-import Image
 import skdata.larray
 import skdata.utils
+import skdata.lfw
 import numpy as np
 from thoreano.slm import (TheanoExtractedFeatures,
                           use_memmap)
@@ -18,11 +13,14 @@ from thoreano.classifier import (train_only_asgd,
                                  get_result)
 import comparisons as comp_module
 
+from .utils import ImgLoaderResizer
+
 DEFAULT_COMPARISON = 'mult'
 
 ##################################
 ########lfw task evaluation
 def test_splits():
+    # Does this  function belong in skdata?
     T = ['fold_' + str(i) for i in range(10)]
     splits = []
     for i in range(10):
@@ -39,7 +37,7 @@ def test_splits():
     return splits
 
 
-def get_test_performance(outfile, config, use_theano=True, flip_lr=False, comparison=DEFAULT_COMPARISON):
+def get_test_performance(outfile, config, flip_lr=False, comparison=DEFAULT_COMPARISON):
     """adapter to construct split notation for 10-fold split and call
     get_performance on it (e.g. this is like "test a config on View 2")
     """
@@ -49,32 +47,33 @@ def get_test_performance(outfile, config, use_theano=True, flip_lr=False, compar
                            comparisons=comparisons)
 
 
-def get_performance(configs,
+def get_performance(config,
                     train_decisions,
                     test_decisions,
                     comparison=DEFAULT_COMPARISON):
     """
+    config - a Pythor3-compatible dictionary
     """
-    import skdata.lfw
-    c_hash = get_config_string(configs)
-    if isinstance(configs, dict):
-        configs = [configs]
-    assert hasattr(comp_module,comparison)
+    config_hash = get_config_string(config)
+    assert hasattr(comp_module, comparison)
     dataset = skdata.lfw.Aligned()
-    X, y, Xr = get_relevant_images(dataset, splits = ['DevTrain', 'DevTest'], dtype='float32')
+    X, y, Xr = get_relevant_images(dataset, splits = ['DevTrain', 'DevTest'],
+                                   dtype='float32')
     batchsize = 4
-    performance_comp = {}
-    feature_file_names = ['features_' + c_hash + '_' + str(i) +  '.dat' for i in range(len(configs))]
-    train_pairs_filename = 'train_pairs_' + c_hash + '.dat'
-    test_pairs_filename = 'test_pairs_' + c_hash + '.dat'
+    feature_file_name = 'features_' + config_hash + '.dat'
+    train_pairs_filename = 'train_pairs_' + config_hash + '.dat'
+    test_pairs_filename = 'test_pairs_' + config_hash + '.dat'
     comparison_obj = getattr(comp_module,comparison)
-    with TheanoExtractedFeatures(X, batchsize, configs, feature_file_names) as features_fps:
+    TEF_args = X, batchsize, [config], [feature_file_name]
+    with TheanoExtractedFeatures(*TEF_args) as features_fps:
         feature_shps = [features_fp.shape for features_fp in features_fps]
         print('Doing comparison %s' % comparison)
-        n_features = sum([comparison_obj.get_num_features(f_shp) for f_shp in feature_shps])
+        n_features = sum([comparison_obj.get_num_features(f_shp)
+                          for f_shp in feature_shps])
         f_info = {'feature_shapes': feature_shps, 'n_features': n_features}
-        #TODO: figure out whoat to do here  and ensure training_errors, predictions, labels are returned 
-        #correctly
+        #TODO: figure out whoat to do here  and ensure training_errors,
+        #      predictions, labels are returned 
+        #      correctly
         with PairFeatures(dataset, 'DevTrain', Xr,
                           n_features, features_fps, comparison_obj, 
                           train_pairs_filename) as train_Xy:
@@ -111,10 +110,15 @@ def get_performance(configs,
 
 
 def get_relevant_images(dataset, splits=None, dtype='uint8'):
+    """
+    Return lazy image array, individuals by id, and image path array
+    """
     # load & resize logic is LFW Aligned -specific
     assert 'Aligned' in str(dataset.__class__)
 
-
+    # fetch the raw paths of lfw
+    # Xr (X raw) is the image paths
+    # yr is the individuals (by number)
     Xr, yr = dataset.raw_classification_task()
     Xr = np.array(Xr)
 
@@ -124,10 +128,7 @@ def get_relevant_images(dataset, splits=None, dtype='uint8'):
     if splits is not None:
         all_images = []
         for s in splits:
-            if s.startswith('re'):
-                A, B, c = dataset.raw_verification_task_resplit(split=s[2:])
-            else:
-                A, B, c = dataset.raw_verification_task(split=s)
+            A, B, c = dataset.raw_verification_task(split=s)
             all_images.extend([A,B])
         all_images = np.unique(np.concatenate(all_images))
 
@@ -251,39 +252,6 @@ class PairFeatures(object):
     def __exit__(self, *args):
         if self.filename:
             os.remove(self.filename)
-
-
-class ImgLoaderResizer(object):
-    """ Load 250x250 greyscale images, return normalized 200x200 float32 ones.
-    """
-    def __init__(self, shape=None, ndim=None, dtype='float32', mode=None):
-        assert shape == (200, 200)
-        assert dtype == 'float32'
-        self._shape = shape
-        if ndim is None:
-            self._ndim = None if (shape is None) else len(shape)
-        else:
-            self._ndim = ndim
-        self._dtype = dtype
-        self.mode = mode
-
-    def rval_getattr(self, attr, objs):
-        if attr == 'shape' and self._shape is not None:
-            return self._shape
-        if attr == 'ndim' and self._ndim is not None:
-            return self._ndim
-        if attr == 'dtype':
-            return self._dtype
-        raise AttributeError(attr)
-
-    def __call__(self, file_path):
-        im = Image.open(file_path)
-        im = im.resize((200, 200), Image.ANTIALIAS)
-        rval = np.asarray(im, 'float32')
-        rval -= rval.mean()
-        rval /= max(rval.std(), 1e-3)
-        assert rval.shape == (200, 200)
-        return rval
 
 
 def unroll(X):
