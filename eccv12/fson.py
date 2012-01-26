@@ -1,6 +1,3 @@
-import cPickle
-import numpy as np
-
 library = {}
 
 def son(obj, *args, **kwargs):
@@ -60,7 +57,7 @@ def fson_eval(node, memo={}, scope={}):
         kwargs = dict([(k, fson_eval(v, memo, scope))
                         for (k, v) in node.get('kwargs', {}).items()])
         if node['call_w_scope']:
-            kwargs.update(scope)
+            kwargs['scope'] = scope
         rval = library[node['_fn_']](*args, **kwargs)
         memo[id(node)] = rval
         return rval
@@ -68,3 +65,17 @@ def fson_eval(node, memo={}, scope={}):
         memo[id(node)] = node
         return node
 
+class fson_function(object):
+    def __init__(self, node):
+        self.node = node
+
+    def __call__(self, **kwargs):
+        return fson_eval(self.node, memo={}, scope=kwargs)
+
+@register()
+def run_all(*args, **kwargs):
+    """
+    Putting this at the top-level of an fson program will force the evaluation
+    of all arguments, but return None.
+    """
+    return None

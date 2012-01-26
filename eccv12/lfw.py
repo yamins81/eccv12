@@ -160,11 +160,7 @@ class PairFeatures(object):
         B = []
         labels = []
         for s in split:
-            if s.startswith('re'):
-                s = s[2:]
-                A0, B0, labels0 = dset.raw_verification_task_resplit(split=s)
-            else:
-                A0, B0, labels0 = dset.raw_verification_task(split=s)
+            A0, B0, labels0 = dset.raw_verification_task(split=s)
             A.extend(A0)
             B.extend(B0)
             labels.extend(labels0)
@@ -270,3 +266,177 @@ def get_config_string(configs):
 
 def random_id():
     return hashlib.sha1(str(np.random.randint(10,size=(32,)))).hexdigest()
+
+
+
+import cPickle
+from .fson import register, run_all
+
+@register(call_w_scope=True)
+def fetch_train_decisions(scope):
+    ctrl = scope['ctrl']
+    return cPickle.loads(ctrl.get_attachment('train_decisions'))
+
+
+@register(call_w_scope=True)
+def fetch_test_decisions(scope):
+    ctrl = scope['ctrl']
+    return cPickle.loads(ctrl.get_attachment('test_decisions'))
+
+
+@register()
+def lfw_images(split):
+    import skdata.lfw
+    return skdata.lfw.Aligned().img_verification_task(split=split)[0]
+
+
+@register()
+def lfw_labels(split):
+    import skdata.lfw
+    return skdata.lfw.Aligned().img_verification_task(split=split)[1]
+
+
+@register()
+def slm_memmap(desc, X):
+    from thoreano.slm import SLMFunction
+    from skdata import larray
+    feat_fn = SLMFunction(desc, X.shape[1:])
+    rval = larray.lmap(feat_fn, X)
+    return rval
+
+
+@register()
+def load_comparison(comparison):
+    raise NotImplementedError()
+
+
+@register()
+def pairs_memmap(pairs, X, combination_fn):
+    """
+    pairs - something like comes out of lfw_verification_pairs
+    X - feature vectors to be combined
+    combination_fn - some lambda X[i], X[j]: features
+    """
+    raise NotImplementedError()
+
+
+@register()
+def lfw_verification_pairs(split):
+    """
+    Return three numpy arrays: lidxs, ridxs, match.
+
+    lidxs: position in the given split of the left image
+    ridxs: position in the given split of the right image
+    match: 0 if they correspond to different people, else 1
+    """
+    raise NotImplementedError()
+
+
+@register()
+def train_linear_svm_w_margins(train_data, l2_regularization, margins):
+    """
+    Return a sklearn-like classification model.
+    """
+    raise NotImplementedError()
+
+
+@register(call_w_scope=True)
+def attach_object(obj, name, scope):
+    scope['ctrl'].set_attachment(name, cPickle.dumps(obj))
+
+
+@register(call_w_scope=True)
+def attach_svmasgd(svm, name, scope):
+    obj = dict(weights=svm.asgd_weights, bias=svm.asgd_bias)
+    return attach_object(obj, name, scope) 
+
+
+@register(call_w_scope=True)
+def save_boosting_results(
+        svm,
+        train_data,
+        test_data,
+        previous_train_decisions,
+        previous_test_decisions,
+        scope):
+    ctrl = scope['ctrl']
+
+    new_train_decisions = svm.decision_function(train_data[0])
+    new_test_decisions = svm.decision_function(test_data[0])
+    ctrl.set_attachment('post_train_decisions',
+                        cPickle.dumps(
+                            previous_train_decisions + new_train_decisions))
+    ctrl.set_attachment('post_test_decisions',
+                        cPickle.dumps(
+                            previous_test_decisions + new_test_decisions))
+
+@register(call_w_scope=True)
+def binary_classifier_stats(
+        svm,
+        train_data, 
+        test_data,
+        ):
+    result = scope['result']
+    stats = get_result(train_labels,
+                             test_labels,
+                             train_predictions,
+                             test_predictions,
+                             [-1, 1])
+    result.update(stats)
+    result['loss'] = float(1 - result['test_accuracy']/100.)
+    return result
+
+
+@register()
+def svm_decisions(svm,
+                  train_verification_dataset,
+                  pre_decisions):
+    raise NotImplementedError()
+
+
+def lfw_screening_program(slm_desc, comparison):
+    def pairs_dataset(split):
+        return pairs_memmap.son(
+            pairs=lfw_verification_pairs.son(split=split),
+            X=slm_memmap.son(
+                desc=slm_desc,
+                X=lfw_images.son(split=split)),
+            comparison_fn=load_comparison.son(comparison),
+            )
+
+    train_verification_dataset = pairs_dataset('DevTrain')
+    test_verification_dataset = pairs_dataset('DevTest')
+
+    pre_train_decisions = fetch_train_decisions.son()
+    pre_test_decisions = fetch_test_decisions.son()
+
+    svm = train_linear_svm_w_margins.son(
+        train_verification_dataset,
+        l2_regularization=1e-3,
+        margins = pre_train_decisions,
+        )
+
+    post_train_decisions = svm_decisions(
+        svm,
+        train_verification_dataset,
+        pre_train_decisions)
+
+    post_test_decisions = svm_decisions(
+        svm,
+        test_verification_dataset,
+        pre_test_decisions)
+
+    rval = run_all(
+        attach_svmasgd.son(svm, 'svm_asgd'),
+        attach_object.son(post_train_decisions, 'post_train_decisions'),
+        attach_object.son(post_test_decisions, 'post_test_decisions'),
+        results_binary_classifier_stats.son(
+            train_verification_dataset,
+            test_verification_dataset,
+            post_train_decisions,
+            post_test_decisions,
+            ),
+        )
+
+    return rval
+
