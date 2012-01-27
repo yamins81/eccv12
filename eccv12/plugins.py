@@ -166,10 +166,12 @@ def train_linear_svm_w_decisions(train_data, l2_regularization, decisions):
     if train_X.ndim != 2:
         raise ValueError('train_X must be matrix')
     assert len(train_X) == len(train_y) == len(decisions)
+    print "INFO: training binary classifier..."
     svm = BinaryASGD(
         n_features=train_X.shape[1],
         l2_regularization=l2_regularization,
         dtype=train_X.dtype)
+    print "INFO: fitting done!"
     svm.fit(train_X, train_y)
     # XXX
     print >> sys.stderr, "WARNING: IGNORING DECISIONS!"
@@ -242,20 +244,29 @@ def svm_decisions(svm,
                   train_verification_dataset,
                   pre_decisions):
     base = pre_decisions
-    inc = svm.decision_function(*train_verification_dataset)
+    inc = svm.decision_function(train_verification_dataset[0])
     return base + inc
 
 
-def screening_program(slm_desc, comparison):
+def screening_program(slm_desc, comparison, namebase):
     image_features = slm_memmap.son(
                 desc=slm_desc,
-                X=get_images.son())
+                X=get_images.son('float32'),
+                name=namebase + '_img_feat')
+    #XXX: check that float32 images lead to correct features
+
+    # XXX: check that it's right that DevTrain has only 2200 verification
+    # pairs!? How we supposed to train a good model?!
+
+    # XXX: make sure namebase takes a different value for each process
+    #      because it's important that the memmaps don't interfere on disk
 
     def pairs_dataset(split):
         return pairs_memmap.son(
-            pairs=verification_pairs.son(split=split),
-            X=image_features,
+            verification_pairs.son(split=split),
+            image_features,
             comparison_name=comparison,
+            name=namebase + '_pairs_' + split,
             )
 
     train_verification_dataset = pairs_dataset('DevTrain')
