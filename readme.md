@@ -12,10 +12,10 @@ Steps to run random search experiment
 
 2. Start a hyperopt random search using mongo
     
-    * hyperopt-mongo-search --workdir=~/exp/eccv12/workdir --mongo=localhost:44556/db eccv12.plugins.Bandit hyperopt.Random
+    * hyperopt-mongo-search --workdir=~/exp/eccv12/workdir --mongo=HOST:PORT/db eccv12.plugins.Bandit hyperopt.Random
 
 3. Start worker processes to dequeue from that mongo
 
-    * hyperopt-mongo-worker
+    * hyperopt-mongo-worker  --mongo=HOST:PORT/db
 
 
