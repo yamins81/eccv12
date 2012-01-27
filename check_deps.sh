@@ -1,7 +1,11 @@
 #!/bin/bash
-for DIR in thoreano Theano.git scikit-data eccv12 hyperopt ; do
+for DIR in thoreano Theano scikit-data eccv12 hyperopt ; do
     pushd ../$DIR
-    git status
+    echo '==========================================================='
+    echo $DIR
+    echo '==========================================================='
+
+    git status -s
 
     popd
 done
