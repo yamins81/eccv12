@@ -172,8 +172,7 @@ def test_prog_1():
     This tests the screening program as far as image feature extraction.
     """
     dct = plugins.screening_program(slm_desc, 'sqrtabsdiff', 'foobase')
-    scope = {}
-    X = fson_eval(dct['image_features'], scope=scope)
+    X = fson_eval(dct['image_features'])
     assert len(X) == 13233
     print X[0].sum()
     print X[2100:].sum()
@@ -185,8 +184,7 @@ def test_prog_2():
     This tests the screening program as far as creating an svm training set.
     """
     dct = plugins.screening_program(slm_desc, 'sqrtabsdiff', 'foobase')
-    scope = {}
-    X, y = fson_eval(dct['train_verification_dataset'], scope=scope)
+    X, y = fson_eval(dct['train_verification_dataset'])
     assert len(X) == 2200 == len(y)
     print X[0].sum()
     print X[2100:].sum()
@@ -198,6 +196,8 @@ def test_prog_all():
     This actually runs an entire screening experiment based on slm_desc
     """
     dct = plugins.screening_program(slm_desc, 'sqrtabsdiff', 'foobase')
+    # scope dictionary is used to provide global variables to the
+    # fson_program.
     scope = dict(ctrl=ctrl_stub())
     fson_eval(dct['rval'], scope=scope)
     print scope
