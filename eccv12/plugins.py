@@ -11,8 +11,10 @@ from skdata import larray
 import skdata.utils
 import skdata.lfw
 import numpy as np
-from asgd import BinaryASGD
-                          
+from asgd import NaiveBinaryASGD as BinaryASGD
+# XXX: force TheanoBinaryASGD to use cpu shared vars
+#      then use it here, with feature-extraction on GPU
+
 #from .classifier import train_only_asgd
 from .classifier import get_result
 
@@ -31,7 +33,8 @@ def fetch_decisions(split, scope):
     """
     key = 'decisions_%s' % split
     attachment = scope['ctrl'].attachments[key]
-    return attachment
+    rval = cPickle.loads(attachment)
+    return rval
 
 
 @register()
@@ -42,7 +45,7 @@ def get_images(dtype='uint8'):
     XXX: Should the images really be returned in greyscale?
 
     """
-    all_paths = skdata.lfw.Aligned().img_classification_task()[0]
+    all_paths = skdata.lfw.Aligned().raw_classification_task()[0]
     rval = larray.lmap(
                 ImgLoaderResizer(
                     shape=(200, 200),  # lfw-specific
@@ -140,6 +143,13 @@ def pairs_memmap(pair_labels, X, comparison_name, name):
     pf_cache = larray.cache_memmap(pf, name)
     return pf_cache, np.asarray(matches)
 
+@register()
+def pairs_cleanup(obj):
+    """
+    Pass in the rval from pairs_memmap to clean up the memmap
+    """
+    obj[0].delete_files()
+
 
 @register()
 def train_linear_svm_w_decisions(train_data, l2_regularization, decisions):
@@ -150,10 +160,12 @@ def train_linear_svm_w_decisions(train_data, l2_regularization, decisions):
     if train_X.ndim != 2:
         raise ValueError('train_X must be matrix')
     assert len(train_X) == len(train_y) == len(decisions)
+    print "INFO: training binary classifier..."
     svm = BinaryASGD(
         n_features=train_X.shape[1],
         l2_regularization=l2_regularization,
         dtype=train_X.dtype)
+    print "INFO: fitting done!"
     svm.fit(train_X, train_y)
     # XXX
     print >> sys.stderr, "WARNING: IGNORING DECISIONS!"
@@ -162,13 +174,13 @@ def train_linear_svm_w_decisions(train_data, l2_regularization, decisions):
 
 @register(call_w_scope=True)
 def attach_object(obj, name, scope):
-    scope['ctrl'].set_attachment(name=name, data=cPickle.dumps(obj))
+    scope['ctrl'].attachments[name] = cPickle.dumps(obj)
 
 
 @register(call_w_scope=True)
 def attach_svmasgd(svm, name, scope):
     obj = dict(weights=svm.asgd_weights, bias=svm.asgd_bias)
-    return attach_object(obj, name, scope) 
+    scope['ctrl'].attachments[name] = cPickle.dumps(obj)
 
 
 @register(call_w_scope=True)
@@ -179,16 +191,17 @@ def save_boosting_results(
         previous_train_decisions,
         previous_test_decisions,
         scope):
-    ctrl = scope['ctrl']
 
     new_train_decisions = svm.decision_function(train_data[0])
     new_test_decisions = svm.decision_function(test_data[0])
-    ctrl.set_attachment(name='post_train_decisions',
-                        data=cPickle.dumps(
-                            previous_train_decisions + new_train_decisions))
-    ctrl.set_attachment(name='post_test_decisions',
-                        data=cPickle.dumps(
-                            previous_test_decisions + new_test_decisions))
+    attach_object(
+            previous_train_decisions + new_train_decisions,
+            'post_train_decisions',
+            scope)
+    attach_object(
+            previous_test_decisions + new_test_decisions,
+            'post_test_decisions',
+            scope)
 
 @register(call_w_scope=True)
 def results_binary_classifier_stats(
@@ -226,20 +239,29 @@ def svm_decisions(svm,
                   train_verification_dataset,
                   pre_decisions):
     base = pre_decisions
-    inc = svm.decision_function(*train_verification_dataset)
+    inc = svm.decision_function(train_verification_dataset[0])
     return base + inc
 
 
-def screening_program(slm_desc, comparison):
+def screening_program(slm_desc, comparison, namebase):
     image_features = slm_memmap.son(
                 desc=slm_desc,
-                X=get_images.son())
+                X=get_images.son('float32'),
+                name=namebase + '_img_feat')
+    #XXX: check that float32 images lead to correct features
+
+    # XXX: check that it's right that DevTrain has only 2200 verification
+    # pairs!? How we supposed to train a good model?!
+
+    # XXX: make sure namebase takes a different value for each process
+    #      because it's important that the memmaps don't interfere on disk
 
     def pairs_dataset(split):
         return pairs_memmap.son(
-            pairs=verification_pairs.son(split=split),
-            X=image_features,
+            verification_pairs.son(split=split),
+            image_features,
             comparison_name=comparison,
+            name=namebase + '_pairs_' + split,
             )
 
     train_verification_dataset = pairs_dataset('DevTrain')
@@ -274,10 +296,9 @@ def screening_program(slm_desc, comparison):
             post_train_decisions,
             post_test_decisions,
             ),
-        delete_memmap.son(train_verification_dataset),
-        delete_memmap.son(test_verification_dataset),
+        pairs_cleanup.son(train_verification_dataset),
+        pairs_cleanup.son(test_verification_dataset),
         delete_memmap.son(image_features),
         )
-
-    return rval
+    return locals()
 

@@ -1,6 +1,9 @@
 import cPickle
 import numpy as np
 
+import skdata.lfw
+from hyperopt.base import Ctrl
+
 #from eccv12.fson import fson_print, fson_eval, register
 
 #from eccv12.plugins import fetch_train_decisions
@@ -8,38 +11,34 @@ import numpy as np
 #from eccv12.plugins import lfw_images
 #from eccv12.plugins import slm_memmap
 from eccv12 import plugins
-from eccv12.fson import fson_print
+from eccv12.fson import fson_print, fson_eval
 
 
-class CtrlStub(object):
-    if 0:
-        attachment = scope['ctrl'].attachment
-        return cPickle.loads(ctrl.get_attachment(attachment))
-    elif 0:
-        # XXX
-        print >> sys.stderr, "WARNING NOT LOADING ATTACHMENTS"
-        dataset = skdata.lfw.Aligned()
+def ctrl_stub():
+    ctrl = Ctrl()
+    rng = np.random.RandomState(5234)
+    dataset = skdata.lfw.Aligned()
+    for split in 'DevTrain', 'DevTest':
         n_examples = len(dataset.raw_verification_task(split)[0])
-        return numpy.zeros(n_examples)
-    def get_attachment(self, name):
-        if name == 'train_decisions':
-            return cPickle.dumps(np.zeros(100)) # XXX: return right number
-        if name == 'test_decisions':
-            return cPickle.dumps(np.zeros(100)) # XXX: return right number
-        raise KeyError(name)
+        ctrl.attachments['decisions_%s' % split] = cPickle.dumps(
+            rng.randn(n_examples))
+    return ctrl
 
 
 def test_print_screening_program():
     fson_print(plugins.screening_program(
         slm_desc='slm_desc',
-        comparison='sumsqdiff'))
+        comparison='sumsqdiff',
+        namebase='namebase'))
 
 
 def test_get_images():
     X = plugins.get_images(dtype='float32')
     # XXX: are these faces supposed to be greyscale?
     assert X.dtype == 'float32'
-    assert X.shape == (13233, 250, 250, 3), X.shape
+    print X[0].sum()
+    assert X[0].sum() != 0
+    assert X.shape == (13233, 200, 200), X.shape
 
 
 def test_verification_pairs_0():
@@ -166,3 +165,41 @@ def test_results_binary_classifier_stats():
     assert result['train_accuracy'] == 75.
     assert result['test_accuracy'] == 50.
     assert result['loss'] == .5
+
+
+def test_prog_1():
+    """
+    This tests the screening program as far as image feature extraction.
+    """
+    dct = plugins.screening_program(slm_desc, 'sqrtabsdiff', 'foobase')
+    scope = {}
+    X = fson_eval(dct['image_features'], scope=scope)
+    assert len(X) == 13233
+    print X[0].sum()
+    print X[2100:].sum()
+    # XXX: more asserts
+
+
+def test_prog_2():
+    """
+    This tests the screening program as far as creating an svm training set.
+    """
+    dct = plugins.screening_program(slm_desc, 'sqrtabsdiff', 'foobase')
+    scope = {}
+    X, y = fson_eval(dct['train_verification_dataset'], scope=scope)
+    assert len(X) == 2200 == len(y)
+    print X[0].sum()
+    print X[2100:].sum()
+    # XXX: more asserts
+
+
+def test_prog_all():
+    """
+    This actually runs an entire screening experiment based on slm_desc
+    """
+    dct = plugins.screening_program(slm_desc, 'sqrtabsdiff', 'foobase')
+    scope = dict(ctrl=ctrl_stub())
+    fson_eval(dct['rval'], scope=scope)
+    print scope
+    # XXX: more asserts
+
