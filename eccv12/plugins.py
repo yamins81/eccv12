@@ -60,13 +60,13 @@ def verification_pairs(split):
 
     lidxs: position in the given split of the left image
     ridxs: position in the given split of the right image
-    match: 0 if they correspond to different people, else 1
+    match: 1 if they correspond to the same people, else -1
     """
     dataset = skdata.lfw.Aligned()
     all_paths = dataset.raw_classification_task()[0]
     lpaths, rpaths, matches = dataset.raw_verification_task(split=split)
     lidxs, ridxs = _verification_pairs_helper(all_paths, lpaths, rpaths)
-    return lidxs, ridxs, matches
+    return lidxs, ridxs, (matches * 2 - 1)
 
 
 @register()
