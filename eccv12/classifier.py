@@ -6,7 +6,7 @@ import scipy as sp
 #####sgd#####
 #############
 import asgd #use branch with eight acceptance
-from thoreano.early_stopping import fit_w_early_stopping, EarlyStopping
+#from thoreano.early_stopping import fit_w_early_stopping, EarlyStopping
 
 
 def train_asgd_classifier_normalize(trainXy, testXy, verbose=False, batchsize=10,
@@ -100,7 +100,7 @@ def train_asgd_classifier(train_Xy, test_Xy,
 #############
 from scikits.learn import svm as sklearn_svm
 from scikits.learn import linear_model as sklearn_linear_model
-from scikits.learn.linear_model.logistic import LogisticRegression
+#from scikits.learn.linear_model.logistic import LogisticRegression
 
 
 def train_scikits(train_Xy,
@@ -302,6 +302,8 @@ def regression_stats(actual, predicted, prefix='test'):
     return {prefix+'_rsquared' : test_rsquared}
 
 def get_result(train_labels, test_labels, train_prediction, test_prediction, labels):
+    assert all(l in labels for l in train_prediction)
+    assert all(l in labels for l in test_prediction)
     result = {'train_errors': (train_labels != train_prediction).tolist(),
      'test_errors': (test_labels != test_prediction).tolist(),
      'train_prediction': train_prediction.tolist(),

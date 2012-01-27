@@ -33,17 +33,32 @@ def register(name=None, call_w_scope=False):
     return deco
 
 
-def fson_print(node, prefix=0):
+def fson_count_nodes(node, counts):
+    counts.setdefault(id(node), 0)
+    counts[id(node)] += 1
+    if isinstance(node, dict) and '_fn_' in node:
+        for a in node.get('args', []):
+            fson_count_nodes(a, counts)
+        for v in node.get('kwargs', {}).values():
+            fson_count_nodes(v, counts)
+    return counts
+
+
+def fson_print_helper(node, prefix, memo, counts):
+    if id(node) in memo:
+        print ' ' * prefix + memo[id(node)]
+        return
+
     if isinstance(node, dict) and '_fn_' in node:
         args = node.get('args', [])
         kwargs = node.get('kwargs', {})
         if args or kwargs:
             print ' ' * prefix + node['_fn_'] + '('
             for a in node['args']:
-                fson_print(a, prefix + 4)
+                fson_print(a, prefix + 4, memo)
             for k, v in node['kwargs'].items():
                 print ' ' * prefix + '  ' + k + ' ='
-                fson_print(v, prefix + 4)
+                fson_print(v, prefix + 4, memo)
             print ' ' * prefix + '  )'
         else:
             print ' ' * prefix + node['_fn_'] + '()'
@@ -51,7 +66,18 @@ def fson_print(node, prefix=0):
         print ' ' * prefix + str(node)
 
 
-def fson_eval(node, memo={}, scope={}):
+def fson_print(node, prefix=0, memo=None):
+    if memo is None:
+        memo = {}
+    counts = fson_count_nodes(node, {})
+    return fson_print_helper(node, prefix, memo, counts)
+
+
+def fson_eval(node, memo=None, scope=None):
+    if memo is None:
+        memo = {}
+    if scope is None:
+        scope = {}
     if isinstance(node, dict) and '_fn_' in node:
         args = [fson_eval(a, memo, scope) for a in node.get('args', [])]
         kwargs = dict([(k, fson_eval(v, memo, scope))

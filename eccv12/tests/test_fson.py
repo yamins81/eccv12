@@ -1,7 +1,9 @@
 import cPickle
 import numpy as np
 
-from eccv12.fson import fson_print, fson_eval, register
+from eccv12.fson import fson_print
+from eccv12.fson import fson_eval
+from eccv12.fson import register
 
 from eccv12.lfw import fetch_train_decisions
 from eccv12.lfw import fetch_test_decisions
