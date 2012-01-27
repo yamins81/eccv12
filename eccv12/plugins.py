@@ -11,7 +11,9 @@ from skdata import larray
 import skdata.utils
 import skdata.lfw
 import numpy as np
-from asgd import BinaryASGD
+from asgd import NaiveBinaryASGD as BinaryASGD
+# XXX: force TheanoBinaryASGD to use cpu shared vars
+#      then use it here, with feature-extraction on GPU
 
 #from .classifier import train_only_asgd
 from .classifier import get_result
