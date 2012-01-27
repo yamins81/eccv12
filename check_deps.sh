@@ -1,6 +1,6 @@
 #!/bin/bash
 
-DIRS="thoreano Theano scikit-data eccv12 hyperopt asgd"
+DIRS="thoreano Theano scikit-data eccv12 hyperopt asgd genson"
 
 if [ " st" = " $1" -o " " = " $1" ] ; then
     for DIR in $DIRS; do
