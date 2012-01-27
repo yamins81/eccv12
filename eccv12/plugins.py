@@ -2,7 +2,7 @@ import cPickle
 
 
 import sys
-#import os
+import os
 #import hashlib
 
 from thoreano.slm import SLMFunction
@@ -89,7 +89,7 @@ def slm_memmap(desc, X, name):
     """
     feat_fn = SLMFunction(desc, X.shape[1:])
     feat = larray.lmap(feat_fn, X)
-    rval = larray.cache_memmap(feat, name)
+    rval = larray.cache_memmap(feat, name, basedir=os.getcwd())
     return rval
 
 
@@ -143,7 +143,7 @@ def pairs_memmap(pair_labels, X, comparison_name, name):
             PairFeaturesFn(X, comparison_name),
             lidxs,
             ridxs)
-    pf_cache = larray.cache_memmap(pf, name)
+    pf_cache = larray.cache_memmap(pf, name, basedir=os.getcwd())
     return pf_cache, np.asarray(matches)
 
 @register()
@@ -168,8 +168,8 @@ def train_linear_svm_w_decisions(train_data, l2_regularization, decisions):
         n_features=train_X.shape[1],
         l2_regularization=l2_regularization,
         dtype=train_X.dtype)
-    print "INFO: fitting done!"
     svm.fit(train_X, train_y)
+    print "INFO: fitting done!"
     # XXX
     print >> sys.stderr, "WARNING: IGNORING DECISIONS!"
     return svm
@@ -308,7 +308,7 @@ def screening_program(slm_desc, comparison, namebase):
 class Bandit(GensonBandit):
     def __init__(self):
         template = dict(
-            slm=model_params.l3_desc,
+            slm=model_params.fg11_desc,
             comparison='mult',
             )
         GensonBandit.__init__(self,
@@ -318,7 +318,7 @@ class Bandit(GensonBandit):
         prog = screening_program(
                 slm_desc=config['slm'],
                 comparison=config['comparison'],
-                namebase=str(config['_id']))
+                namebase='memmap_')['rval']
 
         scope = dict(ctrl=ctrl)
         fson_eval(prog, scope=scope)
