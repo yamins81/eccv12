@@ -149,6 +149,13 @@ def pairs_memmap(pair_labels, X, comparison_name, name):
     pf_cache = larray.cache_memmap(pf, name)
     return pf_cache, np.asarray(matches)
 
+@register()
+def pairs_cleanup(obj):
+    """
+    Pass in the rval from pairs_memmap to clean up the memmap
+    """
+    obj[0].delete_files()
+
 
 @register()
 def train_linear_svm_w_decisions(train_data, l2_regularization, decisions):
@@ -283,10 +290,9 @@ def screening_program(slm_desc, comparison):
             post_train_decisions,
             post_test_decisions,
             ),
-        delete_memmap.son(train_verification_dataset),
-        delete_memmap.son(test_verification_dataset),
+        pairs_cleanup.son(train_verification_dataset),
+        pairs_cleanup.son(test_verification_dataset),
         delete_memmap.son(image_features),
         )
-
-    return rval
+    return locals()
 
