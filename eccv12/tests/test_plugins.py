@@ -8,16 +8,19 @@ import numpy as np
 #from eccv12.plugins import lfw_images
 #from eccv12.plugins import slm_memmap
 from eccv12 import plugins
-from eccv12.fson import fson_print
+from eccv12.fson import fson_print, fson_eval
 
 
 class CtrlStub(object):
+    def __init__(self):
+        self.attachments = {}
+        #self.attachments['decisions_DevTrain'] = cPickle.dumps( np.zeros(
+
     def get_attachment(self, name):
-        if name == 'train_decisions':
-            return cPickle.dumps(np.zeros(100)) # XXX: return right number
-        if name == 'test_decisions':
-            return cPickle.dumps(np.zeros(100)) # XXX: return right number
-        raise KeyError(name)
+        return self.attachments[name]
+
+    def set_attachment(self, name, data):
+        self.attachments[name] = data
 
 
 def test_print_screening_program():
@@ -30,7 +33,9 @@ def test_get_images():
     X = plugins.get_images(dtype='float32')
     # XXX: are these faces supposed to be greyscale?
     assert X.dtype == 'float32'
-    assert X.shape == (13233, 250, 250, 3), X.shape
+    print X[0].sum()
+    assert X[0].sum() != 0
+    assert X.shape == (13233, 200, 200), X.shape
 
 
 def test_verification_pairs_0():
@@ -157,3 +162,27 @@ def test_results_binary_classifier_stats():
     assert result['train_accuracy'] == 75.
     assert result['test_accuracy'] == 50.
     assert result['loss'] == .5
+
+
+def test_prog_1():
+    dct = plugins.screening_program(slm_desc, 'sqrtabsdiff', 'foobase')
+    scope = {}
+    X = fson_eval(dct['image_features'], scope=scope)
+    assert len(X) == 13233
+    print X[0].sum()
+    print X[2100:].sum()
+
+
+def test_prog_2():
+    dct = plugins.screening_program(slm_desc, 'sqrtabsdiff', 'foobase')
+    scope = {}
+    X, y = fson_eval(dct['train_verification_dataset'], scope=scope)
+    assert len(X) == 2200 == len(y)
+    print X[0].sum()
+    print X[2100:].sum()
+
+def test_prog_all():
+    dct = plugins.screening_program(slm_desc, 'sqrtabsdiff', 'foobase')
+    scope = dict(ctrl=CtrlStub())
+    fson_eval(dct['rval'], scope=scope)
+    print scope
