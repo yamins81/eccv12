@@ -14,11 +14,16 @@ lnorm = {'kwargs':{'inker_shape' : choice([(3,3),(5,5),(7,7),(9,9)]),
          'outker_shape' : ref('this','inker_shape'),
          'remove_mean' : choice([0,1]),
          'stretch' : uniform(0,10),
-         'threshold' : choice([null, uniform(0,10)])
+         'threshold' : choice([.1,1,10])
          }}
 
 lpool = {'kwargs': {'ker_shape' : choice([(3,3),(5,5),(7,7),(9,9)]),
           'order' : choice([1, 2, 10])
+         }}
+
+lpool_sub2 = {'kwargs': {'ker_shape' : choice([(3,3),(5,5),(7,7),(9,9)]),
+          'order' : choice([1, 2, 10]),
+          'stride': 2,
          }}
 
 rescale = {'kwargs': {'stride' : 2}}
@@ -44,21 +49,14 @@ filter3['initialize']['n_filters'] = choice([16, 32, 64, 128, 256])
 filter3['initialize']['generate'] = ('random:uniform', {'rseed': choice(range(10,15))})
 
 
-l3_desc = [[('lnorm', lnorm)],
+fg11_desc = [[('lnorm', lnorm)],
             [('fbcorr', filter1),
-             ('activ', activ),
-             ('lpool', lpool),
-             ('rescale', rescale),
+             ('lpool', lpool_sub2),
              ('lnorm', lnorm)],
             [('fbcorr', filter2),
-             ('activ', activ),
-             ('lpool', lpool),
-             ('rescale', rescale),
+             ('lpool', lpool_sub2),
              ('lnorm', lnorm)],
             [('fbcorr', filter3),
-             ('activ', activ),
-             ('lpool', lpool),
-             ('rescale', rescale),
+             ('lpool', lpool_sub2),
              ('lnorm', lnorm)],
            ]
-
