@@ -18,4 +18,8 @@ Steps to run random search experiment
 
     * hyperopt-mongo-worker  --mongo=HOST:PORT/db
 
+    -or-
+
+    * THEANO_FLAGS=device=gpu0,floatX=float32 hyperopt-mongo-worker  --mongo=HOST:PORT/db
+
 
