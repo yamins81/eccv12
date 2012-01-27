@@ -51,7 +51,7 @@ def get_images(dtype='uint8'):
     XXX: Should the images really be returned in greyscale?
 
     """
-    all_paths = skdata.lfw.Aligned().img_classification_task()[0]
+    all_paths = skdata.lfw.Aligned().raw_classification_task()[0]
     rval = larray.lmap(
                 ImgLoaderResizer(
                     shape=(200, 200),  # lfw-specific
