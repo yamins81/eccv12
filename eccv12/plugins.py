@@ -35,8 +35,16 @@ def fetch_decisions(split, scope):
     for the verification examples of the given split.
     """
     key = 'decisions_%s' % split
-    attachment = scope['ctrl'].attachments[key]
-    rval = cPickle.loads(attachment)
+    try:
+        attachment = scope['ctrl'].attachments[key]
+        rval = cPickle.loads(attachment)
+    except Exception, e:
+        # XXX DEFINITELY FIX THIS!!!
+        print >> sys.stderr, e
+        if split=='DevTrain':
+            return np.zeros(2200)
+        else:
+            return np.zeros(1000)
     return rval
 
 
