@@ -15,14 +15,17 @@ from asgd import NaiveBinaryASGD as BinaryASGD
 # XXX: force TheanoBinaryASGD to use cpu shared vars
 #      then use it here, with feature-extraction on GPU
 
+from hyperopt import genson_helpers
+from hyperopt import GensonBandit
+
 #from .classifier import train_only_asgd
 from .classifier import get_result
 
 from .fson import register
 from .fson import run_all
-
+from .fson import fson_eval
+import model_params
 import comparisons
-
 from .utils import ImgLoaderResizer
 
 @register(call_w_scope=True)
@@ -301,4 +304,24 @@ def screening_program(slm_desc, comparison, namebase):
         delete_memmap.son(image_features),
         )
     return locals()
+
+class Bandit(GensonBandit):
+    def __init__(self):
+        template = dict(
+            slm=model_params.l3_desc,
+            comparison='mult',
+            )
+        GensonBandit.__init__(self,
+            source_string=genson_helpers.string(template))
+
+    def evaluate(self, config, ctrl):
+        prog = screening_program(
+                slm_desc=config['slm'],
+                comparison=config['comparison'],
+                namebase=str(config['_id']))
+
+        scope = dict(ctrl=ctrl)
+        fson_eval(prog, scope=scope)
+        print scope
+        return scope['result']
 
