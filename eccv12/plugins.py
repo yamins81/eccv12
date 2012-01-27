@@ -1,16 +1,17 @@
 import cPickle
 
-#import sys
+
+import sys
 #import os
 #import hashlib
 
 from thoreano.slm import SLMFunction
 
-import skdata.larray
+from skdata import larray
 import skdata.utils
 import skdata.lfw
 import numpy as np
-#from thoreano.slm import (TheanoExtractedFeatures, use_memmap)
+from asgd import BinaryASGD
                           
 #from .classifier import train_only_asgd
 from .classifier import get_result
@@ -18,26 +19,38 @@ from .classifier import get_result
 from .fson import register
 from .fson import run_all
 
-#import comparisons as comp_module
+import comparisons
 
 from .utils import ImgLoaderResizer
 
 @register(call_w_scope=True)
-def fetch_train_decisions(scope):
-    ctrl = scope['ctrl']
-    return cPickle.loads(ctrl.get_attachment('train_decisions'))
-
-
-@register(call_w_scope=True)
-def fetch_test_decisions(scope):
-    ctrl = scope['ctrl']
-    return cPickle.loads(ctrl.get_attachment('test_decisions'))
+def fetch_decisions(split, scope):
+    """
+    Load the accumulated decisions of models selected for the ensemble,
+    for the verification examples of the given split.
+    """
+    if 0:
+        ctrl = scope['ctrl']
+        attachment = 'decisions_%s' % split
+        return cPickle.loads(ctrl.get_attachment(attachment))
+    else:
+        # XXX
+        print >> sys.stderr, "WARNING NOT LOADING ATTACHMENTS"
+        dataset = skdata.lfw.Aligned()
+        n_examples = len(dataset.raw_verification_task(split)[0])
+        return numpy.zeros(n_examples)
 
 
 @register()
 def get_images(dtype='uint8'):
+    """
+    Return a lazy array whose elements are all the images in lfw.
+
+    XXX: Should the images really be returned in greyscale?
+
+    """
     all_paths = skdata.lfw.Aligned().img_classification_task()[0]
-    rval = skdata.larray.lmap(
+    rval = larray.lmap(
                 ImgLoaderResizer(
                     shape=(200, 200),  # lfw-specific
                     dtype=dtype),
@@ -56,7 +69,7 @@ def _verification_pairs_helper(all_paths, lpaths, rpaths):
 @register()
 def verification_pairs(split):
     """
-    Return three numpy arrays: lidxs, ridxs, match.
+    Return three integer arrays: lidxs, ridxs, match.
 
     lidxs: position in the given split of the left image
     ridxs: position in the given split of the right image
@@ -70,38 +83,93 @@ def verification_pairs(split):
 
 
 @register()
-def slm_memmap(desc, X):
+def slm_memmap(desc, X, name):
+    """
+    Return a cache_memmap object representing the features of the entire
+    set of images.
+    """
     feat_fn = SLMFunction(desc, X.shape[1:])
-    rval = skdata.larray.lmap(feat_fn, X)
+    feat = larray.lmap(feat_fn, X)
+    rval = larray.cache_memmap(feat, name)
     return rval
 
 
 @register()
-def load_comparison(comparison):
-    raise NotImplementedError()
+def delete_memmap(obj):
+    """
+    Delete the files associated with cache_memmap `obj`
+
+    TODO: Think of some mechanism for registering this as a cleanup
+    handler corresponding to successful calls to slm_memmap.
+    """
+    obj.delete_files()
+
+
+class PairFeaturesFn(object):
+    """
+    larray.lmap-friendly implementation of the comparison function
+    that maps tensor pairs (of image features) to a 1-D flattened
+    feature vector.
+    """
+    __name__  = 'PairFeaturesFn'
+
+    def __init__(self, X, fn_name):
+        self.X = X
+        self.fn = getattr(comparisons, fn_name)
+
+    def rval_getattr(self, attr, objs):
+        if attr == 'shape':
+            return (np.prod(self.X.shape[1:]),)
+        if attr == 'ndim':
+            return 1
+        if attr == 'dtype':
+            return self.X.dtype
+        raise AttributeError()
+
+    def __call__(self, li, ri):
+        lx = self.X[li]
+        rx = self.X[ri]
+        return self.fn(lx, rx)
 
 
 @register()
-def pairs_memmap(pairs, X, combination_fn):
+def pairs_memmap(pair_labels, X, comparison_name, name):
     """
-    pairs - something like comes out of verification_pairs
-    X - feature vectors to be combined
-    combination_fn - some lambda X[i], X[j]: features
+    pair_labels    - something like comes out of verification_pairs
+    X              - feature vectors to be combined
+    combination_fn - some lambda X[i], X[j]: features1D
     """
-    raise NotImplementedError()
+    lidxs, ridxs, matches = pair_labels
+    pf = larray.lmap(
+            PairFeaturesFn(X, comparison_name),
+            lidxs,
+            ridxs)
+    pf_cache = larray.cache_memmap(pf, name)
+    return pf_cache, np.asarray(matches)
 
 
 @register()
-def train_linear_svm_w_margins(train_data, l2_regularization, margins):
+def train_linear_svm_w_decisions(train_data, l2_regularization, decisions):
     """
     Return a sklearn-like classification model.
     """
-    raise NotImplementedError()
+    train_X, train_y = train_data
+    if train_X.ndim != 2:
+        raise ValueError('train_X must be matrix')
+    assert len(train_X) == len(train_y) == len(decisions)
+    svm = BinaryASGD(
+        n_features=train_X.shape[1],
+        l2_regularization=l2_regularization,
+        dtype=train_X.dtype)
+    svm.fit(train_X, train_y)
+    # XXX
+    print >> sys.stderr, "WARNING: IGNORING DECISIONS!"
+    return svm
 
 
 @register(call_w_scope=True)
 def attach_object(obj, name, scope):
-    scope['ctrl'].set_attachment(name, cPickle.dumps(obj))
+    scope['ctrl'].set_attachment(name=name, data=cPickle.dumps(obj))
 
 
 @register(call_w_scope=True)
@@ -122,11 +190,11 @@ def save_boosting_results(
 
     new_train_decisions = svm.decision_function(train_data[0])
     new_test_decisions = svm.decision_function(test_data[0])
-    ctrl.set_attachment('post_train_decisions',
-                        cPickle.dumps(
+    ctrl.set_attachment(name='post_train_decisions',
+                        data=cPickle.dumps(
                             previous_train_decisions + new_train_decisions))
-    ctrl.set_attachment('post_test_decisions',
-                        cPickle.dumps(
+    ctrl.set_attachment(name='post_test_decisions',
+                        data=cPickle.dumps(
                             previous_test_decisions + new_test_decisions))
 
 @register(call_w_scope=True)
@@ -136,7 +204,15 @@ def results_binary_classifier_stats(
         train_decisions,
         test_decisions,
         scope):
-    result = scope['result']
+    """
+    Compute classification statistics and store them to scope['result']
+
+    The train_decisions / test_decisions are the real-valued confidence
+    score whose sign indicates the predicted class for binary
+    classification.
+
+    """
+    result = scope.setdefault('result', {})
     stats = get_result(train_data[1],
                              test_data[1],
                              np.sign(train_decisions),
@@ -144,36 +220,45 @@ def results_binary_classifier_stats(
                              [-1, 1])
     result.update(stats)
     result['loss'] = float(1 - result['test_accuracy']/100.)
-    return result
+
+    # XXX: get_results puts train_errors, train_predictions, and
+    # test_predicitons into the result dictionary. These can be quite
+    # quite large, should they not be attachments instead?
+    # Or, is the idea that mongod will be doing the queries to find out
+    # which models got the e.g. 10'th test example right?
 
 
 @register()
 def svm_decisions(svm,
                   train_verification_dataset,
                   pre_decisions):
-    raise NotImplementedError()
+    base = pre_decisions
+    inc = svm.decision_function(*train_verification_dataset)
+    return base + inc
 
 
 def screening_program(slm_desc, comparison):
+    image_features = slm_memmap.son(
+                desc=slm_desc,
+                X=get_images.son())
+
     def pairs_dataset(split):
         return pairs_memmap.son(
             pairs=verification_pairs.son(split=split),
-            X=slm_memmap.son(
-                desc=slm_desc,
-                X=get_images.son()),
-            comparison_fn=load_comparison.son(comparison),
+            X=image_features,
+            comparison_name=comparison,
             )
 
     train_verification_dataset = pairs_dataset('DevTrain')
     test_verification_dataset = pairs_dataset('DevTest')
 
-    pre_train_decisions = fetch_train_decisions.son()
-    pre_test_decisions = fetch_test_decisions.son()
+    pre_train_decisions = fetch_decisions.son('DevTrain')
+    pre_test_decisions = fetch_decisions.son('DevTest')
 
-    svm = train_linear_svm_w_margins.son(
+    svm = train_linear_svm_w_decisions.son(
         train_verification_dataset,
         l2_regularization=1e-3,
-        margins = pre_train_decisions,
+        decisions=pre_train_decisions,
         )
 
     post_train_decisions = svm_decisions.son(
@@ -196,6 +281,9 @@ def screening_program(slm_desc, comparison):
             post_train_decisions,
             post_test_decisions,
             ),
+        delete_memmap.son(train_verification_dataset),
+        delete_memmap.son(test_verification_dataset),
+        delete_memmap.son(image_features),
         )
 
     return rval
