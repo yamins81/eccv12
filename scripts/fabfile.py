@@ -11,7 +11,7 @@ env.hosts = []
 env.hosts.append('jbergstra@honeybadger.rowland.org:12122')
 
 def baserun(cmd):
-    return run('source .virtualenv/base/bin/activate; ' + cmd)
+    return run(cmd)
 
 def push_skdata(dataset):
     """
@@ -61,7 +61,6 @@ def setup_python_base():
     Install non-standard python libraries into the virtual env that is set up
     by setup_venv()
     """
-    setup_venv()
     simple_packages = ['pymongo',
             'bson',
             'lockfile',
@@ -74,7 +73,7 @@ def setup_python_base():
         with settings(warn_only=True):
             if baserun('python -c "import %s"' % pkg).failed:
                 with settings(warn_only=False):
-                    baserun('pip install %s' % pkg)
+                    baserun('pip install --user %s' % pkg)
 
     # install ordereddict for genson
     odict_test1 = 'python -c "import collections; collections.OrderedDict"'
@@ -82,7 +81,7 @@ def setup_python_base():
     with settings(warn_only=True):
         if baserun(odict_test1).failed and baserun(odict_test2).failed:
             with settings(warn_only=False):
-                baserun('pip install -vUI ordereddict')
+                baserun('pip install --user -vUI ordereddict')
 
 
 def setup_all():
