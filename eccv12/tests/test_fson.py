@@ -4,6 +4,7 @@ import numpy as np
 from eccv12.fson import fson_print
 from eccv12.fson import fson_eval
 from eccv12.fson import register
+from eccv12.fson import run_all
 
 from eccv12.plugins import fetch_decisions
 from eccv12.plugins import get_images
@@ -64,3 +65,14 @@ def test_eval_0():
     assert 'foo' == fson_eval(thing,
              scope=dict(
                  ctrl=CtrlStub()))
+
+def test_eval_memo():
+    calls = []
+    def _dummy():
+        calls.append(0)
+    _dummy = register()(_dummy)
+
+    aa = _dummy.son()
+    thing = run_all.son(aa, aa)
+    fson_eval(thing)
+    assert len(calls) == 1

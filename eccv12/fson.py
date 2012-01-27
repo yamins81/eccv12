@@ -80,6 +80,11 @@ def fson_eval(node, memo=None, scope=None):
         memo = {}
     if scope is None:
         scope = {}
+    try:
+        return memo[id(node)]
+    except KeyError:
+        pass
+
     if isinstance(node, dict) and '_fn_' in node:
         args = [fson_eval(a, memo, scope) for a in node.get('args', [])]
         kwargs = dict([(k, fson_eval(v, memo, scope))
