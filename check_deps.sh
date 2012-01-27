@@ -1,5 +1,5 @@
 #!/bin/bash
-for DIR in thoreano Theano scikit-data eccv12 hyperopt ; do
+for DIR in thoreano Theano scikit-data eccv12 hyperopt asgd ; do
     pushd ../$DIR
     echo '==========================================================='
     echo $DIR
