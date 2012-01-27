@@ -5,10 +5,9 @@ from eccv12.fson import fson_print
 from eccv12.fson import fson_eval
 from eccv12.fson import register
 
-from eccv12.lfw import fetch_train_decisions
-from eccv12.lfw import fetch_test_decisions
-from eccv12.lfw import lfw_images
-from eccv12.lfw import slm_memmap
+from eccv12.plugins import fetch_decisions
+from eccv12.plugins import get_images
+from eccv12.plugins import slm_memmap
 
 @register()
 def lfw_boosted_experiment(
@@ -16,8 +15,6 @@ def lfw_boosted_experiment(
         train_decisions,
         test_decisions):
     assert img_features.dtype == 'float32'
-    assert len(train_decisions) == 100
-    assert len(test_decisions) == 100
     return 'foo'
 
 
@@ -36,8 +33,8 @@ def test_0():
 
 def test_1():
     thing = lfw_boosted_experiment.son(
-        fetch_train_decisions.son(),
-        fetch_test_decisions.son())
+        fetch_decisions.son('a'),
+        fetch_decisions.son('b'))
     fson_print(thing)
     print thing
 
@@ -46,9 +43,10 @@ def test_2():
     thing = lfw_boosted_experiment.son(
         slm_memmap.son(
             desc={},
-            X=lfw_images.son()),
-        fetch_train_decisions.son(),
-        fetch_test_decisions.son())
+            X=get_images.son()),
+        fetch_decisions.son('DevTrain'),
+        fetch_decisions.son('DevTest'),
+        )
 
     print thing
     fson_print(thing)
@@ -57,10 +55,10 @@ def test_eval_0():
     thing = lfw_boosted_experiment.son(
         slm_memmap.son(
             desc={},
-            X=lfw_images.son(
-                split='DevTrain')),
-        fetch_train_decisions.son(),
-        fetch_test_decisions.son(),
+            X=get_images.son('float32'),
+            name='asdf'),
+        fetch_decisions.son('DevTrain'),
+        fetch_decisions.son('DevTest'),
         )
 
     assert 'foo' == fson_eval(thing,

@@ -12,7 +12,7 @@ import skdata.utils
 import skdata.lfw
 import numpy as np
 from asgd import BinaryASGD
-                          
+
 #from .classifier import train_only_asgd
 from .classifier import get_result
 
@@ -38,7 +38,7 @@ def fetch_decisions(split, scope):
         print >> sys.stderr, "WARNING NOT LOADING ATTACHMENTS"
         dataset = skdata.lfw.Aligned()
         n_examples = len(dataset.raw_verification_task(split)[0])
-        return numpy.zeros(n_examples)
+        return np.zeros(n_examples)
 
 
 @register()
