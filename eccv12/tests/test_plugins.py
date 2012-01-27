@@ -12,6 +12,15 @@ from eccv12.fson import fson_print
 
 
 class CtrlStub(object):
+    if 0:
+        attachment = scope['ctrl'].attachment
+        return cPickle.loads(ctrl.get_attachment(attachment))
+    elif 0:
+        # XXX
+        print >> sys.stderr, "WARNING NOT LOADING ATTACHMENTS"
+        dataset = skdata.lfw.Aligned()
+        n_examples = len(dataset.raw_verification_task(split)[0])
+        return numpy.zeros(n_examples)
     def get_attachment(self, name):
         if name == 'train_decisions':
             return cPickle.dumps(np.zeros(100)) # XXX: return right number

@@ -29,16 +29,9 @@ def fetch_decisions(split, scope):
     Load the accumulated decisions of models selected for the ensemble,
     for the verification examples of the given split.
     """
-    if 0:
-        ctrl = scope['ctrl']
-        attachment = 'decisions_%s' % split
-        return cPickle.loads(ctrl.get_attachment(attachment))
-    else:
-        # XXX
-        print >> sys.stderr, "WARNING NOT LOADING ATTACHMENTS"
-        dataset = skdata.lfw.Aligned()
-        n_examples = len(dataset.raw_verification_task(split)[0])
-        return numpy.zeros(n_examples)
+    key = 'decisions_%s' % split
+    attachment = scope['ctrl'].attachments[key]
+    return attachment
 
 
 @register()
