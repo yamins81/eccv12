@@ -11,7 +11,7 @@ env.hosts = []
 env.hosts.append('jbergstra@honeybadger.rowland.org:12122')
 
 def baserun(cmd):
-    return run('source .virtualenv/base/bin/activate; ' + cmd)
+    return run(cmd)
 
 def push_skdata(dataset):
     """
@@ -23,49 +23,23 @@ def push_skdata(dataset):
             local_dir="~/.skdata/%s" % dataset,)
 
 
-def get_rgit_branch(root):
-    with cd(root):
-        for line in run("git branch").split('\n'):
-            if '*' in line:
-                return line.split()[1]
+def get_rgit_branch():
+    for line in run("git branch").split('\n'):
+        if '*' in line:
+            return line.split()[1]
 
 
-def rgit_pull(name, gitsrc, add_pythonpath, branch=None):
-    """
-    Pull or clone the given branch of gitsrc into ~/cvs/`name`.
-    """
-    CVS = "~/cvs"  # don't expand locally
-    TARGET = os.path.join(CVS, name)
-    clone = True
-    with settings(warn_only=True):
-        if run("test -d %s" % TARGET).succeeded:
-            clone = False
-    if clone:
-        run('mkdir -p %s' % CVS)
-        with cd(CVS):
-            run("git clone %(gitsrc)s %(name)s" % locals())
-            if branch is not None and branch != get_rgit_branch(name):
-                with cd(name):
-                    run("git checkout -b %(branch)s origin/%(branch)s"
-                            % locals())
-
-        if add_pythonpath:
-            PYTHONPATH = os.path.join(CVS, 'PYTHONPATH')
-            run('mkdir -p %s' % PYTHONPATH)
-            run('ln -s %s %s' % (
-                os.path.join(TARGET, add_pythonpath),
-                os.path.join(PYTHONPATH, add_pythonpath)))
-    else:
-        with cd(TARGET):
-            run("git pull")
-
-
-def rgit_pull_all():
+def rgit_pull(name=None):
     """
     Retrieve all of the development code used by the cvpr/eccv experiment.
     """
-    for r in _git_repo.repos:
-        rgit_pull(**r)
+    if name is None:
+        for r in _git_repo.repos:
+            _rgit_pull(**r)
+    else:
+        for r in _git_repo.repos:
+            if r['name'] == name:
+                _rgit_pull(**r)
 
 
 def install_dotfiles():
@@ -87,8 +61,8 @@ def setup_python_base():
     Install non-standard python libraries into the virtual env that is set up
     by setup_venv()
     """
-    setup_venv()
-    simple_packages = ['bson',
+    simple_packages = ['pymongo',
+            'bson',
             'lockfile',
             'pyparsing',
             'codepy',
@@ -99,7 +73,7 @@ def setup_python_base():
         with settings(warn_only=True):
             if baserun('python -c "import %s"' % pkg).failed:
                 with settings(warn_only=False):
-                    baserun('pip install %s' % pkg)
+                    baserun('pip install --user %s' % pkg)
 
     # install ordereddict for genson
     odict_test1 = 'python -c "import collections; collections.OrderedDict"'
@@ -107,7 +81,7 @@ def setup_python_base():
     with settings(warn_only=True):
         if baserun(odict_test1).failed and baserun(odict_test2).failed:
             with settings(warn_only=False):
-                baserun('pip install -vUI ordereddict')
+                baserun('pip install --user -vUI ordereddict')
 
 
 def setup_all():
@@ -127,6 +101,38 @@ def add_cvs_to_PYTHONPATH():
 
 #####################################################################
 #####################################################################
+
+def _rgit_pull(name, gitsrc, add_pythonpath, branch=None):
+    """
+    Pull or clone the given branch of gitsrc into ~/cvs/`name`.
+    """
+    CVS = "~/cvs"  # don't expand locally
+    clone = True
+    join = os.path.join
+    with settings(warn_only=True):
+        if run("test -d %s" % join(CVS, name)).succeeded:
+            clone = False
+    if clone:
+        run('mkdir -p %s' % CVS)
+        with cd(CVS):
+            run("git clone %(gitsrc)s %(name)s" % locals())
+    else:
+        with cd(join(CVS, name)):
+            run("git pull")
+
+    with cd(join(CVS, name)):
+        if branch is not None and branch != get_rgit_branch():
+            run("pwd")
+            run("git checkout -b %(branch)s origin/%(branch)s" % locals())
+
+    PYTHONPATH = join(CVS, 'PYTHONPATH')
+    if add_pythonpath:
+        run('mkdir -p %s' % PYTHONPATH)
+        run('rm -f %s' % join(PYTHONPATH, add_pythonpath))
+        run('ln -s %s %s' % (
+            join(CVS, name, add_pythonpath),
+            join(PYTHONPATH, add_pythonpath)))
+
 
 
 def _git_repo(name, gitsrc, add_pythonpath=None, branch=None):
@@ -172,6 +178,10 @@ _git_repo('genson',
         branch='feature/hyperopt')
 
 
+_git_repo('thoreano',
+        'git@github.com:jaberg/thoreano.git')
+
+
 _git_repo('pythor3',
         'git@github.com:nsf-ri-ubicv/pythor3.git',
         branch='develop')
@@ -186,3 +196,7 @@ _git_repo('fbconv3-gcg',
 _git_repo('dotfiles',
     'git@github.com:jaberg/dotfiles.git',
     add_pythonpath="")
+
+
+_git_repo('hyperopt_cvpr2012', 'git@github.com:jaberg/hyperopt_cvpr2012.git',
+        add_pythonpath='')
