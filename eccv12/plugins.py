@@ -12,6 +12,7 @@ import skdata.utils
 import skdata.lfw
 import numpy as np
 from asgd import NaiveBinaryASGD as BinaryASGD
+#from asgd.theano_asgd import TheanoBinaryASGD as BinaryASGD
 # XXX: force TheanoBinaryASGD to use cpu shared vars
 #      then use it here, with feature-extraction on GPU
 
@@ -28,24 +29,15 @@ import model_params
 import comparisons
 from .utils import ImgLoaderResizer
 
+from bandits import BaseBandit
+
 @register(call_w_scope=True)
 def fetch_decisions(split, scope):
     """
     Load the accumulated decisions of models selected for the ensemble,
     for the verification examples of the given split.
     """
-    key = 'decisions_%s' % split
-    try:
-        attachment = scope['ctrl'].attachments[key]
-        rval = cPickle.loads(attachment)
-    except Exception, e:
-        # XXX DEFINITELY FIX THIS!!!
-        print >> sys.stderr, e
-        if split=='DevTrain':
-            return np.zeros(2200)
-        else:
-            return np.zeros(1000)
-    return rval
+    return scope['decisions'][split]
 
 
 @register()
@@ -237,6 +229,8 @@ def results_binary_classifier_stats(
                              [-1, 1])
     result.update(stats)
     result['loss'] = float(1 - result['test_accuracy']/100.)
+    result['train_decisions'] = list(train_decisions)
+    result['test_decisions'] = list(test_decisions)
 
     # XXX: get_results puts train_errors, train_predictions, and
     # test_predicitons into the result dictionary. These can be quite
@@ -299,8 +293,6 @@ def screening_program(slm_desc, comparison, namebase):
 
     rval = run_all.son(
         attach_svmasgd.son(svm, 'svm_asgd'),
-        attach_object.son(post_train_decisions, 'post_train_decisions'),
-        attach_object.son(post_test_decisions, 'post_test_decisions'),
         results_binary_classifier_stats.son(
             train_verification_dataset,
             test_verification_dataset,
@@ -313,22 +305,34 @@ def screening_program(slm_desc, comparison, namebase):
         )
     return locals()
 
-class Bandit(GensonBandit):
-    def __init__(self):
-        template = dict(
+
+class Bandit(BaseBandit):
+    param_gen = dict(
             slm=model_params.fg11_desc,
             comparison='mult',
             )
-        GensonBandit.__init__(self,
-            source_string=genson_helpers.string(template))
-
     def evaluate(self, config, ctrl):
         prog = screening_program(
                 slm_desc=config['slm'],
                 comparison=config['comparison'],
                 namebase='memmap_')['rval']
 
-        scope = dict(ctrl=ctrl)
+        scope = dict(
+                ctrl=ctrl,
+                decisions={},
+                )
+        # XXX: hard-codes self.train_decisions to be DevTrain - what happens
+        # in view 2?
+        if self.train_decisions is None:
+            scope['decisions']['DevTrain'] = np.zeros(2200)
+        else:
+            scope['decisions']['DevTrain'] = self.train_decisions
+
+        if self.test_decisions is None:
+            scope['decisions']['DevTest'] = np.zeros(1000)
+        else:
+            scope['decision']['DevTest'] = self.test_decisions
+
         fson_eval(prog, scope=scope)
         print scope
         return scope['result']

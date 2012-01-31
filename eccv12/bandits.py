@@ -11,7 +11,7 @@ import model_params
 
 
 class BaseBandit(gb.GensonBandit):
-    param_gen = model_params.l3_params 
+    # Required: self.param_gen
 
     def __init__(self,
             train_decisions=None,
@@ -50,7 +50,11 @@ class LFWBase(object):
                                    train_decisions,
                                    test_decisions,
                                    config['comparison'])
-    
-    
+
+
 class LFWBandit(BaseBandit, LFWBase):
+    pass
+
+
+class BoostableIris(BaseBandit):
     pass
