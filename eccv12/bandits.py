@@ -13,28 +13,31 @@ import model_params
 class BaseBandit(gb.GensonBandit):
     param_gen = model_params.l3_params 
 
-    def __init__(self, train_decisions, test_decisions, attach_weights):
+    def __init__(self,
+            train_decisions=None,
+            test_decisions=None,
+            attach_weights=False):
         super(BaseBandit, self).__init__(source_string=gh.string(self.param_gen))
         self.train_decisions = train_decisions
         self.test_decisions = test_decisions
         self.attach_weights = attach_weights
 
     def evaluate(self, config, ctrl):
-        result = self.performance_func(config, 
+        result = self.performance_func(config,
                                        self.train_decisions,
                                        self.test_decisions)
         assert 'train_decisions' in result
         assert 'test_decisions' in result
-        
+
         if self.attach_weights:
             model_data = {'weights': result.pop('weights'),
-                          'bias': result.pop('bias')}                   
+                          'bias': result.pop('bias')}
             model_blob = cPickle.dumps(model_data)
             ctrl.set_attachment(model_blob, 'model_data')
-            
+
         return result
 
-    
+
 class LFWBase(object):
     """
     config is a dictionary with keys:
