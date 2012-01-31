@@ -95,7 +95,7 @@ class BoostedMongoExperiment(hyperopt.base.Experiment):
                                               self.test_decisions),
                                  bandit_kwargs={'attach_weights': True},
                                  workdir=self.workdir,
-                                 mongo_opts=mongo_opts)  
+                                 mongo_opts=mongo_opts)
             self.experiments.append(exp)
             exp.run(opt_runs, block_until_done=True)
             self.trial_rounds.append(exp.trials)
@@ -111,8 +111,8 @@ class BoostedMongoExperiment(hyperopt.base.Experiment):
             self.train_decisions = np.array(exp.results[selected_ind]['train_decisions'])
             self.test_decisions = np.array(exp.results[selected_ind]['test_decisions'])
             self.boost_round += 1
-            
-         
+
+
 def init_mongo_exp(algo_name,
                    bandit_name,
                    bandit_argv=(),
@@ -186,3 +186,4 @@ def init_mongo_exp(algo_name,
                                             bandit_kwargs)
 
     return experiment
+
