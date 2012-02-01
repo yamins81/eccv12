@@ -190,7 +190,7 @@ def attach_svmasgd(svm, name, scope):
 
 
 @register(call_w_scope=True)
-def save_boosting_results(
+def save_boosting_result(
         svm,
         train_data,
         test_data,
@@ -210,7 +210,7 @@ def save_boosting_results(
             scope)
 
 @register(call_w_scope=True)
-def results_binary_classifier_stats(
+def result_binary_classifier_stats(
         train_data, 
         test_data,
         train_decisions,
@@ -234,12 +234,6 @@ def results_binary_classifier_stats(
     result['loss'] = float(1 - result['test_accuracy']/100.)
     result['train_decisions'] = list(train_decisions)
     result['test_decisions'] = list(test_decisions)
-
-    # XXX: get_results puts train_errors, train_predictions, and
-    # test_predicitons into the result dictionary. These can be quite
-    # quite large, should they not be attachments instead?
-    # Or, is the idea that mongod will be doing the queries to find out
-    # which models got the e.g. 10'th test example right?
 
 
 @register()
@@ -296,7 +290,7 @@ def screening_program(slm_desc, comparison, namebase):
 
     rval = run_all.son(
         attach_svmasgd.son(svm, 'svm_asgd'),
-        results_binary_classifier_stats.son(
+        result_binary_classifier_stats.son(
             train_verification_dataset,
             test_verification_dataset,
             post_train_decisions,
