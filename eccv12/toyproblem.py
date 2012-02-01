@@ -18,13 +18,14 @@ from .plugins import register
 
 
 @register()
-def digits_xy():
+def digits_xy(n_splits=5):
     """
     Turn digits to binary classification: 0-4 vs. 5-9
     """
     X, y = Digits().classification_task()
     y = (y < 5) * 2 - 1 # -- convert to +-1
-    return X, y
+    n_usable = (len(y) // n_splits) * n_splits
+    return X[:n_usable], y[:n_usable]
 
 
 @register(call_w_scope=True)
@@ -105,23 +106,28 @@ class BoostableDigits(BaseBandit):
             )
 
     def evaluate(self, config, ctrl):
-        X, y = Xy = digits_xy()
-        print len(y)
+        n_splits = 5
 
-        split_decisions = getattr(self, 'split_decisions', None)
-        if split_decisions is None:
-            split_decisions = [np.zeros_like(y) for ii in range(5)]
+        X, y = Xy = digits_xy(n_splits)
+
+        if self.split_decisions is None:
+            split_decisions = [np.zeros(len(y), dtype=X.dtype) for ii in range(n_splits)]
+        else:
+            split_decisions = self.split_decisions
+
+        new_decisions = np.zeros_like(split_decisions)
+
         scope=dict(
                 ctrl=ctrl,
                 result={'split':[]},
                 )
 
-        for split_idx in range(5):
+        for split_idx in range(n_splits):
             split_result = {}
             decisions = np.asarray(split_decisions[split_idx])
             scope['decisions'] = decisions
 
-            train_test_idxs = digits_split(split_idx, (len(y) // 5) * 5)
+            train_test_idxs = digits_split(split_idx, len(y))
             train_test = Xy_split(Xy, decisions, train_test_idxs)
             train_test_norm = normalize_Xcols(train_test)
             train_test_feat = features(config, train_test_norm)
@@ -155,17 +161,20 @@ class BoostableDigits(BaseBandit):
 
             attach_svmasgd(svm, 'svm', scope=dict(ctrl=ctrl))
 
+            # -- update result
             split_result['test_idxs'] = list(train_test_idxs[1])
             split_result['new_d_train'] = list(new_d_train)
             split_result['new_d_test'] = list(new_d_test)
             scope['result']['split'].append(split_result)
 
-        decisions = np.zeros((5, len(y)))
-        for ii, rr in enumerate(scope['result']['split']):
-            train_idxs, test_idxs = digits_split(ii, (len(y) // 5) * 5)
-            decisions[ii][train_idxs] = rr['new_d_train']
-            decisions[ii][test_idxs] = rr['new_d_test']
-        scope['result']['decisions'] = [list(dd) for dd in decisions]
+            # -- update new_decisions
+            train_idxs, test_idxs = train_test_idxs
+            new_decisions[split_idx][train_idxs] = new_d_train
+            new_decisions[split_idx][test_idxs] = new_d_test
+
+        scope['result']['decisions'] = [list(dd) for dd in new_decisions]
+        scope['result']['loss'] = np.mean([rr['loss'] for rr in
+            scope['result']['split']])
         return scope['result']
 
 
@@ -175,7 +184,12 @@ def test_replicable():
             n_features=5,
             scale=2.2)
     ctrls = [Ctrl() for ii in range(3)]
-    r0, r1, r2 = [BoostableDigits().evaluate(config, ctrl) for ctrl in ctrls]
+
+    def foo(ctrl):
+        BI = BoostableDigits()
+        BI.split_decisions = None
+        return BI.evaluate(config, ctrl)
+    r0, r1, r2 = map(foo, ctrls)
 
     for f in [
             lambda r: r['split'][0]['train_prediction'],
@@ -193,41 +207,33 @@ def test_replicable():
     assert r0 == r1
 
 
-def test_indexing():
+def test_for_smoke():
     BI = BoostableDigits()
+    BI.split_decisions = None
     result = BI.evaluate(
             config=dict(
                 seed=1,
                 n_features=5,
                 scale=2.2),
             ctrl=Ctrl())
-    decisions = result['decisions']
 
-    for rr in result['split']:
-        print rr.keys()
-        ti0, ti1 = rr['test_idxs'][:2]
-        td0, td1 = rr['new_d_test'][:2]
-        ti2, ti3 = rr['test_idxs'][-2:]
-        td2, td3 = rr['new_d_test'][-2:]
-
-        assert decisions[ti0] == td0
-        assert decisions[ti1] == td1
-        assert decisions[ti2] == td2
-        assert decisions[ti3] == td3
-
+    assert 'loss' in result
+    assert 'decisions' in result
 
 
 def test_decisions_do_something():
     config=dict(seed=1, n_features=5, scale=2.2)
+    X, y = digits_xy()
 
     ctrl0 = Ctrl()
     ctrl1 = Ctrl()
 
     B0 = BoostableDigits()
+    B0.split_decisions = None
     r0 = B0.evaluate(config, ctrl0)
 
     B1 = BoostableDigits()
-    B1.decisions = np.random.RandomState(32).randn(150)
+    B1.split_decisions = np.random.RandomState(32).randn(5, len(y))
     r1 = B1.evaluate(config, ctrl1)
 
     # contrast test_replicable where they come out the same
@@ -236,23 +242,40 @@ def test_decisions_do_something():
     assert not np.allclose(svm0['weights'], svm1['weights'])
 
 
-def test_overfitting():
-    for log_n_features in range(7, 13):
+def test_boosting_margin_goes_down():
+    X, y = digits_xy()
+    n_rounds = 8
+    n_features_per_round = 16
+    split_decisions = None
+    margins = []
+    for round_ii in range(n_rounds):
         BI = BoostableDigits()
+        BI.split_decisions = split_decisions
         result = BI.evaluate(
                 config=dict(
-                    seed=1,
-                    n_features=2 ** log_n_features,
+                    seed=round_ii,
+                    n_features=n_features_per_round,
                     scale=2.2),
                 ctrl=Ctrl())
+        split_decisions = np.asarray(result['decisions'])
+        assert len(split_decisions) == 5
+        assert split_decisions.ndim == 2
+        print 'mean abs decisions', abs(split_decisions).mean(),
+        margins.append(1 - np.minimum(split_decisions * y, 1).mean())
         for key in 'train_accuracy', 'test_accuracy':
-            print 2 ** log_n_features, key,
-            print np.mean([r[key] for r in result['split']])
+            print key, np.mean([r[key] for r in result['split']]),
+        print ''
+    print margins
+    print list(reversed(margins))
+    print list(sorted(margins))
+    assert list(reversed(margins)) == list(sorted(margins))
 
     # XXX: assert something ... what does this prove?
 
 
 def test_boosting_for_smoke():
+    X, y = digits_xy()
+    print len(y)
 
     n_rounds = 16
     n_features_per_round = 16
@@ -260,46 +283,68 @@ def test_boosting_for_smoke():
     # -- train jointly
     print 'Training jointly'
     BI = BoostableDigits()
+    BI.split_decisions = None
     result = BI.evaluate(
             config=dict(
                 seed=1,
                 n_features=n_rounds * n_features_per_round,
                 scale=2.2),
             ctrl=Ctrl())
-    for key in 'train_accuracy', 'test_accuracy':
-        print key, np.mean([r[key] for r in result['split']])
+    decisions = np.asarray(result['decisions'])
+    print decisions.shape
+    print 'mean abs decisions', abs(decisions).mean(),
+    print 'mean margins', 1 - np.minimum(decisions * y, 1).mean(),
+    tr_acc = np.mean([r['train_accuracy'] for r in result['split']])
+    te_acc = np.mean([r['test_accuracy'] for r in result['split']])
+    print 'train_accuracy', tr_acc,
+    print 'test_accuracy', te_acc,
+    print ''
 
     # -- train just one
     print 'Training one round'
     BI = BoostableDigits()
+    BI.split_decisions = None
     result = BI.evaluate(
             config=dict(
                 seed=1,
                 n_features=n_features_per_round,
                 scale=2.2),
             ctrl=Ctrl())
-    for key in 'train_accuracy', 'test_accuracy':
-        print key, np.mean([r[key] for r in result['split']])
+    decisions = np.asarray(result['decisions'])
+    print 'mean abs decisions', abs(decisions).mean(),
+    print 'mean margins', 1 - np.minimum(decisions * y, 1).mean(),
+    one_tr_acc = np.mean([r['train_accuracy'] for r in result['split']])
+    one_te_acc = np.mean([r['test_accuracy'] for r in result['split']])
+    print 'train_accuracy', one_tr_acc,
+    print 'test_accuracy', one_te_acc,
+    print ''
 
     # -- train in rounds
     print 'Training in rounds'
-    decisions = None
+    split_decisions = None
     for round_ii in range(n_rounds):
         BI = BoostableDigits()
-        BI.decisions = decisions
+        BI.split_decisions = split_decisions
         result = BI.evaluate(
                 config=dict(
                     seed=round_ii,
                     n_features=n_features_per_round,
                     scale=2.2),
                 ctrl=Ctrl())
-        if decisions is None:
-            decisions = np.asarray(result['decisions'])
-        else:
-            decisions += result['decisions']
-        assert len(decisions) == 5
-        assert decisions.ndim == 2
-        print 'abs decisions', abs(decisions).mean()
-        for key in 'train_accuracy', 'test_accuracy':
-            print key, np.mean([r[key] for r in result['split']])
+        split_decisions = np.asarray(result['decisions'])
+        assert len(split_decisions) == 5
+        assert split_decisions.ndim == 2
+        print 'mean abs decisions', abs(split_decisions).mean(),
+        print 'mean margins', 1 - np.minimum(split_decisions * y, 1).mean(),
+        round_tr_acc = np.mean([r['train_accuracy'] for r in result['split']])
+        round_te_acc = np.mean([r['test_accuracy'] for r in result['split']])
+        print 'train_accuracy', round_tr_acc,
+        print 'test_accuracy', round_te_acc,
+        print ''
+
+    # assert that round-training and joint training are both way better than
+    # training just one
+    assert tr_acc > 90
+    assert round_tr_acc > 90
+    assert one_tr_acc < 70
 
