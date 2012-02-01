@@ -55,6 +55,3 @@ class LFWBase(object):
 class LFWBandit(BaseBandit, LFWBase):
     pass
 
-
-class BoostableIris(BaseBandit):
-    pass
