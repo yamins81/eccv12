@@ -11,11 +11,7 @@ from skdata import larray
 import skdata.utils
 import skdata.lfw
 import numpy as np
-from asgd import NaiveBinaryASGD as BinaryASGD
-from asgd.auto_step_size import binary_fit
-#from asgd.theano_asgd import TheanoBinaryASGD as BinaryASGD
-# XXX: force TheanoBinaryASGD to use cpu shared vars
-#      then use it here, with feature-extraction on GPU
+from .margin_asgd import MarginBinaryASGD, binary_fit
 
 from hyperopt import genson_helpers
 from hyperopt import GensonBandit
@@ -164,17 +160,12 @@ def train_linear_svm_w_decisions(train_data, l2_regularization, decisions):
     if train_X.ndim != 2:
         raise ValueError('train_X must be matrix')
     assert len(train_X) == len(train_y) == len(decisions)
-    print "INFO: training binary classifier..."
-    svm = BinaryASGD(
+    svm = MarginBinaryASGD(
         n_features=train_X.shape[1],
         l2_regularization=l2_regularization,
         dtype=train_X.dtype,
         rstate=np.random.RandomState(123))
-    binary_fit(svm, train_X, train_y)
-    svm.fit(train_X, train_y)
-    print "INFO: fitting done!"
-    # XXX
-    print >> sys.stderr, "WARNING: IGNORING DECISIONS!"
+    binary_fit(svm, (train_X, train_y, np.asarray(decisions)))
     return svm
 
 
@@ -211,7 +202,7 @@ def save_boosting_result(
 
 @register(call_w_scope=True)
 def result_binary_classifier_stats(
-        train_data, 
+        train_data,
         test_data,
         train_decisions,
         test_decisions,
