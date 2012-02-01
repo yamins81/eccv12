@@ -16,7 +16,7 @@ from eccv12.plugins import (slm_memmap,
 
 class BestVsSavedKernels(unittest.TestCase): 
     namebase = 'test'
-    test_pair_inds = [0, 1]
+    test_pair_inds = range(2200)
     comparison = 'mult'
     #XXX: get this file from the S3 account (use boto?)
     matfile = 'lfw_view1.csv.kernel.ht1_1_l3__150fd767e9d5d6822e414b6ae20d7da6ce9469fa_gray_gray.mul.mat'
@@ -76,6 +76,7 @@ class BestVsSavedKernels(unittest.TestCase):
         
         dataset = skdata.lfw.Aligned()
         train_fnames_0, train_fnames_1, train_labels = dataset.raw_verification_task(split='DevTrain')
+        train_labels = 2*train_labels - 1
         train_fnames_0 = ['/'.join(_f.split('/')[-2:]) for _f in map(str, train_fnames_0)]
         train_fnames_1 = ['/'.join(_f.split('/')[-2:]) for _f in map(str, train_fnames_1)]
         fnames, _l = dataset.raw_classification_task()
@@ -87,7 +88,8 @@ class BestVsSavedKernels(unittest.TestCase):
             assert train_fnames_1[_ind] == x_train_fnames_1[_ind]
             assert fnames[pairs[0][_ind]] == train_fnames_0[_ind] 
             assert fnames[pairs[1][_ind]] == train_fnames_1[_ind] 
-            assert pairs[2][_ind] == train_labels[_ind] == x_train_labels[_ind]
+            assert pairs[2][_ind] == train_labels[_ind], str((pairs[2][_ind], train_labels[_ind]))
+            assert pairs[2][_ind] == x_train_labels[_ind], str((pairs[2][_ind], x_train_labels[_ind]))
             
         pairs = (pairs[0][all_test_pair_inds],
                  pairs[1][all_test_pair_inds],
@@ -107,22 +109,30 @@ class BestVsSavedKernels(unittest.TestCase):
 
         
         pair_features = np.asarray(pf_cache)
-        delete_memmap(image_features)
-        pairs_cleanup((pf_cache, None))
+        ##delete_memmap(image_features)
+        #pairs_cleanup((pf_cache, None))
         
         assert (pairs[2] == matches).all()
         
         #XXX: normalize the pair_features here in some way? do we have to compute
         #all the features?
+        def normalize(_f):
+            _f = _f - _f.mean(0)
+            fstd = _f.std(0)
+            fstd[fstd == 0] = 1
+            _f = _f / fstd
+            return _f
+            
+        pair_features = normalize(pair_features)
         kern = np.dot(pair_features, pair_features.T)
         
-        absdiff = abs(kern - x_kern)
-        absdiffmax = absdiff.max()
+        normdiff = np.abs((kern - x_kern) / x_kern)
+        normdiffmax = normdiff.max()
     
-        if absdiffmax > .001:
+        if normdiffmax > .1:
             print 'kern', kern
             print 'x_kern', x_kern
-            assert 0, ('too much error: %s' % absdiffmax)
+            assert 0, ('too much error: %s' % normdiffmax)
             
 
         
