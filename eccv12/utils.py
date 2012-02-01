@@ -1,5 +1,5 @@
 import numpy as np
-from PIL import Image
+import Image
 
 
 class ImgLoaderResizer(object):
