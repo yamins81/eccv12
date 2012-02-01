@@ -1,0 +1,14 @@
+#!/bin/bash
+
+DIRS="thoreano Theano scikit-data eccv12 hyperopt asgd genson"
+
+for DIR in $DIRS; do
+
+    echo ''
+    echo '==========================================================='
+    echo $DIR
+    echo '==========================================================='
+    pushd ../$DIR > /dev/null
+    git $1
+    popd > /dev/null
+done
