@@ -9,6 +9,6 @@ for DIR in $DIRS; do
     echo $DIR
     echo '==========================================================='
     pushd ../$DIR > /dev/null
-    git $1
+    git $@
     popd > /dev/null
 done
