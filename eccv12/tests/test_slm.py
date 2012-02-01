@@ -99,7 +99,7 @@ class BestVsSavedKernels(unittest.TestCase):
         image_features = slm_memmap(self.desc,
                                     get_images('float32'),
                                     namebase + '_img_feat')
-              
+        #print np.asarray(image_features[:4])
         pf_cache, matches = pairs_memmap(pairs,
                                               image_features,
                                               comparison_name=self.comparison,
@@ -112,6 +112,8 @@ class BestVsSavedKernels(unittest.TestCase):
         
         assert (pairs[2] == matches).all()
         
+        #XXX: normalize the pair_features here in some way? do we have to compute
+        #all the features?
         kern = np.dot(pair_features, pair_features.T)
         
         absdiff = abs(kern - x_kern)
