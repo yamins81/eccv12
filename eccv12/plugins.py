@@ -12,6 +12,7 @@ import skdata.utils
 import skdata.lfw
 import numpy as np
 from asgd import NaiveBinaryASGD as BinaryASGD
+from asgd.auto_step_size import binary_fit
 #from asgd.theano_asgd import TheanoBinaryASGD as BinaryASGD
 # XXX: force TheanoBinaryASGD to use cpu shared vars
 #      then use it here, with feature-extraction on GPU
@@ -167,7 +168,9 @@ def train_linear_svm_w_decisions(train_data, l2_regularization, decisions):
     svm = BinaryASGD(
         n_features=train_X.shape[1],
         l2_regularization=l2_regularization,
-        dtype=train_X.dtype)
+        dtype=train_X.dtype,
+        rstate=np.random.RandomState(123))
+    binary_fit(svm, train_X, train_y)
     svm.fit(train_X, train_y)
     print "INFO: fitting done!"
     # XXX
