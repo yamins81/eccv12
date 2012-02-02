@@ -42,19 +42,26 @@ def fetch_decisions(split, scope):
 
 
 @register()
-def get_images(dtype='uint8'):
+def get_images(dtype='uint8', preproc=None):
     """
     Return a lazy array whose elements are all the images in lfw.
 
     XXX: Should the images really be returned in greyscale?
 
     """
+    if preproc is None:
+        preproc = {'global_normalize': True}
+    else:
+        assert 'global_normalize' in preproc
+        
     all_paths = skdata.lfw.Aligned().raw_classification_task()[0]
     rval = larray.lmap(
                 ImgLoaderResizer(
                     shape=(200, 200),  # lfw-specific
-                    dtype=dtype),
+                    dtype=dtype,
+                    normalize=preproc['global_normalize']),
                 all_paths)
+                
     return rval
 
 
@@ -245,10 +252,10 @@ def svm_decisions(svm,
     return base + inc
 
 
-def screening_program(slm_desc, comparison, namebase):
+def screening_program(slm_desc, comparison, preproc, namebase):
     image_features = slm_memmap.son(
                 desc=slm_desc,
-                X=get_images.son('float32'),
+                X=get_images.son(dtype='float32',preproc=preproc),
                 name=namebase + '_img_feat')
     #XXX: check that float32 images lead to correct features
 
@@ -312,6 +319,7 @@ class Bandit(BaseBandit):
         prog = screening_program(
                 slm_desc=config['slm'],
                 comparison=config['comparison'],
+                preproc=config.get('preproc'),
                 namebase='memmap_')['rval']
 
         scope = dict(
