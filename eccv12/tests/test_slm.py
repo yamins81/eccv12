@@ -64,6 +64,7 @@ class BestVsSavedKernels(unittest.TestCase):
                                      'stretch': 10,
                                      'threshold': 1}})]]
 
+
     def test(self):
                                             
         all_test_pair_inds = self.test_pair_inds
@@ -109,8 +110,8 @@ class BestVsSavedKernels(unittest.TestCase):
 
         
         pair_features = np.asarray(pf_cache)
-        ##delete_memmap(image_features)
-        #pairs_cleanup((pf_cache, None))
+        delete_memmap(image_features)
+        pairs_cleanup((pf_cache, None))
         
         assert (pairs[2] == matches).all()
         
@@ -134,6 +135,25 @@ class BestVsSavedKernels(unittest.TestCase):
             print 'x_kern', x_kern
             assert 0, ('too much error: %s' % normdiffmax)
             
+    def test_cook(self):
+        namebase = self.namebase
+        print 0
+        image_features = slm_memmap(self.desc,
+                            get_images('float32'),
+                            namebase + '_img_feat')              
+        print 1
+        computed_f = np.asarray(image_features[0])
+        print 2
+        x = scipy.io.loadmat('AJ_Cook_0001.jpg.ht1_1_l3__150fd767e9d5d6822e414b6ae20d7da6ce9469fa_gray.mat')
+        print 3
+        stored_f = x['data'].reshape((10, 10, 256))
+        print 4
+        absdiff = np.abs(computed_f - stored_f)
+        absdiffmax = absdiff.max()
+        if absdiffmax > .001:
+            print computed_f[:, :, 0]
+            print stored_f[:, :, 0]
+            assert 0, ('too much error: %s' % absdiffmax)        
 
         
                 
