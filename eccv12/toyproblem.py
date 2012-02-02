@@ -163,8 +163,6 @@ class BoostableDigits(BaseBandit):
 
             # -- update result
             split_result['test_idxs'] = list(train_test_idxs[1])
-            split_result['new_d_train'] = list(new_d_train)
-            split_result['new_d_test'] = list(new_d_test)
             scope['result']['split'].append(split_result)
 
             # -- update new_decisions
@@ -173,9 +171,35 @@ class BoostableDigits(BaseBandit):
             new_decisions[split_idx][test_idxs] = new_d_test
 
         scope['result']['decisions'] = [list(dd) for dd in new_decisions]
-        scope['result']['loss'] = np.mean([rr['loss'] for rr in
-            scope['result']['split']])
+        def rr_loss(rr):
+            rr['loss']
+        def test_margin_mean(rr):
+            labels = y[rr['test_idxs']]
+            margin = np.asarray(rr['test_decisions']) * labels
+            return 1 - np.minimum(margin, 1).mean()
+        # XXX: is it right to return test margin mean?
+        loss_fn = test_margin_mean
+        scope['result']['loss'] = np.mean([loss_fn(rr)
+            for rr in scope['result']['split']])
         return scope['result']
+
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+
+def test_for_smoke():
+    BI = BoostableDigits()
+    BI.split_decisions = None
+    result = BI.evaluate(
+            config=dict(
+                seed=1,
+                n_features=5,
+                scale=2.2),
+            ctrl=Ctrl())
+
+    assert 'loss' in result
+    assert 'decisions' in result
 
 
 def test_replicable():
@@ -205,20 +229,6 @@ def test_replicable():
     assert np.allclose(svm0['weights'], svm1['weights'])
 
     assert r0 == r1
-
-
-def test_for_smoke():
-    BI = BoostableDigits()
-    BI.split_decisions = None
-    result = BI.evaluate(
-            config=dict(
-                seed=1,
-                n_features=5,
-                scale=2.2),
-            ctrl=Ctrl())
-
-    assert 'loss' in result
-    assert 'decisions' in result
 
 
 def test_decisions_do_something():
@@ -269,8 +279,6 @@ def test_boosting_margin_goes_down():
     print list(reversed(margins))
     print list(sorted(margins))
     assert list(reversed(margins)) == list(sorted(margins))
-
-    # XXX: assert something ... what does this prove?
 
 
 def test_boosting_for_smoke():
@@ -347,4 +355,71 @@ def test_boosting_for_smoke():
     assert tr_acc > 90
     assert round_tr_acc > 90
     assert one_tr_acc < 70
+
+
+def test_random_search_boosting():
+    X, y = digits_xy()
+    print len(y)
+
+    def foo(n_candidates):
+
+        n_rounds = 16
+        rstate = np.random.RandomState(123)  # for sampling configs
+
+        # On every round of boosting,
+        # draw some candidates, and select the best among them to join the
+        # ensemble.
+
+        selected = []
+        for round_ii in range(n_rounds):
+            print 'ROUND', round_ii
+            candidates = []
+            for candidate_ii in range(n_candidates):
+                print ' CANDIDATE', candidate_ii
+                BI = BoostableDigits()
+                if selected:
+                    BI.split_decisions = selected[-1]['decisions']
+                else:
+                    BI.split_decisions = None
+                result = BI.evaluate(
+                        config=dict(
+                            seed=int(rstate.randint(2**31)),
+                            n_features=int(rstate.randint(2, 32)),
+                            scale=float(np.exp(rstate.randn())),
+                            ),
+                        ctrl=Ctrl())
+                print '  loss', result['loss']
+                candidates.append(result)
+
+            # loss is the average test set err across the internal folds
+            loss = np.array([rr['loss'] for rr in candidates])
+            selected_ind = loss.argmin()
+            best = candidates[selected_ind]
+            if len(selected):
+                # XXX: what are we supposed to do here?
+                # among the pool of candidates it is not necessarily the case
+                # that any of them makes an improvement on the validation set
+                if best['loss'] < selected[-1]['loss']:
+                    selected.append(best)
+                else:
+                    print 'SKIPPING CRAPPY BEST CANDIDATE'
+                    pass
+            else:
+                selected.append(best)
+
+            split_decisions = best['decisions']
+            print 'mean margins', 1 - np.minimum(split_decisions * y, 1).mean(),
+            round_tr_acc = np.mean([rr['train_accuracy'] for rr in best['split']])
+            round_te_acc = np.mean([rr['test_accuracy'] for rr in best['split']])
+            print 'train_accuracy', round_tr_acc,
+            print 'test_accuracy', round_te_acc,
+            print ''
+        return selected
+
+    r1 = foo(1)
+    r2 = foo(2)
+    r5 = foo(5)
+
+    assert r1[-1]['loss'] > r2[-1]['loss']
+    assert r2[-1]['loss'] > r5[-1]['loss']
 

@@ -11,7 +11,9 @@ from skdata import larray
 import skdata.utils
 import skdata.lfw
 import numpy as np
-from .margin_asgd import MarginBinaryASGD, binary_fit
+
+from .margin_asgd import MarginBinaryASGD
+from .margin_asgd import binary_fit
 
 from hyperopt import genson_helpers
 from hyperopt import GensonBandit
