@@ -12,23 +12,46 @@ import skdata.utils
 import skdata.lfw
 import numpy as np
 
+from hyperopt import genson_helpers
+from hyperopt import GensonBandit
+
+import genson
+
 from .margin_asgd import MarginBinaryASGD
 from .margin_asgd import binary_fit
 
-from hyperopt import genson_helpers
-from hyperopt import GensonBandit
 
 #from .classifier import train_only_asgd
 from .classifier import get_result
 
-from .fson import register
-from .fson import run_all
-from .fson import fson_eval
 import model_params
 import comparisons
 from .utils import ImgLoaderResizer
 
 from bandits import BaseBandit
+
+
+class LazyCallWithScope(genson.LazyCall):
+    def lazy(self, *args, **kwargs):
+        assert 'scope' not in kwargs
+        # -- pass the program's 'scope' kwarg to this function
+        #    as a kwarg called 'scope'
+        FUTURE_KWARGS = genson.JSONFunction.KWARGS
+        kwargs['scope'] = FUTURE_KWARGS['scope']
+        return genson.GenSONFunction(
+                self.fn,
+                self.fn.__name__,
+                args,
+                kwargs)
+
+def register(call_w_scope=False):
+    if call_w_scope:
+        def deco(f):
+            return LazyCallWithScope(f)
+        return deco
+    else:
+        return genson.lazy
+
 
 @register(call_w_scope=True)
 def fetch_decisions(split, scope):
@@ -202,13 +225,14 @@ def save_boosting_result(
             'post_test_decisions',
             scope)
 
-@register(call_w_scope=True)
+
+@genson.lazy
 def result_binary_classifier_stats(
         train_data,
         test_data,
         train_decisions,
         test_decisions,
-        scope):
+        result):
     """
     Compute classification statistics and store them to scope['result']
 
@@ -217,7 +241,7 @@ def result_binary_classifier_stats(
     classification.
 
     """
-    result = scope.setdefault('result', {})
+    result = dict(result)
     stats = get_result(train_data[1],
                              test_data[1],
                              np.sign(train_decisions),
@@ -227,21 +251,20 @@ def result_binary_classifier_stats(
     result['loss'] = float(1 - result['test_accuracy']/100.)
     result['train_decisions'] = list(train_decisions)
     result['test_decisions'] = list(test_decisions)
+    return result
 
 
 @register()
-def svm_decisions(svm,
-                  train_verification_dataset,
-                  pre_decisions):
-    base = pre_decisions
-    inc = svm.decision_function(train_verification_dataset[0])
-    return base + inc
+def svm_decisions(svm, Xyd):
+    X, y, d = Xyd
+    inc = svm.decision_function(X)
+    return d + inc
 
 
 def screening_program(slm_desc, comparison, namebase):
-    image_features = slm_memmap.son(
+    image_features = slm_memmap.lazy(
                 desc=slm_desc,
-                X=get_images.son('float32'),
+                X=get_images.lazy('float32'),
                 name=namebase + '_img_feat')
     #XXX: check that float32 images lead to correct features
 
@@ -252,8 +275,8 @@ def screening_program(slm_desc, comparison, namebase):
     #      because it's important that the memmaps don't interfere on disk
 
     def pairs_dataset(split):
-        return pairs_memmap.son(
-            verification_pairs.son(split=split),
+        return pairs_memmap.lazy(
+            verification_pairs.lazy(split=split),
             image_features,
             comparison_name=comparison,
             name=namebase + '_pairs_' + split,
@@ -262,37 +285,37 @@ def screening_program(slm_desc, comparison, namebase):
     train_verification_dataset = pairs_dataset('DevTrain')
     test_verification_dataset = pairs_dataset('DevTest')
 
-    pre_train_decisions = fetch_decisions.son('DevTrain')
-    pre_test_decisions = fetch_decisions.son('DevTest')
+    pre_train_decisions = fetch_decisions.lazy('DevTrain')
+    pre_test_decisions = fetch_decisions.lazy('DevTest')
 
-    svm = train_linear_svm_w_decisions.son(
+    svm = train_linear_svm_w_decisions.lazy(
         train_verification_dataset,
         l2_regularization=1e-3,
         decisions=pre_train_decisions,
         )
 
-    post_train_decisions = svm_decisions.son(
+    post_train_decisions = svm_decisions.lazy(
         svm,
         train_verification_dataset,
         pre_train_decisions)
 
-    post_test_decisions = svm_decisions.son(
+    post_test_decisions = svm_decisions.lazy(
         svm,
         test_verification_dataset,
         pre_test_decisions)
 
-    rval = run_all.son(
-        attach_svmasgd.son(svm, 'svm_asgd'),
-        result_binary_classifier_stats.son(
+    rval = [
+        attach_svmasgd.lazy(svm, 'svm_asgd'),
+        result_binary_classifier_stats.lazy(
             train_verification_dataset,
             test_verification_dataset,
             post_train_decisions,
             post_test_decisions,
             ),
-        pairs_cleanup.son(train_verification_dataset),
-        pairs_cleanup.son(test_verification_dataset),
-        delete_memmap.son(image_features),
-        )
+        pairs_cleanup.lazy(train_verification_dataset),
+        pairs_cleanup.lazy(test_verification_dataset),
+        delete_memmap.lazy(image_features),
+        ]
     return locals()
 
 
@@ -323,7 +346,8 @@ class Bandit(BaseBandit):
         else:
             scope['decision']['DevTest'] = self.test_decisions
 
-        fson_eval(prog, scope=scope)
+        prog_fn = genson.JSONFunction(prog)
+        prog_fn(scope=scope)
         print scope
         return scope['result']
 

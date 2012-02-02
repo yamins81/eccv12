@@ -4,14 +4,12 @@ import numpy as np
 import skdata.lfw
 from hyperopt.base import Ctrl
 
-#from eccv12.fson import fson_print, fson_eval, register
-
 #from eccv12.plugins import fetch_train_decisions
 #from eccv12.plugins import fetch_test_decisions
 #from eccv12.plugins import lfw_images
 #from eccv12.plugins import slm_memmap
+import genson
 from eccv12 import plugins
-from eccv12.fson import fson_print, fson_eval
 
 
 def ctrl_stub():
@@ -26,10 +24,10 @@ def ctrl_stub():
 
 
 def test_print_screening_program():
-    fson_print(plugins.screening_program(
+    print plugins.screening_program(
         slm_desc='slm_desc',
         comparison='sumsqdiff',
-        namebase='namebase'))
+        namebase='namebase')
 
 
 def test_get_images():
@@ -153,7 +151,7 @@ def test_train_linear_svm_w_decisions():
 
 def test_results_binary_classifier_stats():
     scope = {}
-    plugins.results_binary_classifier_stats(
+    plugins.result_binary_classifier_stats(
         train_data=(None, [-1, -1, 1, 1]),
         test_data=(None, [-1, 1]),
         train_decisions=[.1, -.3, .3, .2],
@@ -172,11 +170,13 @@ def test_prog_1():
     This tests the screening program as far as image feature extraction.
     """
     dct = plugins.screening_program(slm_desc, 'sqrtabsdiff', 'foobase')
-    X = fson_eval(dct['image_features'])
+    tmp = dct['image_features']
+    #print genson.dumps(tmp, pretty_print=True)
+    X = genson.JSONFunction(tmp)()
     assert len(X) == 13233
     print X[0].sum()
     print X[2100:].sum()
-    # XXX: more asserts
+    # XXX: running this far is worth something, but need more asserts
 
 
 def test_prog_2():
@@ -184,11 +184,12 @@ def test_prog_2():
     This tests the screening program as far as creating an svm training set.
     """
     dct = plugins.screening_program(slm_desc, 'sqrtabsdiff', 'foobase')
-    X, y = fson_eval(dct['train_verification_dataset'])
+    tmp = dct['train_verification_dataset']
+    X, y = genson.JSONFunction(tmp)()
     assert len(X) == 2200 == len(y)
     print X[0].sum()
     print X[2100:].sum()
-    # XXX: more asserts
+    # XXX: running this far is worth something, but need more asserts
 
 
 def test_prog_all():
@@ -197,9 +198,12 @@ def test_prog_all():
     """
     dct = plugins.screening_program(slm_desc, 'sqrtabsdiff', 'foobase')
     # scope dictionary is used to provide global variables to the
-    # fson_program.
-    scope = dict(ctrl=ctrl_stub())
-    fson_eval(dct['rval'], scope=scope)
+    f = genson.JSONFunction(dct['rval'])
+    scope = dict(
+            ctrl=ctrl_stub(),
+            decisions=None
+            )
+    f(scope=scope)
     print scope
     # XXX: more asserts
 
