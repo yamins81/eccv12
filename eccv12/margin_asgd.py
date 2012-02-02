@@ -17,7 +17,6 @@ class MarginBinaryASGD(NaiveBinaryASGD):
         return False
 
     def partial_fit(self, X, y, previous_decisions):
-
         assert np.all(y**2 == 1)
 
         assert len(X) == len(y) == len(previous_decisions)
@@ -75,9 +74,11 @@ class MarginBinaryASGD(NaiveBinaryASGD):
             asgd_step_size = 1. / n_observations
 
             if len(recent_train_costs) == self.fit_n_partial:
-                train_means.append(np.mean(recent_train_costs)
+                new_train_mean = (np.mean(recent_train_costs)
                         + l2_regularization * np.dot(
                             self.asgd_weights, self.asgd_weights))
+
+                train_means.append(new_train_mean)
                 self.recent_train_costs = recent_train_costs = []
 
         # --
@@ -192,13 +193,15 @@ def find_sgd_step_size0(
         margin = y * (np.dot(X, weights) + bias)
         l2_cost = other.l2_regularization * (weights ** 2).sum()
         rval = np.maximum(0, 1 - margin).mean() + l2_cost
+        if np.isnan(rval):
+            rval = float('inf')
         _cache[log2_size0] = rval
         return rval
 
-    best_sgd_step_size0 = optimize.brent(
+    log2_best_sgd_step_size0 = optimize.brent(
         eval_size0, brack=np.log2(initial_range), tol=tolerance)
 
-    return best_sgd_step_size0
+    return 2 ** log2_best_sgd_step_size0
 
 
 def binary_fit(
@@ -242,9 +245,8 @@ def binary_fit(
 
     # Heuristic: take the best stepsize according to the first max_examples,
     # and go half that fast for the full run.
-    best_estimate = 2. ** (best - 1.0)
-    model.sgd_step_size0 = best_estimate
-    model.sgd_step_size = best_estimate
+    model.sgd_step_size0 = best / 2.0
+    model.sgd_step_size = best / 2.0
     model.fit(*fit_args)
 
     return model
