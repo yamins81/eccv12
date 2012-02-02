@@ -9,11 +9,13 @@ import skdata.lfw
 import model_params
 import plugins
 from plugins import (slm_memmap,
-                            pairs_memmap,
-                            verification_pairs,
-                            get_images,
-                            pairs_cleanup,
-                            delete_memmap)
+                     pairs_memmap,
+                     verification_pairs,
+                     get_images,
+                     pairs_cleanup,
+                     delete_memmap,
+                     screening_program,
+                     fson_eval)
                         
 
 
