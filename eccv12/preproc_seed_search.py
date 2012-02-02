@@ -5,10 +5,10 @@ import unittest
 import scipy.io
 
 import skdata.lfw
-from hyperopt.genson_helpers import choice
 
-import eccv12.plugins
-from eccv12.plugins import (slm_memmap,
+import model_params
+import plugins
+from plugins import (slm_memmap,
                             pairs_memmap,
                             verification_pairs,
                             get_images,
@@ -17,53 +17,10 @@ from eccv12.plugins import (slm_memmap,
                         
 
 
-class Bandit(eccv12.plugins.Bandit):
-    desc  = [[('lnorm',{'kwargs':{'inker_shape': (9, 9),
-                         'outker_shape': (9, 9),
-                         'stretch':10,
-                         'threshold': 1}})], 
-             [('fbcorr', {'initialize': {'filter_shape': (3, 3),
-                                         'n_filters': 64,
-                                         'generate': ('random:uniform', 
-                                                      {'rseed': choice(range(5))})},
-                          'kwargs':{'min_out': 0,
-                                    'max_out': None}}),
-              ('lpool', {'kwargs': {'ker_shape': (7, 7),
-                                    'order': 1,
-                                    'stride': 2}}),
-              ('lnorm', {'kwargs': {'inker_shape': (5, 5),
-                                    'outker_shape': (5, 5),
-                                    'stretch': 0.1,
-                                    'threshold': 1}})],
-             [('fbcorr', {'initialize': {'filter_shape': (5, 5),
-                                         'n_filters': 128,
-                                         'generate': ('random:uniform',
-                                                      {'rseed': choice(range(5))})},
-                          'kwargs': {'min_out': 0,
-                                     'max_out': None}}),
-              ('lpool', {'kwargs': {'ker_shape': (5, 5),
-                                    'order': 1,
-                                    'stride': 2}}),
-              ('lnorm', {'kwargs': {'inker_shape': (7, 7),
-                                    'outker_shape': (7, 7),
-                                    'stretch': 1,
-                                    'threshold': 1}})],
-             [('fbcorr', {'initialize': {'filter_shape': (5, 5),
-                                         'n_filters': 256,
-                                         'generate': ('random:uniform',
-                                                     {'rseed': choice(range(5))})},
-                          'kwargs': {'min_out': 0,
-                                     'max_out': None}}),
-               ('lpool', {'kwargs': {'ker_shape': (7, 7),
-                                     'order': 10,
-                                     'stride': 2}}),
-               ('lnorm', {'kwargs': {'inker_shape': (3, 3),
-                                     'outker_shape': (3, 3),
-                                     'stretch': 10,
-                                     'threshold': 1}})]]
+class Bandit(plugins.Bandit):
 
     param_gen = dict(
-            slm=desc,
+            slm=model_params.lfwtop,
             comparison='mult',
             )
             
