@@ -24,6 +24,7 @@ def digits_xy(n_splits=5):
     """
     X, y = Digits().classification_task()
     y = (y < 5) * 2 - 1 # -- convert to +-1
+    assert X.shape[1] == 64, X.shape[1]
     n_usable = (len(y) // n_splits) * n_splits
     return X[:n_usable], y[:n_usable]
 
@@ -359,6 +360,7 @@ def test_boosting_for_smoke():
 
 def test_random_search_boosting():
     X, y = digits_xy()
+    print X.shape
     print len(y)
 
     def foo(n_candidates):
@@ -374,6 +376,9 @@ def test_random_search_boosting():
         for round_ii in range(n_rounds):
             print 'ROUND', round_ii
             candidates = []
+
+            # -- Here is where we would use hyperopt
+            #    For simplicity, we do a random search here.
             for candidate_ii in range(n_candidates):
                 print ' CANDIDATE', candidate_ii
                 BI = BoostableDigits()
