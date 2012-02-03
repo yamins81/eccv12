@@ -309,6 +309,7 @@ def screening_program(slm_desc, comparison, namebase):
             result=result)
 
     if 0:
+        # XXX delete the memmaps
         tasks = run_all()
         attach_svmasgd.lazy(svm, 'svm_asgd'),
         pairs_cleanup.lazy(train_verification_dataset),

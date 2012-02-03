@@ -1,6 +1,7 @@
 import copy
 import os
 
+from nose import SkipTest
 import numpy as np
 import scipy.io
 
@@ -51,7 +52,9 @@ def test_fg11_features():
     assert feat[0].shape == (100, 256)
 
 
-def test_classifier():
+def test_classifier_from_fg11_saved_features():
+    if not os.path.isdir(feature_root):
+        raise SkipTest('no lfw2 features - skipping FG11 regression test')
     prog = screening_program({}, 'sqrtabsdiff', 'asdf_l3_150fd_sqrtabsdiff')
 
     image_features = prog['image_features']
@@ -78,4 +81,5 @@ def test_classifier():
     print result
     assert result['test_accuracy'] > 81.0  # -- I just saw it score 81.7 (Feb 2012)
 
+    #XXX: DELETE ALL THE MEMMAPS
 
