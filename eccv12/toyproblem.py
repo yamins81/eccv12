@@ -102,7 +102,7 @@ def features(Xyd, config):
 
 
 @lazy
-def train_svm(Xyd, l2_regularization,):
+def train_svm(Xyd, l2_regularization):
     """
     Return a sklearn-like classification model.
     """
@@ -110,12 +110,14 @@ def train_svm(Xyd, l2_regularization,):
     if train_X.ndim != 2:
         raise ValueError('train_X must be matrix')
     assert len(train_X) == len(train_y) == len(decisions)
+    print "INFO: training binary classifier..."
     svm = MarginBinaryASGD(
         n_features=train_X.shape[1],
         l2_regularization=l2_regularization,
         dtype=train_X.dtype,
         rstate=np.random.RandomState(123))
     binary_fit(svm, (train_X, train_y, np.asarray(decisions)))
+    print "INFO: fitting done!"
     return svm
 
 

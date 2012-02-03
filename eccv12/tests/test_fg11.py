@@ -55,7 +55,10 @@ def test_fg11_features():
 def test_classifier_from_fg11_saved_features():
     if not os.path.isdir(feature_root):
         raise SkipTest('no lfw2 features - skipping FG11 regression test')
-    prog = screening_program({}, 'sqrtabsdiff', 'asdf_l3_150fd_sqrtabsdiff')
+    prog = screening_program({},
+                             comparison='sqrtabsdiff',
+                             preproc=None,
+                             namebase='asdf_l3_150fd_sqrtabsdiff')
 
     image_features = prog['image_features']
 
@@ -69,7 +72,7 @@ def test_classifier_from_fg11_saved_features():
                                   id(JSONFunction.ARGS): JSONFunction.ARGS,
                                   id(JSONFunction.KWARGS): JSONFunction.KWARGS,
                               })
-    fn = genson.JSONFunction(fg11_prog['result'])
+    fn = genson.JSONFunction(fg11_prog['result_w_cleanup'])
 
     ctrl = hyperopt.Ctrl()
     ctrl.attachments['decisions'] = dict(
@@ -80,6 +83,4 @@ def test_classifier_from_fg11_saved_features():
     result = fn(ctrl=ctrl)
     print result
     assert result['test_accuracy'] > 81.0  # -- I just saw it score 81.7 (Feb 2012)
-
-    #XXX: DELETE ALL THE MEMMAPS
 

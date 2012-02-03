@@ -13,11 +13,12 @@ import numpy as np
 
 import genson
 
-from .margin_asgd import MarginBinaryASGD
-from .margin_asgd import binary_fit
-
 #from .classifier import train_only_asgd
 from .classifier import get_result
+from .toyproblem import normalize_Xcols
+from .toyproblem import train_svm
+from .toyproblem import run_all
+
 
 import model_params
 import comparisons
@@ -58,19 +59,26 @@ def fetch_decisions(split, ctrl):
 
 
 @register()
-def get_images(dtype='uint8'):
+def get_images(dtype='uint8', preproc=None):
     """
     Return a lazy array whose elements are all the images in lfw.
 
     XXX: Should the images really be returned in greyscale?
 
     """
+    if preproc is None:
+        preproc = {'global_normalize': True}
+    else:
+        assert 'global_normalize' in preproc
+        
     all_paths = skdata.lfw.Aligned().raw_classification_task()[0]
     rval = larray.lmap(
                 ImgLoaderResizer(
                     shape=(200, 200),  # lfw-specific
-                    dtype=dtype),
+                    dtype=dtype,
+                    normalize=preproc['global_normalize']),
                 all_paths)
+                
     return rval
 
 
@@ -171,24 +179,6 @@ def pairs_cleanup(obj):
     obj[0].delete_files()
 
 
-@register()
-def train_linear_svm_w_decisions(train_data, l2_regularization, decisions):
-    """
-    Return a sklearn-like classification model.
-    """
-    train_X, train_y = train_data
-    if train_X.ndim != 2:
-        raise ValueError('train_X must be matrix')
-    assert len(train_X) == len(train_y) == len(decisions)
-    svm = MarginBinaryASGD(
-        n_features=train_X.shape[1],
-        l2_regularization=l2_regularization,
-        dtype=train_X.dtype,
-        rstate=np.random.RandomState(123))
-    binary_fit(svm, (train_X, train_y, np.asarray(decisions)))
-    return svm
-
-
 @register(call_w_scope=True)
 def attach_object(obj, name, scope):
     scope['ctrl'].attachments[name] = cPickle.dumps(obj)
@@ -196,7 +186,8 @@ def attach_object(obj, name, scope):
 
 @register(call_w_scope=True)
 def attach_svmasgd(svm, name, scope):
-    obj = dict(weights=svm.asgd_weights, bias=svm.asgd_bias)
+    svm, fmean, fstd = svm
+    obj = dict(weights=svm.asgd_weights, bias=svm.asgd_bias, fmean=fmean, fstd=fstd)
     scope['ctrl'].attachments[name] = cPickle.dumps(obj)
 
 
@@ -249,19 +240,19 @@ def result_binary_classifier_stats(
     return result
 
 
-@register()
+@genson.lazy
 def svm_decisions(svm, Xyd):
     X, y, d = Xyd
     inc = svm.decision_function(X)
     return d + inc
 
 
-def screening_program(slm_desc, comparison, namebase):
+def screening_program(slm_desc, comparison, preproc, namebase):
     image_features = slm_memmap.lazy(
                 desc=slm_desc,
-                X=get_images.lazy('float32'),
+                X=get_images.lazy('float32', preproc=preproc),
                 name=namebase + '_img_feat')
-    #XXX: check that float32 images lead to correct features
+    # XXX: check that float32 images lead to correct features
 
     # XXX: check that it's right that DevTrain has only 2200 verification
     # pairs!? How we supposed to train a good model?!
@@ -269,9 +260,7 @@ def screening_program(slm_desc, comparison, namebase):
     # XXX: make sure namebase takes a different value for each process
     #      because it's important that the memmaps don't interfere on disk
 
-    # XXX: WTF? If this function is called pairs_dataset then
-    #      genson can't run the program!??!??
-    def pairs_dataset2(split):
+    def pairs_dataset(split):
         return pairs_memmap.lazy(
             verification_pairs.lazy(split=split),
             image_features,
@@ -281,16 +270,12 @@ def screening_program(slm_desc, comparison, namebase):
 
     result = {}
 
-    train_X, train_y = pairs_dataset2('DevTrain')
-    test_X, test_y = pairs_dataset2('DevTest')
+    train_X, train_y = pairs_dataset('DevTrain')
+    test_X, test_y = pairs_dataset('DevTest')
 
     ctrl = genson.JSONFunction.KWARGS['ctrl']
     train_d = fetch_decisions.lazy('DevTrain', ctrl)
     test_d = fetch_decisions.lazy('DevTest', ctrl)
-
-    from toyproblem import normalize_Xcols
-    from toyproblem import train_svm
-    from toyproblem import run_all
 
     train_Xyd_n, test_Xyd_n = normalize_Xcols.lazy(
         (train_X, train_y, train_d,), 
@@ -308,13 +293,16 @@ def screening_program(slm_desc, comparison, namebase):
             new_d_test,
             result=result)
 
-    if 0:
-        # XXX delete the memmaps
-        tasks = run_all()
-        attach_svmasgd.lazy(svm, 'svm_asgd'),
-        pairs_cleanup.lazy(train_verification_dataset),
-        pairs_cleanup.lazy(test_verification_dataset),
+    result_w_cleanup = run_all.lazy(
+        result,
+        delete_memmap.lazy(train_X),
+        delete_memmap.lazy(test_X),
         delete_memmap.lazy(image_features),
+        )[0]
+
+    # TODO: when to attach them svm?
+    #attach_svmasgd.lazy(svm, 'svm_asgd'),
+
     return locals()
 
 
@@ -327,6 +315,7 @@ class Bandit(BaseBandit):
         prog = screening_program(
                 slm_desc=config['slm'],
                 comparison=config['comparison'],
+                preproc=config.get('preproc'),
                 namebase='memmap_')['rval']
 
         scope = dict(
