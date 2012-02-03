@@ -7,19 +7,13 @@ import hyperopt.genson_bandits as gb
 import hyperopt.genson_helpers as gh
 
 import lfw
-import model_params
 
 
 class BaseBandit(gb.GensonBandit):
     # Required: self.param_gen
 
-    def __init__(self,
-            train_decisions=None,
-            test_decisions=None,
-            attach_weights=False):
+    def __init__(self, attach_weights=False):
         super(BaseBandit, self).__init__(source_string=gh.string(self.param_gen))
-        self.train_decisions = train_decisions
-        self.test_decisions = test_decisions
         self.attach_weights = attach_weights
 
     def evaluate(self, config, ctrl):

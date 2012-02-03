@@ -27,28 +27,6 @@ from .utils import ImgLoaderResizer
 from .bandits import BaseBandit
 
 
-class LazyCallWithScope(genson.LazyCall):
-    def lazy(self, *args, **kwargs):
-        assert 'scope' not in kwargs
-        # -- pass the program's 'scope' kwarg to this function
-        #    as a kwarg called 'scope'
-        FUTURE_KWARGS = genson.JSONFunction.KWARGS
-        kwargs['scope'] = FUTURE_KWARGS['scope']
-        return genson.GenSONFunction(
-                self.fn,
-                self.fn.__name__,
-                args,
-                kwargs)
-
-def register(call_w_scope=False):
-    if call_w_scope:
-        def deco(f):
-            return LazyCallWithScope(f)
-        return deco
-    else:
-        return genson.lazy
-
-
 @genson.lazy
 def fetch_decisions(split, ctrl):
     """
@@ -58,7 +36,7 @@ def fetch_decisions(split, ctrl):
     return ctrl.attachments['decisions'][split]
 
 
-@register()
+@genson.lazy
 def get_images(dtype='uint8', preproc=None):
     """
     Return a lazy array whose elements are all the images in lfw.
@@ -90,7 +68,7 @@ def _verification_pairs_helper(all_paths, lpaths, rpaths):
     return lidxs, ridxs
 
 
-@register()
+@genson.lazy
 def verification_pairs(split):
     """
     Return three integer arrays: lidxs, ridxs, match.
@@ -106,7 +84,7 @@ def verification_pairs(split):
     return lidxs, ridxs, (matches * 2 - 1)
 
 
-@register()
+@genson.lazy
 def slm_memmap(desc, X, name):
     """
     Return a cache_memmap object representing the features of the entire
@@ -118,7 +96,7 @@ def slm_memmap(desc, X, name):
     return rval
 
 
-@register()
+@genson.lazy
 def delete_memmap(obj):
     """
     Delete the files associated with cache_memmap `obj`
@@ -177,39 +155,6 @@ def pairs_cleanup(obj):
     Pass in the rval from pairs_memmap to clean up the memmap
     """
     obj[0].delete_files()
-
-
-@register(call_w_scope=True)
-def attach_object(obj, name, scope):
-    scope['ctrl'].attachments[name] = cPickle.dumps(obj)
-
-
-@register(call_w_scope=True)
-def attach_svmasgd(svm, name, scope):
-    svm, fmean, fstd = svm
-    obj = dict(weights=svm.asgd_weights, bias=svm.asgd_bias, fmean=fmean, fstd=fstd)
-    scope['ctrl'].attachments[name] = cPickle.dumps(obj)
-
-
-@register(call_w_scope=True)
-def save_boosting_result(
-        svm,
-        train_data,
-        test_data,
-        previous_train_decisions,
-        previous_test_decisions,
-        scope):
-
-    new_train_decisions = svm.decision_function(train_data[0])
-    new_test_decisions = svm.decision_function(test_data[0])
-    attach_object(
-            previous_train_decisions + new_train_decisions,
-            'post_train_decisions',
-            scope)
-    attach_object(
-            previous_test_decisions + new_test_decisions,
-            'post_test_decisions',
-            scope)
 
 
 @genson.lazy
@@ -300,10 +245,9 @@ def screening_program(slm_desc, comparison, preproc, namebase):
         delete_memmap.lazy(image_features),
         )[0]
 
-    # TODO: when to attach them svm?
-    #attach_svmasgd.lazy(svm, 'svm_asgd'),
+    # TODO: do we really need to attach svm ? It's big
 
-    return locals()
+    return result_w_cleanup, locals()
 
 
 class Bandit(BaseBandit):
@@ -316,26 +260,13 @@ class Bandit(BaseBandit):
                 slm_desc=config['slm'],
                 comparison=config['comparison'],
                 preproc=config.get('preproc'),
-                namebase='memmap_')['rval']
+                namebase='memmap_' + str(np.random.randint(1e8)))[0]
 
-        scope = dict(
-                ctrl=ctrl,
-                decisions={},
-                )
         # XXX: hard-codes self.train_decisions to be DevTrain - what happens
         # in view 2?
-        if self.train_decisions is None:
-            scope['decisions']['DevTrain'] = np.zeros(2200)
-        else:
-            scope['decisions']['DevTrain'] = self.train_decisions
-
-        if self.test_decisions is None:
-            scope['decisions']['DevTest'] = np.zeros(1000)
-        else:
-            scope['decision']['DevTest'] = self.test_decisions
 
         prog_fn = genson.JSONFunction(prog)
-        prog_fn(scope=scope)
-        print scope
-        return scope['result']
+        result = prog_fn(ctrl=ctrl)
+        print result
+        return result
 
