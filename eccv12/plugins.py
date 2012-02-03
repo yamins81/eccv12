@@ -162,16 +162,27 @@ def pairs_cleanup(obj):
     obj[0].delete_files()
 
 
+def normalize(X):
+    X = np.asarray(X)
+    fmean = X.mean(0)
+    X = X - fmean
+    fstd = np.maximum(X.std(0), 1e-8)
+    X = X / fstd
+    return X, fmean, fstd
+
+    
 @register()
 def train_linear_svm_w_decisions(train_data, l2_regularization, decisions):
     """
     Return a sklearn-like classification model.
     """
     train_X, train_y = train_data
+    train_X, fmean, fstd = normalize(train_X)
     if train_X.ndim != 2:
         raise ValueError('train_X must be matrix')
     assert len(train_X) == len(train_y) == len(decisions)
     print "INFO: training binary classifier..."
+    
     svm = BinaryASGD(
         n_features=train_X.shape[1],
         l2_regularization=l2_regularization,
@@ -182,7 +193,7 @@ def train_linear_svm_w_decisions(train_data, l2_regularization, decisions):
     print "INFO: fitting done!"
     # XXX
     print >> sys.stderr, "WARNING: IGNORING DECISIONS!"
-    return svm
+    return svm, fmean, fstd
 
 
 @register(call_w_scope=True)
@@ -192,7 +203,8 @@ def attach_object(obj, name, scope):
 
 @register(call_w_scope=True)
 def attach_svmasgd(svm, name, scope):
-    obj = dict(weights=svm.asgd_weights, bias=svm.asgd_bias)
+    svm, fmean, fstd = svm
+    obj = dict(weights=svm.asgd_weights, bias=svm.asgd_bias, fmean=fmean, fstd=fstd)
     scope['ctrl'].attachments[name] = cPickle.dumps(obj)
 
 
@@ -247,8 +259,12 @@ def result_binary_classifier_stats(
 def svm_decisions(svm,
                   train_verification_dataset,
                   pre_decisions):
+    svm, fmean, fstd = svm
     base = pre_decisions
-    inc = svm.decision_function(train_verification_dataset[0])
+    train_X, train_y = train_verification_dataset
+    train_X = train_X - fmean
+    tra_X = train_X / fstd
+    inc = svm.decision_function(train_X)
     return base + inc
 
 
@@ -275,7 +291,7 @@ def screening_program(slm_desc, comparison, preproc, namebase):
 
     train_verification_dataset = pairs_dataset('DevTrain')
     test_verification_dataset = pairs_dataset('DevTest')
-
+    
     pre_train_decisions = fetch_decisions.son('DevTrain')
     pre_test_decisions = fetch_decisions.son('DevTest')
 
