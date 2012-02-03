@@ -283,8 +283,8 @@ class BoostableDigits(BaseBandit):
         param_gen = {}
 
     def evaluate(self, config, ctrl):
-        if 'decisions' in ctrl.attachments:
-            config['decisions'] = ctrl.attachments['decisions']
+        if 'split_decisions' in ctrl.attachments:
+            config['split_decisions'] = ctrl.attachments['split_decisions']
         prog = screening_prog(**config)
         fn = JSONFunction(prog)
         rval = fn(ctrl=ctrl)

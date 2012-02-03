@@ -38,7 +38,7 @@ def test_screening_prog():
     # smoke test
     prog = screening_prog(**config_tiny)
     print genson.dumps(prog)
-    rval = JSONFunction(prog)()
+    rval = JSONFunction(prog)(ctrl=Ctrl())
     print rval
     assert 'loss' in rval
     assert 'decisions' in rval
@@ -71,133 +71,122 @@ def test_replicable():
 
 
 def test_decisions_do_something():
-    config=dict(seed=1, n_features=5, scale=2.2)
-    X, y = digits_xy()
-
     ctrl0 = Ctrl()
     ctrl1 = Ctrl()
 
     B0 = BoostableDigits()
     B0.split_decisions = None
-    r0 = B0.evaluate(config, ctrl0)
+    r0 = B0.evaluate(config_tiny, ctrl0)
 
+    rstate = np.random.RandomState(32)
     B1 = BoostableDigits()
-    B1.split_decisions = np.random.RandomState(32).randn(5, len(y))
-    r1 = B1.evaluate(config, ctrl1)
+    ctrl1.attachments['split_decisions'] = rstate.randn(
+            config_tiny['n_folds'],
+            config_tiny['n_examples'])
+    r1 = B1.evaluate(config_tiny, ctrl1)
 
     # contrast test_replicable where they come out the same
-    svm0 = cPickle.loads(ctrl0.attachments['svm'])
-    svm1 = cPickle.loads(ctrl1.attachments['svm'])
+    svm0 = cPickle.loads(ctrl0.attachments['svm_0'])
+    svm1 = cPickle.loads(ctrl1.attachments['svm_0'])
     assert not np.allclose(svm0['weights'], svm1['weights'])
 
 
 def test_boosting_margin_goes_down():
-    X, y = digits_xy()
+    n_examples = 1750
+    X, y = digits_xy(n_examples)
     n_rounds = 8
-    n_features_per_round = 16
-    split_decisions = None
     margins = []
+    ctrl = Ctrl()
+    ctrl.attachments['split_decisions'] = None
     for round_ii in range(n_rounds):
         BI = BoostableDigits()
-        BI.split_decisions = split_decisions
-        result = BI.evaluate(
-                config=dict(
-                    seed=round_ii,
-                    n_features=n_features_per_round,
-                    scale=2.2),
-                ctrl=Ctrl())
+        config = dict(
+            n_examples=n_examples,
+            n_folds=5,
+            feat_spec=dict(seed=round_ii, n_features=16, scale=2.2),
+            split_decisions=None, # gets clobbered by ctrl attachment
+            save_svms=False       # good to test False sometimes
+            )
+        result = BI.evaluate(config, ctrl)
         split_decisions = np.asarray(result['decisions'])
+        ctrl.attachments['split_decisions'] = split_decisions
         assert len(split_decisions) == 5
         assert split_decisions.ndim == 2
         print 'mean abs decisions', abs(split_decisions).mean(),
         margins.append(1 - np.minimum(split_decisions * y, 1).mean())
         for key in 'train_accuracy', 'test_accuracy':
-            print key, np.mean([r[key] for r in result['split']]),
+            print key, np.mean([rr[key] for rr in result['splits']]),
         print ''
     print margins
     print list(reversed(margins))
     print list(sorted(margins))
     assert list(reversed(margins)) == list(sorted(margins))
 
+def mean_acc(result):
+    tr_acc = np.mean([r['train_accuracy'] for r in result['splits']])
+    te_acc = np.mean([r['test_accuracy'] for r in result['splits']])
+    return tr_acc, te_acc
 
 def test_boosting_for_smoke():
-    X, y = digits_xy()
-    print len(y)
+    n_examples = 1790
+    X, y = digits_xy(n_examples)
+    assert len(y) == n_examples
 
     n_rounds = 16
     n_features_per_round = 16
 
-    # -- train jointly
-    print 'Training jointly'
-    BI = BoostableDigits()
-    BI.split_decisions = None
-    result = BI.evaluate(
-            config=dict(
-                seed=1,
-                n_features=n_rounds * n_features_per_round,
+    def train_run(n_features, split_decisions, rseed=1):
+        BI = BoostableDigits()
+        config = dict(
+            n_examples=n_examples,
+            n_folds=5,
+            feat_spec=dict(seed=rseed,
+                n_features=n_features,
                 scale=2.2),
-            ctrl=Ctrl())
-    decisions = np.asarray(result['decisions'])
-    print decisions.shape
-    print 'mean abs decisions', abs(decisions).mean(),
-    print 'mean margins', 1 - np.minimum(decisions * y, 1).mean(),
-    tr_acc = np.mean([r['train_accuracy'] for r in result['split']])
-    te_acc = np.mean([r['test_accuracy'] for r in result['split']])
-    print 'train_accuracy', tr_acc,
-    print 'test_accuracy', te_acc,
-    print ''
+            split_decisions=None, # gets clobbered by ctrl attachment
+            save_svms=False       # good to test False sometimes
+            )
+        ctrl = Ctrl()
+        ctrl.attachments['split_decisions'] = split_decisions
+        result = BI.evaluate(config, ctrl)
+        decisions = np.asarray(result['decisions'])
+        print decisions.shape
+        print 'mean abs decisions', abs(decisions).mean(),
+        print 'mean margins', 1 - np.minimum(decisions * y, 1).mean(),
+        tr_acc, te_acc = mean_acc(result)
+        print 'train_accuracy', tr_acc,
+        print 'test_accuracy', te_acc,
+        print ''
+        return decisions, tr_acc, te_acc
 
-    # -- train just one
+    print 'Training jointly'
+    _, joint_tr_acc, joint_te_acc = train_run(
+            n_rounds * n_features_per_round, None)
+
     print 'Training one round'
-    BI = BoostableDigits()
-    BI.split_decisions = None
-    result = BI.evaluate(
-            config=dict(
-                seed=1,
-                n_features=n_features_per_round,
-                scale=2.2),
-            ctrl=Ctrl())
-    decisions = np.asarray(result['decisions'])
-    print 'mean abs decisions', abs(decisions).mean(),
-    print 'mean margins', 1 - np.minimum(decisions * y, 1).mean(),
-    one_tr_acc = np.mean([r['train_accuracy'] for r in result['split']])
-    one_te_acc = np.mean([r['test_accuracy'] for r in result['split']])
-    print 'train_accuracy', one_tr_acc,
-    print 'test_accuracy', one_te_acc,
-    print ''
+    _, one_tr_acc, one_te_acc = train_run(
+            n_features_per_round, None)
 
     # -- train in rounds
     print 'Training in rounds'
     split_decisions = None
     for round_ii in range(n_rounds):
-        BI = BoostableDigits()
-        BI.split_decisions = split_decisions
-        result = BI.evaluate(
-                config=dict(
-                    seed=round_ii,
-                    n_features=n_features_per_round,
-                    scale=2.2),
-                ctrl=Ctrl())
-        split_decisions = np.asarray(result['decisions'])
-        assert len(split_decisions) == 5
-        assert split_decisions.ndim == 2
-        print 'mean abs decisions', abs(split_decisions).mean(),
-        print 'mean margins', 1 - np.minimum(split_decisions * y, 1).mean(),
-        round_tr_acc = np.mean([r['train_accuracy'] for r in result['split']])
-        round_te_acc = np.mean([r['test_accuracy'] for r in result['split']])
-        print 'train_accuracy', round_tr_acc,
-        print 'test_accuracy', round_te_acc,
-        print ''
+        foo = train_run(n_features_per_round, split_decisions, round_ii)
+        split_decisions, tr_acc, te_acc = foo
 
     # assert that round-training and joint training are both way better than
     # training just one
-    assert tr_acc > 90
-    assert round_tr_acc > 90
+    assert joint_tr_acc > 95
+    assert joint_te_acc > 90
     assert one_tr_acc < 70
+    assert one_te_acc < 70
+    assert tr_acc > 90
+    assert te_acc > 88
 
 
 def test_random_search_boosting():
-    X, y = digits_xy()
+    n_examples = 1790
+    X, y = digits_xy(n_examples)
     print X.shape
     print len(y)
 
@@ -220,17 +209,25 @@ def test_random_search_boosting():
             for candidate_ii in range(n_candidates):
                 print ' CANDIDATE', candidate_ii
                 BI = BoostableDigits()
-                if selected:
-                    BI.split_decisions = selected[-1]['decisions']
-                else:
-                    BI.split_decisions = None
-                result = BI.evaluate(
-                        config=dict(
+                config = dict(
+                    n_examples=n_examples,
+                    n_folds=5,
+                    feat_spec=dict(
                             seed=int(rstate.randint(2**31)),
                             n_features=int(rstate.randint(2, 32)),
                             scale=float(np.exp(rstate.randn())),
-                            ),
-                        ctrl=Ctrl())
+                        ),
+                    split_decisions=None, # gets clobbered by ctrl attachment
+                    save_svms=False       # good to test False sometimes
+                    )
+                ctrl = Ctrl()
+                if selected:
+                    split_decisions = np.asarray(selected[-1]['decisions'])
+                else:
+                    split_decisions = None
+                ctrl.attachments['split_decisions'] = split_decisions
+
+                result = BI.evaluate(config, ctrl)
                 print '  loss', result['loss']
                 candidates.append(result)
 
@@ -246,14 +243,13 @@ def test_random_search_boosting():
                     selected.append(best)
                 else:
                     print 'SKIPPING CRAPPY BEST CANDIDATE'
-                    pass
+                    continue
             else:
                 selected.append(best)
 
-            split_decisions = best['decisions']
+            split_decisions = np.asarray(best['decisions'])
             print 'mean margins', 1 - np.minimum(split_decisions * y, 1).mean(),
-            round_tr_acc = np.mean([rr['train_accuracy'] for rr in best['split']])
-            round_te_acc = np.mean([rr['test_accuracy'] for rr in best['split']])
+            round_tr_acc, round_te_acc = mean_acc(best)
             print 'train_accuracy', round_tr_acc,
             print 'test_accuracy', round_te_acc,
             print ''
