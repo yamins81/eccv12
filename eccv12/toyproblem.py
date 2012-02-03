@@ -197,6 +197,7 @@ def attach_svm(ctrl, svm, name='svm'):
 def run_all(*args):
     return args
 
+
 def screening_prog(n_examples, n_folds, feat_spec, split_decisions,
         save_svms):
     """
