@@ -39,7 +39,6 @@ class MarginBinaryASGD(NaiveBinaryASGD):
         n_observations = self.n_observations
         train_means = self.train_means
         recent_train_costs = self.recent_train_costs
-        min_observations = self.min_observations
 
         for obs, label, pdec in izip(X, y, previous_decisions):
 
