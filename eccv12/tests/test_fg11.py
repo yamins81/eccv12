@@ -12,7 +12,7 @@ import skdata
 from skdata import larray
 
 from eccv12.plugins import screening_program
-from eccv12 import model_params
+from eccv12 import model_params, plugins
 
 feature_root = '/share/datasets/LFW_FG11/lfw2'
 
@@ -86,10 +86,64 @@ def test_classifier_from_fg11_saved_features():
     assert result['test_accuracy'] > 81.0  # -- I just saw it score 81.7 (Feb 2012)
 
 
+class FG11TopBandit(plugins.Bandit):
+    param_gen = dict(
+            slm=model_params.fg11_top,
+            comparison='sqrtabsdiff',
+            preproc={'global_normalize':1},
+            )
+
 def test_fg11top():
-    from eccv12.validation import FG11TopBandit
 
     bandit = FG11TopBandit()
+    config = bandit.template.sample(1)
+    ctrl = hyperopt.Ctrl()
+    ctrl.attachments['decisions'] = dict(
+        DevTrain=np.zeros(2200),
+        DevTest=np.zeros(1000),
+        )
+    # progkey == result means no cleanup memmaps
+    result = bandit.evaluate(config, ctrl, progkey='result')
+
+    print result['train_accuracy']
+    print result['test_accuracy']
+    print result['loss']
+    # 100.0
+    # 74.2
+    # 0.258
+
+
+def test_fg11top_mult():
+
+    bandit = FG11TopBandit()
+    config = bandit.template.sample(1)
+    config['comparison'] = 'mult'
+    ctrl = hyperopt.Ctrl()
+    ctrl.attachments['decisions'] = dict(
+        DevTrain=np.zeros(2200),
+        DevTest=np.zeros(1000),
+        )
+    result = bandit.evaluate(config, ctrl)
+
+    print result['train_accuracy']
+    print result['test_accuracy']
+    print result['loss']
+    #    Pinto didn't screen on this, so it's not clear if these scores are
+    #    good or bad
+    # -- 100.0
+    # -- 68.0
+    # -- 0.32
+
+
+class CVPRTopBandit(plugins.Bandit):
+    param_gen = dict(
+            slm=model_params.cvpr_top,
+            comparison='mult',
+            preproc={'global_normalize':1},
+            )
+
+def test_cvprtop():
+    bandit = CVPRTopBandit()
     config = bandit.template.sample(1)
     ctrl = hyperopt.Ctrl()
     ctrl.attachments['decisions'] = dict(
@@ -101,20 +155,7 @@ def test_fg11top():
     print result['train_accuracy']
     print result['test_accuracy']
     print result['loss']
+    # 100.0
+    # 81.4
+    # 0.186
 
-
-def test_cvprtop():
-    prog = screening_program(model_params.cvprtop,
-                             comparison='sqrtabsdiff',
-                             preproc=None,
-                             namebase='test_cvprtop')
-    fn = genson.JSONFunction(prog['result_w_cleanup'])
-    ctrl = hyperopt.Ctrl()
-    ctrl.attachments['decisions'] = dict(
-        DevTrain=np.zeros(2200),
-        DevTest=np.zeros(1000),
-        )
-    #print genson.dumps(fg11_prog, pretty_print=True)
-    result = fn(ctrl=ctrl)
-    print result['train_accuracy']
-    print result['test_accuracy']

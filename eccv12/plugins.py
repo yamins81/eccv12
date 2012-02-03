@@ -37,7 +37,7 @@ def fetch_decisions(split, ctrl):
 
 
 @genson.lazy
-def get_images(dtype='uint8', preproc=None):
+def get_images(dtype, preproc):
     """
     Return a lazy array whose elements are all the images in lfw.
 
@@ -48,7 +48,7 @@ def get_images(dtype='uint8', preproc=None):
         preproc = {'global_normalize': True}
     else:
         assert 'global_normalize' in preproc
-        
+
     all_paths = skdata.lfw.Aligned().raw_classification_task()[0]
     rval = larray.lmap(
                 ImgLoaderResizer(
@@ -56,7 +56,6 @@ def get_images(dtype='uint8', preproc=None):
                     dtype=dtype,
                     normalize=preproc['global_normalize']),
                 all_paths)
-                
     return rval
 
 
@@ -254,18 +253,19 @@ class Bandit(BaseBandit):
     param_gen = dict(
             slm=model_params.fg11_desc,
             comparison='mult',
+            preproc={'global_normalize': 1},
             )
-    def evaluate(self, config, ctrl):
+    def evaluate(self, config, ctrl, namebase=None,
+            progkey='result_w_cleanup'):
+        if namebase is None:
+            namebase = namebase='memmap_' + str(np.random.randint(1e8))
         prog = screening_program(
                 slm_desc=config['slm'],
                 comparison=config['comparison'],
-                preproc=config.get('preproc'),
-                namebase='memmap_' + str(np.random.randint(1e8)))[0]
+                preproc=config['preproc'],
+                namebase=namebase)[1]
 
-        # XXX: hard-codes self.train_decisions to be DevTrain - what happens
-        # in view 2?
-
-        prog_fn = genson.JSONFunction(prog)
+        prog_fn = genson.JSONFunction(prog[progkey])
         result = prog_fn(ctrl=ctrl)
         print result
         return result
