@@ -1,7 +1,6 @@
 import cPickle
 
 
-import sys
 import os
 #import hashlib
 
@@ -12,14 +11,10 @@ import skdata.utils
 import skdata.lfw
 import numpy as np
 
-from hyperopt import genson_helpers
-from hyperopt import GensonBandit
-
 import genson
 
 from .margin_asgd import MarginBinaryASGD
 from .margin_asgd import binary_fit
-
 
 #from .classifier import train_only_asgd
 from .classifier import get_result
@@ -28,7 +23,7 @@ import model_params
 import comparisons
 from .utils import ImgLoaderResizer
 
-from bandits import BaseBandit
+from .bandits import BaseBandit
 
 
 class LazyCallWithScope(genson.LazyCall):
@@ -53,13 +48,13 @@ def register(call_w_scope=False):
         return genson.lazy
 
 
-@register(call_w_scope=True)
-def fetch_decisions(split, scope):
+@genson.lazy
+def fetch_decisions(split, ctrl):
     """
     Load the accumulated decisions of models selected for the ensemble,
     for the verification examples of the given split.
     """
-    return scope['decisions'][split]
+    return ctrl.attachments['decisions'][split]
 
 
 @register()
@@ -153,7 +148,7 @@ class PairFeaturesFn(object):
         return self.fn(lx, rx)
 
 
-@register()
+@genson.lazyinfo(len=2)
 def pairs_memmap(pair_labels, X, comparison_name, name):
     """
     pair_labels    - something like comes out of verification_pairs
@@ -168,7 +163,7 @@ def pairs_memmap(pair_labels, X, comparison_name, name):
     pf_cache = larray.cache_memmap(pf, name, basedir=os.getcwd())
     return pf_cache, np.asarray(matches)
 
-@register()
+@genson.lazy
 def pairs_cleanup(obj):
     """
     Pass in the rval from pairs_memmap to clean up the memmap
@@ -274,7 +269,9 @@ def screening_program(slm_desc, comparison, namebase):
     # XXX: make sure namebase takes a different value for each process
     #      because it's important that the memmaps don't interfere on disk
 
-    def pairs_dataset(split):
+    # XXX: WTF? If this function is called pairs_dataset then
+    #      genson can't run the program!??!??
+    def pairs_dataset2(split):
         return pairs_memmap.lazy(
             verification_pairs.lazy(split=split),
             image_features,
@@ -282,40 +279,41 @@ def screening_program(slm_desc, comparison, namebase):
             name=namebase + '_pairs_' + split,
             )
 
-    train_verification_dataset = pairs_dataset('DevTrain')
-    test_verification_dataset = pairs_dataset('DevTest')
+    result = {}
 
-    pre_train_decisions = fetch_decisions.lazy('DevTrain')
-    pre_test_decisions = fetch_decisions.lazy('DevTest')
+    train_X, train_y = pairs_dataset2('DevTrain')
+    test_X, test_y = pairs_dataset2('DevTest')
 
-    svm = train_linear_svm_w_decisions.lazy(
-        train_verification_dataset,
-        l2_regularization=1e-3,
-        decisions=pre_train_decisions,
-        )
+    ctrl = genson.JSONFunction.KWARGS['ctrl']
+    train_d = fetch_decisions.lazy('DevTrain', ctrl)
+    test_d = fetch_decisions.lazy('DevTest', ctrl)
 
-    post_train_decisions = svm_decisions.lazy(
-        svm,
-        train_verification_dataset,
-        pre_train_decisions)
+    from toyproblem import normalize_Xcols
+    from toyproblem import train_svm
+    from toyproblem import run_all
 
-    post_test_decisions = svm_decisions.lazy(
-        svm,
-        test_verification_dataset,
-        pre_test_decisions)
+    train_Xyd_n, test_Xyd_n = normalize_Xcols.lazy(
+        (train_X, train_y, train_d,), 
+        (test_X, test_y, test_d,))
 
-    rval = [
+    svm = train_svm.lazy(train_Xyd_n, l2_regularization=1e-3)
+
+    new_d_train = svm_decisions.lazy(svm, train_Xyd_n)
+    new_d_test = svm_decisions.lazy(svm, test_Xyd_n)
+
+    result = result_binary_classifier_stats.lazy(
+            train_Xyd_n,
+            test_Xyd_n,
+            new_d_train,
+            new_d_test,
+            result=result)
+
+    if 0:
+        tasks = run_all()
         attach_svmasgd.lazy(svm, 'svm_asgd'),
-        result_binary_classifier_stats.lazy(
-            train_verification_dataset,
-            test_verification_dataset,
-            post_train_decisions,
-            post_test_decisions,
-            ),
         pairs_cleanup.lazy(train_verification_dataset),
         pairs_cleanup.lazy(test_verification_dataset),
         delete_memmap.lazy(image_features),
-        ]
     return locals()
 
 

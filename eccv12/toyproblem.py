@@ -1,9 +1,7 @@
 import cPickle
-import sys
 
 import numpy as np
 
-from hyperopt import Ctrl
 from hyperopt.genson_helpers import choice
 from hyperopt.genson_helpers import uniform
 
@@ -17,8 +15,6 @@ from .bandits import BaseBandit
 from .classifier import get_result
 from .margin_asgd import MarginBinaryASGD
 from .margin_asgd import binary_fit
-from .plugins import train_linear_svm_w_decisions
-from .plugins import attach_svmasgd
 
 
 @lazyinfo(len=2)
@@ -71,6 +67,9 @@ def slice_Xyd(Xy, decisions, idxs):
 def normalize_Xcols(train_Xyd, test_Xyd):
     X_train, y_train, d_train = train_Xyd
     X_test, y_test, d_test = test_Xyd
+
+    X_train = np.asarray(X_train)
+    X_test = np.asarray(X_test)
 
     Xm = X_train.mean(axis=0)
     Xs = X_train.std(axis=0) + 1e-7
