@@ -222,7 +222,7 @@ def screening_program(slm_desc, comparison, preproc, namebase):
     test_d = fetch_decisions.lazy('DevTest', ctrl)
 
     train_Xyd_n, test_Xyd_n = normalize_Xcols.lazy(
-        (train_X, train_y, train_d,), 
+        (train_X, train_y, train_d,),
         (test_X, test_y, test_d,))
 
     svm = train_svm.lazy(train_Xyd_n, l2_regularization=1e-3)

@@ -8,14 +8,6 @@ from asgd import NaiveBinaryASGD
 
 class MarginBinaryASGD(NaiveBinaryASGD):
 
-    def fit_converged(self):
-        train_means = self.train_means
-        if len(train_means) > 2:
-            midpt = len(train_means) // 2
-            thresh = (1 - self.fit_tolerance) * train_means[midpt] - 5e-3
-            return train_means[-1] > thresh
-        return False
-
     def partial_fit(self, X, y, previous_decisions):
         assert np.all(y**2 == 1)
 
@@ -140,7 +132,7 @@ from scipy import optimize
 
 DEFAULT_INITIAL_RANGE = 0.25, 0.5
 DEFAULT_MAX_EXAMPLES = 1000
-DEFAULT_TOLERANCE = 0.5
+DEFAULT_TOLERANCE = 0.01 # in logarithmic units of the training criterion
 DEFAULT_BRENT_OUTPUT = False
 
 
@@ -192,14 +184,19 @@ def find_sgd_step_size0(
         margin = y * (np.dot(X, weights) + bias)
         l2_cost = other.l2_regularization * (weights ** 2).sum()
         rval = np.maximum(0, 1 - margin).mean() + l2_cost
+        #print 'EVAL', 2 ** log2_size0, rval
         if np.isnan(rval):
             rval = float('inf')
+        # -- apply minimizer in log domain
+        rval = np.log(rval)
         _cache[log2_size0] = rval
         return rval
 
     log2_best_sgd_step_size0 = optimize.brent(
-        eval_size0, brack=np.log2(initial_range), tol=tolerance)
-
+        eval_size0,
+        brack=np.log2(initial_range),
+        tol=tolerance)
+    # print 'EVALBEST', log2_best_sgd_step_size0
     return 2 ** log2_best_sgd_step_size0
 
 
@@ -236,17 +233,23 @@ def binary_fit(
 
     # randomly choose up to max_examples uniformly without replacement from
     # across the whole set of training data.
-    idxs = model.rstate.permutation(len(fit_args[0]))[:max_examples]
+    all_idxs = model.rstate.permutation(len(fit_args[0]))
+    idxs = all_idxs[:max_examples]
 
     # Find the best learning rate for that subset
     best = find_sgd_step_size0(
         model, [a[idxs] for a in fit_args], **find_sgd_step_size0_kwargs)
 
+    ## print 'Found best', best
+
     # Heuristic: take the best stepsize according to the first max_examples,
     # and go half that fast for the full run.
-    model.sgd_step_size0 = best / 2.0
-    model.sgd_step_size = best / 2.0
+    stepdown = np.sqrt( float(len(all_idxs)) / float(len(idxs)))
+    ## print 'USING SIZE0 ', best / (5 * stepdown)
+    model.sgd_step_size0 = best / (5 * stepdown)
+    model.sgd_step_size = best / (5 * stepdown)
     model.fit(*fit_args)
+    assert model.sgd_step_size0 == best / (5 * stepdown)
 
     return model
 

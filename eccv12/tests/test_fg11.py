@@ -5,6 +5,7 @@ from nose import SkipTest
 import numpy as np
 import scipy.io
 
+from thoreano.slm import SLMFunction
 import genson
 from genson import JSONFunction
 import hyperopt
@@ -86,11 +87,37 @@ def test_classifier_from_fg11_saved_features():
     assert result['test_accuracy'] > 81.0  # -- I just saw it score 81.7 (Feb 2012)
 
 
+def test_imgs():
+    root = '/home/bergstra/cvs/eccv12/eccv12/tests/data/'
+    saved_paths = np.load(os.path.join(root, 'fg11_Xraw0-4.npy'))
+    saved_processed_imgs = np.load(os.path.join(root, 'fg11_X0-4.npy'))
+
+    imgs = plugins.get_images('float32', None)
+
+    print saved_paths
+    print saved_processed_imgs.shape
+
+    assert saved_processed_imgs[0].shape == imgs[0].shape
+
+    # the saved_preprocessed_imgs were designed to include only images
+    # that appeared in view1, so it is normal that some images are omitted.
+    assert np.allclose(saved_processed_imgs[0], imgs[0])
+    assert np.allclose(saved_processed_imgs[1], imgs[1])
+    assert np.allclose(saved_processed_imgs[2], imgs[3])
+
+    if 0:
+        from skdata.utils.glviewer import glumpy_viewer, command, glumpy
+        glumpy_viewer(
+                #img_array=saved_processed_imgs,
+                img_array=imgs,
+                arrays_to_print=[saved_paths],
+                cmap=glumpy.colormap.Grey)
+
 class FG11TopBandit(plugins.Bandit):
     param_gen = dict(
             slm=model_params.fg11_top,
             comparison='sqrtabsdiff',
-            preproc={'global_normalize':1},
+            preproc={'global_normalize': 1},
             )
 
 def test_fg11top():
@@ -141,6 +168,95 @@ class CVPRTopBandit(plugins.Bandit):
             comparison='mult',
             preproc={'global_normalize':1},
             )
+
+data_root = '/home/bergstra/cvs/eccv12/eccv12/tests/data/'
+
+def test_cvprtop_img_features():
+    saved = np.load(os.path.join(data_root, 'fg11_features0-4.npy'))
+
+    imgs = plugins.get_images('float32', None)  #--larray
+    desc = copy.deepcopy(model_params.cvpr_top,
+                memo={
+                    id(model_params.null): None,
+                    },)
+    feat_fn = SLMFunction(desc, imgs.shape[1:])
+    print saved[0].shape
+    print feat_fn(imgs[0]).shape
+    for ii, jj in (0, 0), (1, 1), (2, 3):
+        assert np.allclose(saved[ii], feat_fn(imgs[jj]))
+
+def test_cvprtop_features_all():
+    filename='features_df448700aa91cef4c8bc666c75c393776a210177_0.dat'
+    saved = np.memmap(os.path.join(data_root, filename),
+            dtype='float32', mode='r',
+            shape=(4992, 16, 16, 256))
+
+    desc = copy.deepcopy(model_params.cvpr_top,
+                memo={
+                    id(model_params.null): None,
+                    },)
+    image_features = plugins.slm_memmap(
+                desc=desc,
+                X=plugins.get_images('float32', preproc=None),
+                name='cvprtop_features_all_img_feat')
+    vpairs_train = plugins.verification_pairs('DevTrain')
+    vpairs_test = plugins.verification_pairs('DevTest')
+
+    train_X, train_y = plugins.pairs_memmap(vpairs_train, image_features, 'mult', 'wtf_train')
+    test_X, test_y =  plugins.pairs_memmap(vpairs_test , image_features, 'mult', 'wtf_test')
+
+    # -- evaluate the whole set of pairs
+    train_X = np.asarray(train_X)
+    test_X = np.asarray(test_X)
+
+    # -- check that there are 4992 valid entries in the image_features memmap
+    #    and that our features match the saved ones
+
+    print np.sum(image_features._valid)
+    assert np.sum(image_features._valid) == 4992
+    jj = 0
+    for ii in range(4992):
+        if image_features._valid[ii]:
+            assert np.allclose(image_features._data[ii], saved[jj])
+            jj += 1
+
+    # -- check that our pair features match the saved ones
+    saved_train_pairs_X = np.memmap(
+            os.path.join(data_root,
+                'train_pairs_df448700aa91cef4c8bc666c75c393776a210177.dat'),
+            dtype='float32', mode='r',
+            shape=(2200, 65536))
+    saved_test_pairs_X = np.memmap(
+            os.path.join(data_root,
+                'test_pairs_df448700aa91cef4c8bc666c75c393776a210177.dat'),
+            dtype='float32', mode='r',
+            shape=(1000, 65536))
+
+    assert np.allclose(train_X, saved_train_pairs_X)
+    assert np.allclose(test_X, saved_test_pairs_X)
+
+    train_d = np.zeros(len(train_y), dtype='float32')
+    test_d  = np.zeros(len(test_y),  dtype='float32')
+
+    train_Xyd_n, test_Xyd_n = plugins.normalize_Xcols(
+        (train_X, train_y, train_d,),
+        (test_X, test_y, test_d,))
+
+    svm = plugins.train_svm(train_Xyd_n, l2_regularization=1e-3)
+
+    new_d_train = plugins.svm_decisions(svm, train_Xyd_n)
+    new_d_test = plugins.svm_decisions(svm, test_Xyd_n)
+
+    result = plugins.result_binary_classifier_stats(
+            train_Xyd_n,
+            test_Xyd_n,
+            new_d_train,
+            new_d_test,
+            result={})
+    print 'Train_accuracy', result['train_accuracy']
+    print 'Test accuracy', result['test_accuracy']
+    print 'loss', result['loss'], np.sqrt(result['loss'] * (1 -
+        result['loss']) / (len(test_y) - 1))
 
 def test_cvprtop():
     bandit = CVPRTopBandit()

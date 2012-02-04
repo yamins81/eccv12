@@ -72,7 +72,7 @@ def normalize_Xcols(train_Xyd, test_Xyd):
     X_test = np.asarray(X_test)
 
     Xm = X_train.mean(axis=0)
-    Xs = X_train.std(axis=0) + 1e-7
+    Xs = np.maximum(X_train.std(axis=0), 1e-8)
 
     # think and add tests before working in-place here
     X_train = (X_train - Xm) / Xs
@@ -115,7 +115,7 @@ def train_svm(Xyd, l2_regularization):
         n_features=train_X.shape[1],
         l2_regularization=l2_regularization,
         dtype=train_X.dtype,
-        rstate=np.random.RandomState(123))
+        rstate=np.random.RandomState(1234))
     binary_fit(svm, (train_X, train_y, np.asarray(decisions)))
     print "INFO: fitting done!"
     return svm
