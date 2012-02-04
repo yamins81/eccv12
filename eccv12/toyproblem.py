@@ -14,7 +14,8 @@ from genson import JSONFunction
 from .bandits import BaseBandit
 from .classifier import get_result
 from .margin_asgd import MarginBinaryASGD
-from .margin_asgd import binary_fit
+from asgd.auto_step_size import binary_fit
+
 
 
 @lazyinfo(len=2)

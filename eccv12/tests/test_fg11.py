@@ -136,8 +136,8 @@ def test_fg11top():
     print result['test_accuracy']
     print result['loss']
     # 100.0
-    # 74.2
-    # 0.258
+    # 74.7
+    # 0.253
 
 
 def test_fg11top_mult():
