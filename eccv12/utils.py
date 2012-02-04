@@ -32,6 +32,8 @@ class ImgLoaderResizer(object):
         if self.normalize:
             rval -= rval.mean()
             rval /= max(rval.std(), 1e-3)
+        else:
+            rval /= 255.0
         assert rval.shape == (200, 200)
         return rval
 
