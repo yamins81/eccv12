@@ -271,7 +271,7 @@ class Bandit(BaseBandit):
             blob = cPickle.dumps(dict(
                 DevTrain=np.zeros(2200),
                 DevTest=np.zeros(1000),
-                ))
+                ), -1)
             ctrl.attachments['decisions'] = blob
 
         prog_fn = genson.JSONFunction(prog[progkey])
