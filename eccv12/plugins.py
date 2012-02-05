@@ -33,7 +33,9 @@ def fetch_decisions(split, ctrl):
     Load the accumulated decisions of models selected for the ensemble,
     for the verification examples of the given split.
     """
-    return ctrl.attachments['decisions'][split]
+    blob = ctrl.attachments['decisions']
+    dct = cPickle.loads(blob)
+    return dct[split]
 
 
 @genson.lazy
@@ -264,6 +266,13 @@ class Bandit(BaseBandit):
                 comparison=config['comparison'],
                 preproc=config['preproc'],
                 namebase=namebase)[1]
+
+        if 'decisions' not in ctrl.attachments:
+            blob = cPickle.dumps(dict(
+                DevTrain=np.zeros(2200),
+                DevTest=np.zeros(1000),
+                ))
+            ctrl.attachments['decisions'] = blob
 
         prog_fn = genson.JSONFunction(prog[progkey])
         result = prog_fn(ctrl=ctrl)

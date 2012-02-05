@@ -125,10 +125,6 @@ def test_fg11top():
     bandit = FG11TopBandit()
     config = bandit.template.sample(1)
     ctrl = hyperopt.Ctrl()
-    ctrl.attachments['decisions'] = dict(
-        DevTrain=np.zeros(2200),
-        DevTest=np.zeros(1000),
-        )
     # progkey == result means no cleanup memmaps
     result = bandit.evaluate(config, ctrl, progkey='result')
 
@@ -262,10 +258,6 @@ def test_cvprtop():
     bandit = CVPRTopBandit()
     config = bandit.template.sample(1)
     ctrl = hyperopt.Ctrl()
-    ctrl.attachments['decisions'] = dict(
-        DevTrain=np.zeros(2200),
-        DevTest=np.zeros(1000),
-        )
     result = bandit.evaluate(config, ctrl)
 
     print result['train_accuracy']
