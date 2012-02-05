@@ -252,8 +252,8 @@ def screening_program(slm_desc, comparison, preproc, namebase):
 class Bandit(BaseBandit):
     param_gen = dict(
             slm=model_params.fg11_desc,
-            comparison='mult',
-            preproc={'global_normalize': 1},
+            comparison=model_params.choice(['mult', 'sqrtabsdiff']),
+            preproc={'global_normalize': 0}, #--redundant with lnorm in slm
             )
     def evaluate(self, config, ctrl, namebase=None,
             progkey='result_w_cleanup'):
