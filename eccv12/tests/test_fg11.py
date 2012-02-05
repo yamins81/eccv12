@@ -117,7 +117,7 @@ class FG11TopBandit(plugins.Bandit):
     param_gen = dict(
             slm=model_params.fg11_top,
             comparison='sqrtabsdiff',
-            preproc={'global_normalize': 1},
+            preproc={'global_normalize': 0},
             )
 
 def test_fg11top():
