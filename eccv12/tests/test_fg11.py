@@ -60,7 +60,7 @@ def test_classifier_from_fg11_saved_features():
     prog = screening_program({},
                              comparison='sqrtabsdiff',
                              preproc=None,
-                             namebase='asdf_l3_150fd_sqrtabsdiff')
+                             namebase='asdf_l3_150fd_sqrtabsdiff')[1]
 
     image_features = prog['image_features']
 
@@ -84,7 +84,7 @@ def test_classifier_from_fg11_saved_features():
     #print genson.dumps(fg11_prog, pretty_print=True)
     result = fn(ctrl=ctrl)
     print result
-    assert result['test_accuracy'] > 81.0  # -- I just saw it score 81.7 (Feb 2012)
+    assert result['test_accuracy'] > 81.0  # -- I just saw it score 82.3 (Feb 2012)
 
 
 def test_imgs():
