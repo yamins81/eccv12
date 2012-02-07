@@ -1,8 +1,5 @@
 import cPickle
-
-
 import os
-#import hashlib
 
 from thoreano.slm import SLMFunction
 
@@ -13,7 +10,6 @@ import numpy as np
 
 import genson
 
-#from .classifier import train_only_asgd
 from .classifier import get_result
 from .toyproblem import normalize_Xcols
 from .toyproblem import train_svm
