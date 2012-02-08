@@ -17,7 +17,10 @@ if 'THEANO_FLAGS' not in os.environ:
         #stderr=subprocess.PIPE,
         )
     my_gpu = proc.communicate()[0]
-    THEANO_FLAGS = 'device=gpu%i' % int(my_gpu)
+    if my_gpu:
+        THEANO_FLAGS = 'device=gpu%i' % int(my_gpu)
+    else:
+        THEANO_FLAGS = ''
     if os.path.exists('/scratch_local'):
         THEANO_FLAGS += ',base_compiledir=/scratch_local/eccv12.theano'
     os.environ['THEANO_FLAGS'] = THEANO_FLAGS
