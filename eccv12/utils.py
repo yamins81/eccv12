@@ -8,11 +8,12 @@ class ImgLoaderResizer(object):
     def __init__(self, shape=None, ndim=None, dtype='float32', normalize=True,
                  crop=None):
         assert len(shape) == 2
-        if crop is not None:
-            assert len(crop) == 4
-            l, t, r, b = crop
-            assert 0 <= l < r <= 250
-            assert 0 <= t < b <= 250 
+        shape = tuple(shape)
+        assert len(crop) == 4
+        crop = tuple(crop)
+        l, t, r, b = crop
+        assert 0 <= l < r <= 250
+        assert 0 <= t < b <= 250 
         self._crop = crop   
         assert dtype == 'float32'
         self._shape = shape
