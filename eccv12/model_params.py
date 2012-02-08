@@ -61,7 +61,6 @@ fg11_desc = [[('lnorm', lnorm)],
              ('lnorm', lnorm)],
            ]
 
-
 lfwtop = [[('lnorm',{'kwargs':{'inker_shape': (9, 9),
                      'outker_shape': (9, 9),
                      'stretch':10,
@@ -150,3 +149,37 @@ cvpr_top = [[('lnorm',
          'remove_mean': 1,
          'stretch': 0.1,
          'threshold': 1}})]]
+         
+         
+crop_choice = choice([[0, 0, 250, 250],
+                      [25, 25, 175, 175],
+                      [63, 88, 188, 163]])
+                      
+l3_params = {'slm': [[('lnorm', lnorm)],
+                     [('fbcorr', filter1),
+                      ('lpool', lpool_sub2),
+                     ('lnorm', lnorm)],
+                     [('fbcorr', filter2),
+                      ('lpool', lpool_sub2),
+                      ('lnorm', lnorm)],
+                     [('fbcorr', filter3),
+                      ('lpool', lpool_sub2),
+                      ('lnorm', lnorm)],
+                    ],
+             'preproc': {'global_normalize': 0,
+                         'crop': crop_choice,
+                         'size': [200, 200]}} 
+                                          
+l2_params = {'slm': [[('lnorm', lnorm)],
+                     [('fbcorr', filter1),
+                      ('lpool', lpool_sub2),
+                     ('lnorm', lnorm)],
+                     [('fbcorr', filter2),
+                      ('lpool', lpool_sub2),
+                      ('lnorm', lnorm)]
+                    ],
+             'preproc': {'global_normalize': 0,
+                         'crop': crop_choice,
+                         'size': [100, 100]}}
+                         
+main_params = choice([l3_params, l2_params])

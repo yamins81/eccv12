@@ -43,16 +43,21 @@ def get_images(dtype, preproc):
 
     """
     if preproc is None:
-        preproc = {'global_normalize': True}
+        preproc = {}
     else:
         assert 'global_normalize' in preproc
+    
+    global_normalize = preproc.get('global_normalize', True)
+    size = tuple(preproc.get('size', [250, 250]))
+    crop = tuple(preproc.get('crop', [0, 0, 250, 250]))
 
     all_paths = skdata.lfw.Aligned().raw_classification_task()[0]
     rval = larray.lmap(
                 ImgLoaderResizer(
-                    shape=(200, 200),  # lfw-specific
                     dtype=dtype,
-                    normalize=preproc['global_normalize']),
+                    shape=size,
+                    crop=crop,
+                    normalize=global_normalize),
                 all_paths)
     return rval
 
@@ -247,7 +252,7 @@ def screening_program(slm_desc, comparison, preproc, namebase):
     return result_w_cleanup, locals()
 
 
-class Bandit(BaseBandit):
+class FG11Bandit(BaseBandit):
     param_gen = dict(
             slm=model_params.fg11_desc,
             comparison=model_params.choice(['mult', 'sqrtabsdiff']),
@@ -262,6 +267,35 @@ class Bandit(BaseBandit):
                 slm_desc=config['slm'],
                 comparison=config['comparison'],
                 preproc=config['preproc'],
+                namebase=namebase)[1]
+
+        if 'decisions' not in ctrl.attachments:
+            blob = cPickle.dumps(dict(
+                DevTrain=np.zeros(2200),
+                DevTest=np.zeros(1000),
+                ), -1)
+            ctrl.attachments['decisions'] = blob
+
+        prog_fn = genson.JSONFunction(prog[progkey])
+        result = prog_fn(ctrl=ctrl)
+        print result
+        return result
+
+
+class MainBandit(BaseBandit):
+    param_gen = dict(
+            model=model_params.main_params,
+            comparison=model_params.choice(['mult', 'sqrtabsdiff']),
+            )
+
+    def evaluate(self, config, ctrl, namebase=None,
+            progkey='result_w_cleanup'):
+        if namebase is None:
+            namebase = namebase='memmap_' + str(np.random.randint(1e8))
+        prog = screening_program(
+                slm_desc=config['model']['slm'],
+                preproc=config['model']['preproc'],
+                comparison=config['comparison'],
                 namebase=namebase)[1]
 
         if 'decisions' not in ctrl.attachments:
