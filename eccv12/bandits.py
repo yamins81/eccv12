@@ -16,6 +16,13 @@ class BaseBandit(gb.GensonBandit):
         super(BaseBandit, self).__init__(source_string=gh.string(self.param_gen))
         self.attach_weights = attach_weights
 
+    def status(self, result, config=None):
+        try:
+            return result.get('status', 'ok')
+        except:
+            print result.keys()
+            raise
+
     def evaluate(self, config, ctrl):
         result = self.performance_func(config,
                                        self.train_decisions,
