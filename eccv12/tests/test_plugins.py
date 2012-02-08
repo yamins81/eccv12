@@ -34,7 +34,8 @@ def test_print_screening_program():
 
 def test_get_images():
     X = plugins.get_images(dtype='float32', preproc={'size': [200, 200],
-                                                     'global_normalize': 0})
+                                                     'crop': [0, 0, 250, 250],
+                                                     'global_normalize': 0,})
     # XXX: are these faces supposed to be greyscale?
     assert X.dtype == 'float32'
     print X[0].sum()
@@ -44,9 +45,11 @@ def test_get_images():
 
 def test_get_images_size():
     X = plugins.get_images(dtype='float32', preproc={'size': [200, 200],
+                                                     'crop': [0, 0, 250, 250],
                                                      'global_normalize': 0})
 
     Y = plugins.get_images(dtype='float32', preproc={'size': [250, 250],
+                                                     'crop': [0, 0, 250, 250],
                                                      'global_normalize': 0})
                                                      
     im = Image.fromarray(Y[0]*255.)
@@ -61,6 +64,7 @@ def test_get_images_crop():
                                                      'crop': [75, 75, 175, 175],
                                                      'global_normalize': 0})
     Y = plugins.get_images(dtype='float32', preproc={'size': [250, 250],
+                                                     'crop': [0, 0, 250, 250],
                                                      'global_normalize': 0})
     
     im = Image.fromarray(Y[0][75:175, 75:175]*255.)

@@ -41,23 +41,20 @@ def get_images(dtype, preproc):
 
     XXX: Should the images really be returned in greyscale?
 
+    preproc : a dictionary with keys:
+        global_normalize - True / False
+        size - (height, width)
+        crop - (l, t, r, b)
+
     """
-    if preproc is None:
-        preproc = {}
-    else:
-        assert 'global_normalize' in preproc
-    
-    global_normalize = preproc.get('global_normalize', True)
-    size = tuple(preproc.get('size', [250, 250]))
-    crop = tuple(preproc.get('crop', [0, 0, 250, 250]))
 
     all_paths = skdata.lfw.Aligned().raw_classification_task()[0]
     rval = larray.lmap(
                 ImgLoaderResizer(
                     dtype=dtype,
-                    shape=size,
-                    crop=crop,
-                    normalize=global_normalize),
+                    shape=preproc['size'],
+                    crop=preproc['crop'],
+                    normalize=preproc['global_normalize']),
                 all_paths)
     return rval
 
@@ -256,7 +253,10 @@ class FG11Bandit(BaseBandit):
     param_gen = dict(
             slm=model_params.fg11_desc,
             comparison=model_params.choice(['mult', 'sqrtabsdiff']),
-            preproc={'global_normalize': 0}, #--redundant with lnorm in slm
+            preproc={'global_normalize': 0,
+                     'size': [200, 200],
+                     'crop': [0, 0, 250, 250],
+                    }, # XXX: THIS IS NOT TESTED SINCE CHANGING THE CROPPING
             )
 
     def evaluate(self, config, ctrl, namebase=None,
