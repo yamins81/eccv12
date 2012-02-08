@@ -1,5 +1,7 @@
 import cPickle
 import numpy as np
+import scipy
+from PIL import Image
 
 import skdata.lfw
 from hyperopt.base import Ctrl
@@ -31,13 +33,41 @@ def test_print_screening_program():
 
 
 def test_get_images():
-    X = plugins.get_images(dtype='float32')
+    X = plugins.get_images(dtype='float32', preproc={'size': [200, 200],
+                                                     'global_normalize': 0})
     # XXX: are these faces supposed to be greyscale?
     assert X.dtype == 'float32'
     print X[0].sum()
     assert X[0].sum() != 0
     assert X.shape == (13233, 200, 200), X.shape
 
+
+def test_get_images_size():
+    X = plugins.get_images(dtype='float32', preproc={'size': [200, 200],
+                                                     'global_normalize': 0})
+
+    Y = plugins.get_images(dtype='float32', preproc={'size': [250, 250],
+                                                     'global_normalize': 0})
+                                                     
+    im = Image.fromarray(Y[0]*255.)
+    im = im.resize((200, 200), Image.ANTIALIAS)
+    ar = scipy.misc.fromimage(im)/255.
+    assert np.abs(ar - X[0]).max() < .1
+    
+
+
+def test_get_images_crop():
+    X = plugins.get_images(dtype='float32', preproc={'size': [250, 250],
+                                                     'crop': [75, 75, 175, 175],
+                                                     'global_normalize': 0})
+    Y = plugins.get_images(dtype='float32', preproc={'size': [250, 250],
+                                                     'global_normalize': 0})
+    
+    im = Image.fromarray(Y[0][75:175, 75:175]*255.)
+    im = im.resize((250, 250), Image.ANTIALIAS)
+    ar = scipy.misc.fromimage(im)/255.
+    assert np.abs(ar - X[0]).max() < .005
+    
 
 def test_verification_pairs_0():
     l, r = plugins._verification_pairs_helper(
