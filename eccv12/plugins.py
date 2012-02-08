@@ -253,6 +253,7 @@ class Bandit(BaseBandit):
             comparison=model_params.choice(['mult', 'sqrtabsdiff']),
             preproc={'global_normalize': 0}, #--redundant with lnorm in slm
             )
+
     def evaluate(self, config, ctrl, namebase=None,
             progkey='result_w_cleanup'):
         if namebase is None:
