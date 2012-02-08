@@ -61,16 +61,16 @@ def test_get_images_size():
 
 def test_get_images_crop():
     X = plugins.get_images(dtype='float32', preproc={'size': [250, 250],
-                                                     'crop': [75, 75, 175, 175],
+                                                     'crop': [75, 100, 175, 175],
                                                      'global_normalize': 0})
     Y = plugins.get_images(dtype='float32', preproc={'size': [250, 250],
                                                      'crop': [0, 0, 250, 250],
                                                      'global_normalize': 0})
     
-    im = Image.fromarray(Y[0][75:175, 75:175]*255.)
+    im = Image.fromarray(Y[0][100:175, 75:175]*255.)
     im = im.resize((250, 250), Image.ANTIALIAS)
     ar = scipy.misc.fromimage(im)/255.
-    assert np.abs(ar - X[0]).max() < .005
+    assert np.abs(ar - X[0]).max() < .005, np.abs(ar - X[0]).max()
     
 
 def test_verification_pairs_0():
