@@ -12,10 +12,10 @@ import lfw
 class BaseBandit(gb.GensonBandit):
     # Required: self.param_gen
 
-    def __init__(self, attach_weights=False):
-        super(BaseBandit, self).__init__(source_string=gh.string(self.param_gen))
-        self.attach_weights = attach_weights
-
+    def __init__(self, decisions = None):
+        super(BaseBandit, self).__init__(source_string=gh.string(self.param_gen)) 
+        self.decisions = decisions
+        
     def status(self, result, config=None):
         try:
             return result.get('status', 'ok')
@@ -24,18 +24,12 @@ class BaseBandit(gb.GensonBandit):
             raise
 
     def evaluate(self, config, ctrl):
-        result = self.performance_func(config,
-                                       self.train_decisions,
-                                       self.test_decisions)
-        assert 'train_decisions' in result
-        assert 'test_decisions' in result
-
-        if self.attach_weights:
-            model_data = {'weights': result.pop('weights'),
-                          'bias': result.pop('bias')}
-            model_blob = cPickle.dumps(model_data)
-            ctrl.set_attachment(model_blob, 'model_data')
-
+        result = self.performance_func(config, self.decisions)
+        assert 'decisions' in result
+        model_data = {'weights': result.pop('weights'),
+                      'bias': result.pop('bias')}
+        model_blob = cPickle.dumps(model_data)
+        ctrl.attachment['model_data'] = model_blob
         return result
 
 
@@ -46,10 +40,12 @@ class LFWBase(object):
     - comparison - name from ".comparison" module
 
     """
-    def performance_func(self, config, train_decisions, test_decisions):
+    ###this does not work right now, since lfw_get_performance expects
+    ###both train_dcisiosn and test_decisions ... the exact format needs to be 
+    ###worked out
+    def performance_func(self, config, decisions):
         return lfw.get_performance(config['slm'],
-                                   train_decisions,
-                                   test_decisions,
+                                   decisions,
                                    config['comparison'])
 
 

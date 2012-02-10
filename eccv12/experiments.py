@@ -15,102 +15,122 @@ from hyperopt.experiments import SerialExperiment
 from hyperopt.mongoexp import MongoJobs, MongoExperiment, as_mongo_str
 
 
-class BoostedSerialExperiment(hyperopt.base.Experiment):
-    """
-    boosted serial experiment
-    """
+class SimpleMixer(object):    
+    def __init__(self, exp):
+        self.exp = exp
+        
+    def mix_inds(self, A):
+        exp = self.exp
+        assert len(exp.results) >= A
+        losses = np.array([x['loss'] for x in exp.results])
+        s = losses.argsort()
+        return s[:A]
+    
+    def mix_models(self, A):
+        exp = self.exp
+        inds = self.mix_inds(A)
+        return [exp.trials[ind] for ind in inds]
 
-    def __init__(self, bandit_algo_class, bandit_class):
+
+class AdaboostMixer(SimpleMixer):    
+    def mix_inds(self, A):
+        exp = self.exp
+        assert len(exp.results) >= A
+        labels = np.array([_r['training_labels'] for _r in exp.results])
+        assert (labels == labels[0]).all()
+        labels = labels[0]
+        predictions = np.array([_r['training_predictions'] for _r in exp.results])
+        errors = (predictions != labels).astype(np.int)
+        L = len(self.labels)
+        weights = (1./L) * np.ones((L,))
+        selected_inds = []
+        for round in range(A):
+            ep_array = np.dot(errors, weights)
+            ep_diff_array = np.abs(0.5 - ep_array)
+            ind = ep_diff_array.argmax()
+            selected_inds.append(ind)
+            ep = ep_array[ind]
+            alpha = 0.5 * log((1 - ep) / ep)
+            prediction = np.array(predictions[ind])
+            weights = weights * np.exp(-alpha * labels * prediction)
+            weights = weights / weights.sum()
+        return selected_inds
+
+
+class BoostedExperiment(hyperopt.base.Experiment):
+    """
+    boosted experiment base
+    expects init_experiment to be defined by subclasses
+    """
+    def __init__(self, bandit_algo_class, bandit_class, boost_rounds, opt_runs):
         self.bandit_algo_class = bandit_algo_class
         self.bandit_class = bandit_class
-        
+        self.boost_rounds = boost_rounds
         self.experiments = []
+        self.exp = None
         self.trials = []
         self.results = []
-        self.trial_rounds = []
-        self.result_rounds = []
         self.boost_round = 0
         self.train_decisions = 0
-        self.test_decisions = 0
+        self.decisions = None
         self.selected_inds = []
-
-    def run(self, boost_rounds, opt_runs):
+        
+    def run(self):
         algo_class = self.bandit_algo_class
         bandit_class = self.bandit_class
-        for _round in xrange(boost_rounds):
-            bandit = bandit_class(self.train_decisions,
-                                  self.test_decisions,
-                                  attach_weights=False)
-            bandit_algo = bandit_algo_class(bandit)
-            exp = SerialExperiment(bandit_algo)
-            self.experiments.append(exp)
-            exp.run(opt_runs)
-            self.trial_rounds.append(exp.trials)
-            self.result_rounds.append(exp.results)
-            for trial, result in zip(exp.trials, exp.results):
-                trial['boosting_round'] = self.boost_round
-                result['boosting_round'] = self.boost_round
-                self.trials.append(trial)
-                self.results.append(result)
+        while self.boost_round < self.boost_rounds:
+            ###do number of trials always line with num results??
+            ###how does this relate to errors, esp. in mongoexp?
+            if not self.exp or len(self.exp.trials) >= opt_runs:
+                self.exp = exp = self.init_experiment(self.decisions)
+                self.experiments.append(self.exp)
+            else:
+                exp = self.exp
+            num_done = len(exp.trials)
+            exp.run(opt_runs - num_done)
+            for tr, res in zip(exp.trials, exp.results):
+                tr['boosting_round'] = res['boosting_round'] = self.boost_round
+                self.trials.append(tr)
+                self.results.append(res)
             loss = np.array([_r['loss'] for r in exp.results])
             selected_ind = loss.argmin()
             self.selected_inds.append(selected_ind)
-            self.train_decisions = np.array(exp.results[selected_ind]['train_decisions'])
-            self.test_decisions = np.array(exp.results[selected_ind]['test_decisions'])
+            self.decisions = np.array(exp.results[selected_ind]['decisions'])
             self.boost_round += 1
 
 
-class BoostedMongoExperiment(hyperopt.base.Experiment):
+class BoostedSerialExperiment(BoostedExperiment):
+    def init_experiment(self, decisions):
+        bandit = self.bandit_class(decisions)
+        bandit_algo = self.bandit_algo_class(bandit)
+        return SerialExperiment(bandit_algo)
+    
+
+class BoostedMongoExperiment(BoostedExperiment):
     """
     boosted mongo experiment
     """
-
     def __init__(self,
                  bandit_algo_class,
                  bandit_class,
+                 boost_rounds,
+                 opt_runs
                  workdir=None,
                  mongo_opts=None):
-        self.bandit_algo_class = bandit_algo_class
-        self.bandit_class = bandit_class
+        BoostedExperiment.__init__(self,
+                                   bandit_algo_class,
+                                   bandit_class,
+                                   boost_rounds,
+                                   opt_runs)
         self.workdir = workdir
         self.mongo_opts = mongo_opts
         
-        self.experiments = []
-        self.trials = []
-        self.results = []
-        self.trial_rounds = []
-        self.result_rounds = []
-        self.boost_round = 0
-        self.train_decisions = 0
-        self.test_decisions = 0
-        self.selected_inds = []
-
-    def run(self, boost_rounds, opt_runs):
-        algo_class = self.bandit_algo_class
-        bandit_class = self.bandit_class
-        for _round in xrange(boost_rounds):
-            exp = init_mongo_exp(bandit_algo_class,
-                                 bandit_class,
-                                 bandit_argv=(self.train_decisions,
-                                              self.test_decisions),
-                                 bandit_kwargs={'attach_weights': True},
-                                 workdir=self.workdir,
-                                 mongo_opts=mongo_opts)
-            self.experiments.append(exp)
-            exp.run(opt_runs, block_until_done=True)
-            self.trial_rounds.append(exp.trials)
-            self.result_rounds.append(exp.results)
-            for trial, result in zip(exp.trials, exp.results):
-                trial['boosting_round'] = self.boost_round
-                result['boosting_round'] = self.boost_round
-                self.trials.append(trial)
-                self.results.append(result)
-            loss = np.array([_r['loss'] for r in exp.results])
-            selected_ind = loss.argmin()
-            self.selected_inds.append(selected_ind)
-            self.train_decisions = np.array(exp.results[selected_ind]['train_decisions'])
-            self.test_decisions = np.array(exp.results[selected_ind]['test_decisions'])
-            self.boost_round += 1
+    def init_experiment(self, decisions)
+        return init_mongo_exp(self.bandit_algo_class,
+                              self.bandit_class,
+                              bandit_argv=(decisions,)
+                              workdir=self.workdir,
+                              mongo_opts=self.mongo_opts)
 
 
 def init_mongo_exp(algo_name,
@@ -152,7 +172,6 @@ def init_mongo_exp(algo_name,
 
     mj = MongoJobs.new_from_connection_str(as_mongo_str(mongo_opts) + '/jobs')
 
-    ###XXX: should these really by passed as kwargs?
     experiment = MongoExperiment(bandit_algo=algo,
                                  mongo_handle=mj,
                                  workdir=workdir,
