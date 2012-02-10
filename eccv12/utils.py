@@ -40,7 +40,7 @@ class ImgLoaderResizer(object):
             im = im.crop(self._crop)
         l, t, r, b = self._crop
         assert im.size == (r - l, b - t)
-        if max(im.size) > self._shape[0]:
+        if max(im.size) != self._shape[0]:
             m = self._shape[0]/float(max(im.size))
             new_shape = (int(round(im.size[0]*m)), int(round(im.size[1]*m)))
             im = im.resize(new_shape, Image.ANTIALIAS)
