@@ -14,6 +14,8 @@ import hyperopt.utils as utils
 from hyperopt.experiments import SerialExperiment
 from hyperopt.mongoexp import MongoJobs, MongoExperiment, as_mongo_str
 
+###XXX:  The code in here is not tested ... it is just a sketch
+###XXX:  I'm waiting on the final format of the bandit return before finishing this!
 
 class SimpleMixer(object):    
     def __init__(self, exp):
