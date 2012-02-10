@@ -153,7 +153,7 @@ cvpr_top = [[('lnorm',
          
 crop_choice = choice([[0, 0, 250, 250],
                       [25, 25, 175, 175],
-                      [63, 88, 188, 163]])
+                      [88, 63, 163, 188]])
                       
 l3_params = {'slm': [[('lnorm', lnorm)],
                      [('fbcorr', filter1),
