@@ -282,7 +282,8 @@ def screening_program(slm_desc, comparison, preproc, namebase):
     return result_w_cleanup, locals()
 
 
-def get_performance(slm, preproc, comparison, ctrl, namebase=None):
+def get_performance(slm, preproc, comparison, ctrl,
+                    namebase=None, progkey='result_w_cleanup'):
     if namebase is None:
         namebase = 'memmap_' + str(np.random.randint(1e8))
     prog = screening_program(
