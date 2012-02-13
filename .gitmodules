@@ -1,0 +1,12 @@
+[submodule "pyll"]
+	path = pyll
+	url = git://github.com/jaberg/pyll.git
+[submodule "hyperopt"]
+	path = hyperopt
+	url = git@github.com:jaberg/hyperopt.git
+[submodule "simple_setup"]
+	path = simple_setup
+	url = git://github.com/braingram/simple_setup.git
+[submodule "asgd"]
+	path = asgd
+	url = git://github.com/jaberg/asgd.git
