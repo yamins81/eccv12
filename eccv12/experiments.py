@@ -27,12 +27,12 @@ class SimpleMixer(object):
         assert len(exp.results) >= A
         losses = np.array([x['loss'] for x in exp.results])
         s = losses.argsort()
-        return s[:A]
+        return s[:A], np.ones((len(A),))
     
     def mix_models(self, A):
         exp = self.exp
-        inds = self.mix_inds(A)
-        return [exp.trials[ind] for ind in inds]
+        inds, weights = self.mix_inds(A)
+        return [exp.trials[ind] for ind in inds], weights
 
 
 class AdaboostMixer(SimpleMixer):
@@ -67,6 +67,7 @@ class AdaboostMixer(SimpleMixer):
         L = len(self.labels)
         weights = (1./L) * np.ones((L,))
         selected_inds = []
+        alphas = []
         for round in range(A):
             ep_array = np.dot(errors, weights)
             ep_diff_array = np.abs(0.5 - ep_array)
@@ -74,10 +75,11 @@ class AdaboostMixer(SimpleMixer):
             selected_inds.append(ind)
             ep = ep_array[ind]
             alpha = 0.5 * log((1 - ep) / ep)
+            alphas.append(alpha)
             prediction = np.array(predictions[ind])
             weights = weights * np.exp(-alpha * labels * prediction)
             weights = weights / weights.sum()
-        return selected_inds
+        return selected_inds, np.array(alphas)
 
 
 class BoostedExperiment(hyperopt.base.Experiment):
