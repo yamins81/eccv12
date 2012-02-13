@@ -11,7 +11,7 @@ def validate_result(result):
     assert set(result['decisions'].keys()) == set(result['labels'].keys())
     decs = result['decisions']
     labs = result['labels']
-    assert all([len(decs[k]) == len(labs[k]) for k in dec])
+    assert all([len(decs[k]) == len(labs[k]) for k in decs])
 
 
 class BaseBandit(gb.GensonBandit):
