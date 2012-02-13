@@ -14,8 +14,9 @@ import hyperopt.utils as utils
 from hyperopt.experiments import SerialExperiment
 from hyperopt.mongoexp import MongoJobs, MongoExperiment, as_mongo_str
 
-###XXX:  The code in here is not tested ... it is just a sketch
-###XXX:  I'm waiting on the final format of the bandit return before finishing this!
+###XXX:  Code here requires that experiment result records pass validation from
+###bandit.py 
+
 
 class SimpleMixer(object):    
     def __init__(self, exp):
@@ -34,14 +35,34 @@ class SimpleMixer(object):
         return [exp.trials[ind] for ind in inds]
 
 
-class AdaboostMixer(SimpleMixer):    
-    def mix_inds(self, A):
+class AdaboostMixer(SimpleMixer):
+    def fetch_labels(self, splitname):
+        exp = self.exp
+        labels = np.array([_r['labels'][splitname] for _r in exp.results])
+        assert (labels == labels[0]).all()
+        assert labels.ndim == 2
+        assert set(np.unique(labels)) == set([-1, 1])
+        labels = labels[0]
+        return labels
+        
+    def fetch_decisions(self, splitname):
+        exp = self.exp
+        decisions = np.array([_r['decisions'][splitname] for _r in exp.results])
+        assert decisions.ndim == 2
+        return decisions
+        
+    def predictions_from_decisions(self, decisions):
+        return np.sign(decisions)
+        
+    def fetch_predictions(self, splitname):
+        decisions = self.fetch_decisions(splitname)
+        return self.predictions_from_decisions(decisions)
+        
+    def mix_inds(self, A, splitname):
         exp = self.exp
         assert len(exp.results) >= A
-        labels = np.array([_r['training_labels'] for _r in exp.results])
-        assert (labels == labels[0]).all()
-        labels = labels[0]
-        predictions = np.array([_r['training_predictions'] for _r in exp.results])
+        labels = self.fetch_labels(splitname)        
+        predictions = self.fetch_predictions(splitname)
         errors = (predictions != labels).astype(np.int)
         L = len(self.labels)
         weights = (1./L) * np.ones((L,))
@@ -116,7 +137,7 @@ class BoostedMongoExperiment(BoostedExperiment):
                  bandit_algo_class,
                  bandit_class,
                  boost_rounds,
-                 opt_runs
+                 opt_runs,
                  workdir=None,
                  mongo_opts=None):
         BoostedExperiment.__init__(self,
@@ -127,10 +148,10 @@ class BoostedMongoExperiment(BoostedExperiment):
         self.workdir = workdir
         self.mongo_opts = mongo_opts
         
-    def init_experiment(self, decisions)
+    def init_experiment(self, decisions):
         return init_mongo_exp(self.bandit_algo_class,
                               self.bandit_class,
-                              bandit_argv=(decisions,)
+                              bandit_argv=(decisions,),
                               workdir=self.workdir,
                               mongo_opts=self.mongo_opts)
 
