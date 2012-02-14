@@ -302,8 +302,8 @@ def regression_stats(actual, predicted, prefix='test'):
     return {prefix+'_rsquared' : test_rsquared}
 
 def get_result(train_labels, test_labels, train_prediction, test_prediction, labels):
-    assert all(l in labels for l in train_prediction)
-    assert all(l in labels for l in test_prediction)
+    assert all(l in labels for l in train_prediction), np.unique([l for l in train_predictions if l not in labels])
+    assert all(l in labels for l in test_prediction), np.unique([l for l in test_predictions if l not in labels])
     result = {'train_errors': (train_labels != train_prediction).tolist(),
      'test_errors': (test_labels != test_prediction).tolist(),
      'train_prediction': train_prediction.tolist(),
