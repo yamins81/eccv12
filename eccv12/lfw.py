@@ -205,8 +205,8 @@ def result_binary_classifier_stats(
     result = dict(result)
     stats = get_result(train_data[1],
                              test_data[1],
-                             np.sign(train_decisions),
-                             np.sign(test_decisions),
+                             np.sign(train_decisions).astype(np.int),
+                             np.sign(test_decisions).astype(np.int),
                              [-1, 1])
     result.update(stats)
     result['loss'] = float(1 - result['test_accuracy']/100.)
