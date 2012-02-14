@@ -18,7 +18,6 @@ def test_boosted_serial():
     exp = experiments.BoostedSerialExperiment(hyperopt.Random,
                                               eccv12.lfw.TestBandit,
                                               2, 1)
-
     exp.run()
     assert len(exp.results) == 2
     
@@ -29,7 +28,6 @@ def test_boosted_mongo():
                                              2,
                                              1,
                                              mongo_opts='localhost:27017/testdb')
-
     exp.run()
     assert len(exp.results) == 2
         
