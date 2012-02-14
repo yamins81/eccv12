@@ -27,7 +27,7 @@ class SimpleMixer(object):
         assert len(exp.results) >= A
         losses = np.array([x['loss'] for x in exp.results])
         s = losses.argsort()
-        return s[:A], np.ones((len(A),))
+        return s[:A], np.ones((A,)) / float(A)
     
     def mix_models(self, A):
         exp = self.exp
@@ -52,7 +52,7 @@ class AdaboostMixer(SimpleMixer):
         return decisions
         
     def predictions_from_decisions(self, decisions):
-        return np.sign(decisions)
+        return np.sign(decisions).astype(np.int)
         
     def fetch_predictions(self, splitname):
         decisions = self.fetch_decisions(splitname)
@@ -64,7 +64,7 @@ class AdaboostMixer(SimpleMixer):
         labels = self.fetch_labels(splitname)        
         predictions = self.fetch_predictions(splitname)
         errors = (predictions != labels).astype(np.int)
-        L = len(self.labels)
+        L = len(labels)
         weights = (1./L) * np.ones((L,))
         selected_inds = []
         alphas = []
