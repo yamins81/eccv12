@@ -14,11 +14,102 @@ import hyperopt.utils as utils
 from hyperopt.experiments import SerialExperiment
 from hyperopt.mongoexp import MongoJobs, MongoExperiment, as_mongo_str
 
-###XXX:  Code here requires that experiment result records pass validation from
-###bandit.py 
+###XXX:  Code in this module requires that experiment result records satisfy 
+###validation in bandit.py 
 
 
-class SimpleMixer(object):    
+DEFAULT_MONGO_WORKDIR = None
+DEFAULT_MONGO_MONGO_OPTS = 'localhost/hyperopt'
+
+
+class SerialMixin(object):
+    def init_experiment(self, *args, **kwargs):
+        bandit = self.bandit_class(*args, **kwargs)
+        bandit_algo = self.bandit_algo_class(bandit)
+        return SerialExperiment(bandit_algo)
+
+
+class MongoMixin(object):
+    def init_experiment(self, *args, **kwargs):
+        workdir = getattr(self, 'workdir', DEFAULT_MONGO_WORKDIR)
+        mongo_opts = getattr(self, 'mongo_opts', DEFAULT_MONGO_MONGO_OPTS)
+        return init_mongo_exp(self.bandit_algo_class,
+                              self.bandit_class,
+                              bandit_argv=args,
+                              bandit_kwargs=kwargs,
+                              workdir=workdir,
+                              mongo_opts=mongo_opts)
+
+
+def init_mongo_exp(algo_name,
+                   bandit_name,
+                   bandit_argv=(),
+                   bandit_kwargs=None,
+                   algo_argv=(),
+                   algo_kwargs=None,
+                   workdir=None,
+                   clear_existing=False,
+                   force_lock=False,
+                   mongo_opts='localhost/hyperopt'):
+
+    ###XXX:  OK so this is ripped off from the code in hyperopt.mongoexp
+    ###Perhaps it would be useful to modulized this functionality in a 
+    ###new function in hyperopt.mongoexp, and then just call it here?
+
+    if bandit_kwargs is None:
+        bandit_kwargs = {}
+    if algo_kwargs is None:
+        algo_kwargs = {}
+    if workdir is None:
+        workdir = os.path.expanduser('~/.hyperopt.workdir')
+    bandit = utils.json_call(bandit_name, bandit_argv, bandit_kwargs)
+    algo = utils.json_call(algo_name, (bandit,) + algo_argv, algo_kwargs)
+    bandit_argfile_text = cPickle.dumps((bandit_argv, bandit_kwargs))
+    algo_argfile_text = cPickle.dumps((algo_argv, algo_kwargs))    
+    m = hashlib.md5()  ###XXX: why do we use md5 and not sha1? 
+    m.update(bandit_argfile_text)
+    m.update(algo_argfile_text)
+    exp_key = '%s/%s[arghash:%s]' % (bandit_name, algo_name, m.hexdigest())
+    del m
+    worker_cmd = ('driver_attachment', exp_key)
+    mj = MongoJobs.new_from_connection_str(as_mongo_str(mongo_opts) + '/jobs')
+    experiment = MongoExperiment(bandit_algo=algo,
+                                 mongo_handle=mj,
+                                 workdir=workdir,
+                                 exp_key=exp_key,
+                                 cmd=worker_cmd)
+    experiment.ddoc_get()  
+    # XXX: this is bad, better to check what bandit_tuple is already there
+    #      and assert that it matches if something is already there
+    experiment.ddoc_attach_bandit_tuple(bandit_name,
+                                        bandit_argv,
+                                        bandit_kwargs)
+    if clear_existing:
+        print >> sys.stdout, "Are you sure you want to delete",
+        print >> sys.stdout, ("all %i jobs with exp_key: '%s' ?"
+                % (mj.jobs.find({'exp_key':exp_key}).count(),
+                    str(exp_key)))
+        print >> sys.stdout, '(y/n)'
+        y, n = 'y', 'n'
+        if input() != 'y':
+            print >> sys.stdout, "aborting"
+            del self
+            return 1
+        experiment.ddoc_lock(force=force_lock)
+        experiment.clear_from_db()
+        experiment.ddoc_get()
+        experiment.ddoc_attach_bandit_tuple(bandit_name,
+                                            bandit_argv,
+                                            bandit_kwargs)
+    return experiment
+
+
+
+##############
+###MIXTURES###
+##############
+
+class SimpleMixture(object):    
     def __init__(self, exp):
         self.exp = exp
         
@@ -35,7 +126,7 @@ class SimpleMixer(object):
         return [exp.trials[ind] for ind in inds], weights
 
 
-class AdaboostMixer(SimpleMixer):
+class AdaboostMixture(SimpleMixture):
     def fetch_labels(self, splitname):
         exp = self.exp
         labels = np.array([_r['labels'][splitname] for _r in exp.results])
@@ -82,9 +173,14 @@ class AdaboostMixer(SimpleMixer):
         return selected_inds, np.array(alphas)
 
 
+
+##############
+###PARALLEL###
+##############
+
 class ParallelExperiment(hyperopt.base.Experiment):
     def __init__(self, bandit_algo_class, bandit_class, num_proc, opt_runs,
-                 proc_args=None):
+                 proc_args=None, **init_kwargs):
         self.bandit_algo_class = bandit_algo_class
         self.bandit_class = bandit_class
         self.num_proc = num_proc
@@ -99,6 +195,8 @@ class ParallelExperiment(hyperopt.base.Experiment):
         for _ind, (a, b) in enumerate(proc_args):
             b['parallel_round'] = _ind
         self.proc_args = proc_args
+        for k, v in init_kwargs.items():
+            setattr(self, k, v)
         
     def run(self):
         if self.experiments is None:
@@ -116,14 +214,24 @@ class ParallelExperiment(hyperopt.base.Experiment):
 
     def run_exp(self, exp, N):
         exp.run(N)     
-        
+    
+
+class ParallelMongoExperiment(ParallelExperiment, MongoMixin):        
+    pass
+    
+    
+    
+##############
+###BOOSTING###
+##############
 
 class BoostedExperiment(hyperopt.base.Experiment):
     """
     boosted experiment base
-    expects init_experiment to be defined by subclasses
+    expects init_experiment to be defined by mixin or subclass
     """
-    def __init__(self, bandit_algo_class, bandit_class, boost_rounds, opt_runs):
+    def __init__(self, bandit_algo_class, bandit_class, boost_rounds, opt_runs,
+                 **init_kwargs):
         self.bandit_algo_class = bandit_algo_class
         self.bandit_class = bandit_class
         self.boost_rounds = boost_rounds
@@ -136,6 +244,8 @@ class BoostedExperiment(hyperopt.base.Experiment):
         self.train_decisions = 0
         self.decisions = None
         self.selected_inds = []
+        for k, v in init_kwargs.items():
+            setattr(self, k, v)
         
     def run(self):
         while self.boost_round < self.boost_rounds:
@@ -163,113 +273,10 @@ class BoostedExperiment(hyperopt.base.Experiment):
         exp.run(N)
 
 
-class BoostedSerialExperiment(BoostedExperiment):
-    def init_experiment(self, decisions):
-        bandit = self.bandit_class(decisions)
-        bandit_algo = self.bandit_algo_class(bandit)
-        return SerialExperiment(bandit_algo)
+class BoostedSerialExperiment(BoostedExperiment, SerialMixin):
+    pass
     
 
-class BoostedMongoExperiment(BoostedExperiment):
-    """
-    boosted mongo experiment
-    """
-    def __init__(self,
-                 bandit_algo_class,
-                 bandit_class,
-                 boost_rounds,
-                 opt_runs,
-                 workdir=None,
-                 mongo_opts=None):
-        BoostedExperiment.__init__(self,
-                                   bandit_algo_class,
-                                   bandit_class,
-                                   boost_rounds,
-                                   opt_runs)
-        self.workdir = workdir
-        self.mongo_opts = mongo_opts
-        
-    def init_experiment(self, decisions):
-        return init_mongo_exp(self.bandit_algo_class,
-                              self.bandit_class,
-                              bandit_argv=(decisions,),
-                              workdir=self.workdir,
-                              mongo_opts=self.mongo_opts)
-
-
+class BoostedMongoExperiment(BoostedExperiment, MongoMixin):
     def run_exp(self, exp, N):
         exp.run(N, block_until_done=True)
-
-
-def init_mongo_exp(algo_name,
-                   bandit_name,
-                   bandit_argv=(),
-                   bandit_kwargs=None,
-                   algo_argv=(),
-                   algo_kwargs=None,
-                   workdir=None,
-                   clear_existing=False,
-                   force_lock=False,
-                   mongo_opts='localhost/hyperopt'):
-
-    ###XXX:  OK so this is ripped off from the code in hyperopt.mongoexp
-    ###Perhaps it would be useful to modulized this functionality in a 
-    ###new function in hyperopt.mongoexp, and then just call it here?
-
-    if bandit_kwargs is None:
-        bandit_kwargs = {}
-    if algo_kwargs is None:
-        algo_kwargs = {}
-    if workdir is None:
-        workdir = os.path.expanduser('~/.hyperopt.workdir')
-
-    bandit = utils.json_call(bandit_name, bandit_argv, bandit_kwargs)
-    algo = utils.json_call(algo_name, (bandit,) + algo_argv, algo_kwargs)
-
-    bandit_argfile_text = cPickle.dumps((bandit_argv, bandit_kwargs))
-    algo_argfile_text = cPickle.dumps((algo_argv, algo_kwargs))
- 
-    ###XXX: why do we use md5 and not sha1?  
-    m = hashlib.md5()
-    m.update(bandit_argfile_text)
-    m.update(algo_argfile_text)
-    exp_key = '%s/%s[arghash:%s]' % (bandit_name, algo_name, m.hexdigest())
-    del m
-
-    worker_cmd = ('driver_attachment', exp_key)
-
-    mj = MongoJobs.new_from_connection_str(as_mongo_str(mongo_opts) + '/jobs')
-
-    experiment = MongoExperiment(bandit_algo=algo,
-                                 mongo_handle=mj,
-                                 workdir=workdir,
-                                 exp_key=exp_key,
-                                 cmd=worker_cmd)
-
-    experiment.ddoc_get()  
-    
-    # XXX: this is bad, better to check what bandit_tuple is already there
-    #      and assert that it matches if something is already there
-    experiment.ddoc_attach_bandit_tuple(bandit_name,
-                                        bandit_argv,
-                                        bandit_kwargs)
-
-    if clear_existing:
-        print >> sys.stdout, "Are you sure you want to delete",
-        print >> sys.stdout, ("all %i jobs with exp_key: '%s' ?"
-                % (mj.jobs.find({'exp_key':exp_key}).count(),
-                    str(exp_key)))
-        print >> sys.stdout, '(y/n)'
-        y, n = 'y', 'n'
-        if input() != 'y':
-            print >> sys.stdout, "aborting"
-            del self
-            return 1
-        experiment.ddoc_lock(force=force_lock)
-        experiment.clear_from_db()
-        experiment.ddoc_get()
-        experiment.ddoc_attach_bandit_tuple(bandit_name,
-                                            bandit_argv,
-                                            bandit_kwargs)
-
-    return experiment
