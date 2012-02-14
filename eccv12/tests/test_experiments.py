@@ -33,20 +33,21 @@ def test_boosted_mongo():
         
 
 def test_mixtures():
-    M = 5
-    N = 2
-    
+    M = 5    
     bandit_algo = hyperopt.Random(eccv12.lfw.TestBandit())
     exp = hyperopt.experiments.SerialExperiment(bandit_algo)
     exp.run(M)
+    
+    N = 2
     simple = experiments.SimpleMixture(exp)
     inds, weights = simple.mix_inds(N)
     losses = np.array([_r['loss'] for _r in exp.results])
     s = losses.argsort()
     assert (inds == s[:N]).all()
-    
+
     ada = experiments.AdaboostMixture(exp)
     ada_inds, ada_weights = ada.mix_inds(N)
+    assert len(ada_inds) == 2
     #I'm not 100 sure exactly what to test here ...
     
 
