@@ -82,6 +82,42 @@ class AdaboostMixer(SimpleMixer):
         return selected_inds, np.array(alphas)
 
 
+class ParallelExperiment(hyperopt.base.Experiment):
+    def __init__(self, bandit_algo_class, bandit_class, num_proc, opt_runs,
+                 proc_args=None):
+        self.bandit_algo_class = bandit_algo_class
+        self.bandit_class = bandit_class
+        self.num_proc = num_proc
+        self.opt_runs = opt_runs
+        self.experiments = None
+        self.trials = []
+        self.results = []
+        if proc_args is not None:
+            assert len(proc_args) == num_proc
+        else:
+            proc_args = [((),{}) for _ind in range(num_proc)]
+        for _ind, (a, b) in enumerate(proc_args):
+            b['parallel_round'] = _ind
+        self.proc_args = proc_args
+        
+    def run(self):
+        if self.experiments is None:
+            for a, b in self.proc_args:
+                self.experiments.append(self.init_experiment(*a,**b))
+        num_dones = np.array([len(exp.results) for exp in self.experiments])
+        num_lefts = self.opt_runs - num_dones
+        for exp, num_left in zip(self.experiments, num_lefts):
+            exp.run_exp(num_left)
+        for _ind, exp in enumerate(self.experiments):
+            for tr, res in zip(exp.trials, exp.results):
+                tr['parallel_round'] = res['parallel_round'] = _ind
+                self.trials.append(tr)
+                self.results.append(res)
+
+    def run_exp(self, exp, N):
+        exp.run(N)     
+        
+
 class BoostedExperiment(hyperopt.base.Experiment):
     """
     boosted experiment base
@@ -102,8 +138,6 @@ class BoostedExperiment(hyperopt.base.Experiment):
         self.selected_inds = []
         
     def run(self):
-        algo_class = self.bandit_algo_class
-        bandit_class = self.bandit_class
         while self.boost_round < self.boost_rounds:
             ###do number of trials always line with num results??
             ###how does this relate to errors, esp. in mongoexp?
