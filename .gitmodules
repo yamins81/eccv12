@@ -10,3 +10,6 @@
 [submodule "asgd"]
 	path = asgd
 	url = git://github.com/jaberg/asgd.git
+[submodule "scikit-data"]
+	path = scikit-data
+	url = git@github.com:jaberg/scikit-data.git
