@@ -17,7 +17,6 @@ from .margin_asgd import MarginBinaryASGD
 from asgd.auto_step_size import binary_fit
 
 
-
 @lazyinfo(len=2)
 def digits_xy(n_examples):
     """

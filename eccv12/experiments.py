@@ -1,5 +1,5 @@
 """
-put bandit algos here
+experiment classes
 """
 import os
 import sys
@@ -14,103 +14,31 @@ import hyperopt.utils as utils
 from hyperopt.experiments import SerialExperiment
 from hyperopt.mongoexp import MongoJobs, MongoExperiment, as_mongo_str
 
-
-class BoostedSerialExperiment(hyperopt.base.Experiment):
-    """
-    boosted serial experiment
-    """
-
-    def __init__(self, bandit_algo_class, bandit_class):
-        self.bandit_algo_class = bandit_algo_class
-        self.bandit_class = bandit_class
-        
-        self.experiments = []
-        self.trials = []
-        self.results = []
-        self.trial_rounds = []
-        self.result_rounds = []
-        self.boost_round = 0
-        self.train_decisions = 0
-        self.test_decisions = 0
-        self.selected_inds = []
-
-    def run(self, boost_rounds, opt_runs):
-        algo_class = self.bandit_algo_class
-        bandit_class = self.bandit_class
-        for _round in xrange(boost_rounds):
-            bandit = bandit_class(self.train_decisions,
-                                  self.test_decisions,
-                                  attach_weights=False)
-            bandit_algo = bandit_algo_class(bandit)
-            exp = SerialExperiment(bandit_algo)
-            self.experiments.append(exp)
-            exp.run(opt_runs)
-            self.trial_rounds.append(exp.trials)
-            self.result_rounds.append(exp.results)
-            for trial, result in zip(exp.trials, exp.results):
-                trial['boosting_round'] = self.boost_round
-                result['boosting_round'] = self.boost_round
-                self.trials.append(trial)
-                self.results.append(result)
-            loss = np.array([_r['loss'] for r in exp.results])
-            selected_ind = loss.argmin()
-            self.selected_inds.append(selected_ind)
-            self.train_decisions = np.array(exp.results[selected_ind]['train_decisions'])
-            self.test_decisions = np.array(exp.results[selected_ind]['test_decisions'])
-            self.boost_round += 1
+###XXX:  Code in this module requires that experiment result records satisfy 
+###validation in bandit.py 
 
 
-class BoostedMongoExperiment(hyperopt.base.Experiment):
-    """
-    boosted mongo experiment
-    """
+DEFAULT_MONGO_WORKDIR = None
+DEFAULT_MONGO_MONGO_OPTS = 'localhost/hyperopt'
 
-    def __init__(self,
-                 bandit_algo_class,
-                 bandit_class,
-                 workdir=None,
-                 mongo_opts=None):
-        self.bandit_algo_class = bandit_algo_class
-        self.bandit_class = bandit_class
-        self.workdir = workdir
-        self.mongo_opts = mongo_opts
-        
-        self.experiments = []
-        self.trials = []
-        self.results = []
-        self.trial_rounds = []
-        self.result_rounds = []
-        self.boost_round = 0
-        self.train_decisions = 0
-        self.test_decisions = 0
-        self.selected_inds = []
 
-    def run(self, boost_rounds, opt_runs):
-        algo_class = self.bandit_algo_class
-        bandit_class = self.bandit_class
-        for _round in xrange(boost_rounds):
-            exp = init_mongo_exp(bandit_algo_class,
-                                 bandit_class,
-                                 bandit_argv=(self.train_decisions,
-                                              self.test_decisions),
-                                 bandit_kwargs={'attach_weights': True},
-                                 workdir=self.workdir,
-                                 mongo_opts=mongo_opts)
-            self.experiments.append(exp)
-            exp.run(opt_runs, block_until_done=True)
-            self.trial_rounds.append(exp.trials)
-            self.result_rounds.append(exp.results)
-            for trial, result in zip(exp.trials, exp.results):
-                trial['boosting_round'] = self.boost_round
-                result['boosting_round'] = self.boost_round
-                self.trials.append(trial)
-                self.results.append(result)
-            loss = np.array([_r['loss'] for r in exp.results])
-            selected_ind = loss.argmin()
-            self.selected_inds.append(selected_ind)
-            self.train_decisions = np.array(exp.results[selected_ind]['train_decisions'])
-            self.test_decisions = np.array(exp.results[selected_ind]['test_decisions'])
-            self.boost_round += 1
+class SerialMixin(object):
+    def init_experiment(self, *args, **kwargs):
+        bandit = self.bandit_class(*args, **kwargs)
+        bandit_algo = self.bandit_algo_class(bandit)
+        return SerialExperiment(bandit_algo)
+
+
+class MongoMixin(object):
+    def init_experiment(self, *args, **kwargs):
+        workdir = getattr(self, 'workdir', DEFAULT_MONGO_WORKDIR)
+        mongo_opts = getattr(self, 'mongo_opts', DEFAULT_MONGO_MONGO_OPTS)
+        return init_mongo_exp(self.bandit_algo_class,
+                              self.bandit_class,
+                              bandit_argv=args,
+                              bandit_kwargs=kwargs,
+                              workdir=workdir,
+                              mongo_opts=mongo_opts)
 
 
 def init_mongo_exp(algo_name,
@@ -134,39 +62,28 @@ def init_mongo_exp(algo_name,
         algo_kwargs = {}
     if workdir is None:
         workdir = os.path.expanduser('~/.hyperopt.workdir')
-
     bandit = utils.json_call(bandit_name, bandit_argv, bandit_kwargs)
     algo = utils.json_call(algo_name, (bandit,) + algo_argv, algo_kwargs)
-
-    bandit_argfile_text = cPickle.dumps(bandit_argv, bandit_kwargs)
-    algo_argfile_text = cPickle.dumps(algo_argv, algo_kwargs)
- 
-    ###XXX: why do we use md5 and not sha1?  
-    m = hashlib.md5()
+    bandit_argfile_text = cPickle.dumps((bandit_argv, bandit_kwargs))
+    algo_argfile_text = cPickle.dumps((algo_argv, algo_kwargs))    
+    m = hashlib.md5()  ###XXX: why do we use md5 and not sha1? 
     m.update(bandit_argfile_text)
     m.update(algo_argfile_text)
     exp_key = '%s/%s[arghash:%s]' % (bandit_name, algo_name, m.hexdigest())
     del m
-
     worker_cmd = ('driver_attachment', exp_key)
-
     mj = MongoJobs.new_from_connection_str(as_mongo_str(mongo_opts) + '/jobs')
-
-    ###XXX: should these really by passed as kwargs?
     experiment = MongoExperiment(bandit_algo=algo,
                                  mongo_handle=mj,
                                  workdir=workdir,
                                  exp_key=exp_key,
                                  cmd=worker_cmd)
-
     experiment.ddoc_get()  
-    
     # XXX: this is bad, better to check what bandit_tuple is already there
     #      and assert that it matches if something is already there
     experiment.ddoc_attach_bandit_tuple(bandit_name,
                                         bandit_argv,
                                         bandit_kwargs)
-
     if clear_existing:
         print >> sys.stdout, "Are you sure you want to delete",
         print >> sys.stdout, ("all %i jobs with exp_key: '%s' ?"
@@ -184,6 +101,182 @@ def init_mongo_exp(algo_name,
         experiment.ddoc_attach_bandit_tuple(bandit_name,
                                             bandit_argv,
                                             bandit_kwargs)
-
     return experiment
 
+
+
+##############
+###MIXTURES###
+##############
+
+class SimpleMixture(object):    
+    def __init__(self, exp):
+        self.exp = exp
+        
+    def mix_inds(self, A):
+        exp = self.exp
+        assert len(exp.results) >= A
+        losses = np.array([x['loss'] for x in exp.results])
+        s = losses.argsort()
+        return s[:A], np.ones((A,)) / float(A)
+    
+    def mix_models(self, A):
+        exp = self.exp
+        inds, weights = self.mix_inds(A)
+        return [exp.trials[ind] for ind in inds], weights
+
+
+class AdaboostMixture(SimpleMixture):
+    def fetch_labels(self, splitname):
+        exp = self.exp
+        labels = np.array([_r['labels'][splitname] for _r in exp.results])
+        assert (labels == labels[0]).all()
+        assert labels.ndim == 2
+        assert set(np.unique(labels)) == set([-1, 1])
+        labels = labels[0]
+        return labels
+        
+    def fetch_decisions(self, splitname):
+        exp = self.exp
+        decisions = np.array([_r['decisions'][splitname] for _r in exp.results])
+        assert decisions.ndim == 2
+        return decisions
+        
+    def predictions_from_decisions(self, decisions):
+        return np.sign(decisions).astype(np.int)
+        
+    def fetch_predictions(self, splitname):
+        decisions = self.fetch_decisions(splitname)
+        return self.predictions_from_decisions(decisions)
+        
+    def mix_inds(self, A, splitname):
+        exp = self.exp
+        assert len(exp.results) >= A
+        labels = self.fetch_labels(splitname)        
+        predictions = self.fetch_predictions(splitname)
+        errors = (predictions != labels).astype(np.int)
+        L = len(labels)
+        weights = (1./L) * np.ones((L,))
+        selected_inds = []
+        alphas = []
+        for round in range(A):
+            ep_array = np.dot(errors, weights)
+            ep_diff_array = np.abs(0.5 - ep_array)
+            ind = ep_diff_array.argmax()
+            selected_inds.append(ind)
+            ep = ep_array[ind]
+            alpha = 0.5 * log((1 - ep) / ep)
+            alphas.append(alpha)
+            prediction = np.array(predictions[ind])
+            weights = weights * np.exp(-alpha * labels * prediction)
+            weights = weights / weights.sum()
+        return selected_inds, np.array(alphas)
+
+
+
+##############
+###PARALLEL###
+##############
+
+class ParallelExperiment(hyperopt.base.Experiment):
+    def __init__(self, bandit_algo_class, bandit_class, num_proc, opt_runs,
+                 proc_args=None, **init_kwargs):
+        self.bandit_algo_class = bandit_algo_class
+        self.bandit_class = bandit_class
+        self.num_proc = num_proc
+        self.opt_runs = opt_runs
+        self.experiments = None
+        self.trials = []
+        self.results = []
+        if proc_args is not None:
+            assert len(proc_args) == num_proc
+        else:
+            proc_args = [((),{}) for _ind in range(num_proc)]
+        for _ind, (a, b) in enumerate(proc_args):
+            b['parallel_round'] = _ind
+        self.proc_args = proc_args
+        for k, v in init_kwargs.items():
+            setattr(self, k, v)
+        
+    def run(self):
+        if self.experiments is None:
+            for a, b in self.proc_args:
+                self.experiments.append(self.init_experiment(*a,**b))
+        num_dones = np.array([len(exp.results) for exp in self.experiments])
+        num_lefts = self.opt_runs - num_dones
+        for exp, num_left in zip(self.experiments, num_lefts):
+            exp.run_exp(num_left)
+        for _ind, exp in enumerate(self.experiments):
+            for tr, res in zip(exp.trials, exp.results):
+                tr['parallel_round'] = res['parallel_round'] = _ind
+                self.trials.append(tr)
+                self.results.append(res)
+
+    def run_exp(self, exp, N):
+        exp.run(N)     
+    
+
+class ParallelMongoExperiment(ParallelExperiment, MongoMixin):        
+    pass
+    
+    
+    
+##############
+###BOOSTING###
+##############
+
+class BoostedExperiment(hyperopt.base.Experiment):
+    """
+    boosted experiment base
+    expects init_experiment to be defined by mixin or subclass
+    """
+    def __init__(self, bandit_algo_class, bandit_class, boost_rounds, opt_runs,
+                 **init_kwargs):
+        self.bandit_algo_class = bandit_algo_class
+        self.bandit_class = bandit_class
+        self.boost_rounds = boost_rounds
+        self.opt_runs = opt_runs
+        self.experiments = []
+        self.exp = None
+        self.trials = []
+        self.results = []
+        self.boost_round = 0
+        self.train_decisions = 0
+        self.decisions = None
+        self.selected_inds = []
+        for k, v in init_kwargs.items():
+            setattr(self, k, v)
+        
+    def run(self):
+        while self.boost_round < self.boost_rounds:
+            ###do number of trials always line with num results??
+            ###how does this relate to errors, esp. in mongoexp?
+            if not self.exp or len(self.exp.trials) >= self.opt_runs:
+                self.exp = exp = self.init_experiment(self.decisions)
+                self.experiments.append(self.exp)
+            else:
+                exp = self.exp
+            num_done = len(exp.trials)
+            num_left = self.opt_runs - num_done
+            self.run_exp(exp, num_left)
+            for tr, res in zip(exp.trials, exp.results):
+                tr['boosting_round'] = res['boosting_round'] = self.boost_round
+                self.trials.append(tr)
+                self.results.append(res)
+            loss = np.array([_r['loss'] for _r in exp.results])
+            selected_ind = loss.argmin()
+            self.selected_inds.append(selected_ind)
+            self.decisions = exp.results[selected_ind]['decisions']
+            self.boost_round += 1
+
+    def run_exp(self, exp, N):
+        exp.run(N)
+
+
+class BoostedSerialExperiment(BoostedExperiment, SerialMixin):
+    pass
+    
+
+class BoostedMongoExperiment(BoostedExperiment, MongoMixin):
+    def run_exp(self, exp, N):
+        exp.run(N, block_until_done=True)

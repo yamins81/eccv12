@@ -40,10 +40,18 @@ class ImgLoaderResizer(object):
             im = im.crop(self._crop)
         l, t, r, b = self._crop
         assert im.size == (r - l, b - t)
-        if im.size != self._shape:
-            im = im.resize(self._shape, Image.ANTIALIAS)
-        assert im.size == self._shape
-        rval = np.asarray(im, 'float32')
+        if max(im.size) != self._shape[0]:
+            m = self._shape[0]/float(max(im.size))
+            new_shape = (int(round(im.size[0]*m)), int(round(im.size[1]*m)))
+            im = im.resize(new_shape, Image.ANTIALIAS)
+        imval = np.asarray(im, 'float32')
+        rval = np.zeros(self._shape)
+        ctr = self._shape[0]/2
+        cxmin = ctr - imval.shape[0] / 2
+        cxmax = ctr - imval.shape[0] / 2 + imval.shape[0]
+        cymin = ctr - imval.shape[1] / 2
+        cymax = ctr - imval.shape[1] / 2 + imval.shape[1]
+        rval[cxmin:cxmax,cymin:cymax] = imval
         if self.normalize:
             rval -= rval.mean()
             rval /= max(rval.std(), 1e-3)

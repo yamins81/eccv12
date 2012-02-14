@@ -60,18 +60,31 @@ def test_get_images_size():
 
 
 def test_get_images_crop():
-    X = plugins.get_images(dtype='float32', preproc={'size': [250, 250],
-                                                     'crop': [75, 100, 175, 175],
-                                                     'global_normalize': 0})
     Y = plugins.get_images(dtype='float32', preproc={'size': [250, 250],
                                                      'crop': [0, 0, 250, 250],
                                                      'global_normalize': 0})
-    
-    im = Image.fromarray(Y[0][100:175, 75:175]*255.)
-    im = im.resize((250, 250), Image.ANTIALIAS)
+    X = plugins.get_images(dtype='float32', preproc={'size': [100, 100],
+                                                     'crop': [88, 63, 163, 188],
+                                                     'global_normalize': 0})
+    im = Image.fromarray(Y[0][63:188, 88:163]*255.)
+    im = im.resize((60, 100), Image.ANTIALIAS)
     ar = scipy.misc.fromimage(im)/255.
-    assert np.abs(ar - X[0]).max() < .005, np.abs(ar - X[0]).max()
-    
+    Z = np.zeros((100, 100))
+    Z[:,20:80] = ar
+    assert np.abs(Z - X[0]).max() < .005, np.abs(Z - X[0]).max()
+
+    Y = plugins.get_images(dtype='float32', preproc={'size': [250, 250],
+                                                     'crop': [0, 0, 250, 250],
+                                                     'global_normalize': 0})
+    X = plugins.get_images(dtype='float32', preproc={'size': [200, 200],
+                                                     'crop': [88, 63, 163, 188],
+                                                     'global_normalize': 0})
+    im = Image.fromarray(Y[0][63:188, 88:163]*255.)
+    im = im.resize((120, 200), Image.ANTIALIAS)
+    ar = scipy.misc.fromimage(im)/255.
+    Z = np.zeros((200, 200))
+    Z[:,40:160] = ar
+    assert np.abs(Z - X[0]).max() < .005, np.abs(Z - X[0]).max()
 
 def test_verification_pairs_0():
     l, r = plugins._verification_pairs_helper(
