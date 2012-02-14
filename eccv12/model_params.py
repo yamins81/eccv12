@@ -183,3 +183,8 @@ l2_params = {'slm': [[('lnorm', lnorm)],
                          'size': [100, 100]}}
                          
 main_params = choice([l3_params, l2_params])
+
+test_params = {'slm': [[('lnorm', lnorm)]],
+               'preproc': {'global_normalize': 0,
+                           'crop': crop_choice,
+                           'size': [20, 20]}}

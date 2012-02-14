@@ -1,5 +1,5 @@
 """
-put bandit algos here
+experiment classes
 """
 import os
 import sys
@@ -91,6 +91,7 @@ class BoostedExperiment(hyperopt.base.Experiment):
         self.bandit_algo_class = bandit_algo_class
         self.bandit_class = bandit_class
         self.boost_rounds = boost_rounds
+        self.opt_runs = opt_runs
         self.experiments = []
         self.exp = None
         self.trials = []
@@ -106,22 +107,26 @@ class BoostedExperiment(hyperopt.base.Experiment):
         while self.boost_round < self.boost_rounds:
             ###do number of trials always line with num results??
             ###how does this relate to errors, esp. in mongoexp?
-            if not self.exp or len(self.exp.trials) >= opt_runs:
+            if not self.exp or len(self.exp.trials) >= self.opt_runs:
                 self.exp = exp = self.init_experiment(self.decisions)
                 self.experiments.append(self.exp)
             else:
                 exp = self.exp
             num_done = len(exp.trials)
-            exp.run(opt_runs - num_done)
+            num_left = self.opt_runs - num_done
+            self.run_exp(exp, num_left)
             for tr, res in zip(exp.trials, exp.results):
                 tr['boosting_round'] = res['boosting_round'] = self.boost_round
                 self.trials.append(tr)
                 self.results.append(res)
-            loss = np.array([_r['loss'] for r in exp.results])
+            loss = np.array([_r['loss'] for _r in exp.results])
             selected_ind = loss.argmin()
             self.selected_inds.append(selected_ind)
-            self.decisions = np.array(exp.results[selected_ind]['decisions'])
+            self.decisions = exp.results[selected_ind]['decisions']
             self.boost_round += 1
+
+    def run_exp(self, exp, N):
+        exp.run(N)
 
 
 class BoostedSerialExperiment(BoostedExperiment):
@@ -158,6 +163,10 @@ class BoostedMongoExperiment(BoostedExperiment):
                               mongo_opts=self.mongo_opts)
 
 
+    def run_exp(self, exp, N):
+        exp.run(N, block_until_done=True)
+
+
 def init_mongo_exp(algo_name,
                    bandit_name,
                    bandit_argv=(),
@@ -183,8 +192,8 @@ def init_mongo_exp(algo_name,
     bandit = utils.json_call(bandit_name, bandit_argv, bandit_kwargs)
     algo = utils.json_call(algo_name, (bandit,) + algo_argv, algo_kwargs)
 
-    bandit_argfile_text = cPickle.dumps(bandit_argv, bandit_kwargs)
-    algo_argfile_text = cPickle.dumps(algo_argv, algo_kwargs)
+    bandit_argfile_text = cPickle.dumps((bandit_argv, bandit_kwargs))
+    algo_argfile_text = cPickle.dumps((algo_argv, algo_kwargs))
  
     ###XXX: why do we use md5 and not sha1?  
     m = hashlib.md5()
@@ -230,4 +239,3 @@ def init_mongo_exp(algo_name,
                                             bandit_kwargs)
 
     return experiment
-

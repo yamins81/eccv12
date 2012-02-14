@@ -53,6 +53,12 @@ class MainBandit(BaseBandit):
         comparison = config['comparison']
         return get_performance(slm, preproc, comparison, ctrl)
 
+class TestBandit(MainBandit):
+        param_gen = dict(
+                        model=model_params.test_params,
+                        comparison=model_params.choice(['mult', 'sqrtabsdiff']),
+                    )
+
 
 @genson.lazy
 def fetch_decisions(split, ctrl):
@@ -210,10 +216,10 @@ def result_binary_classifier_stats(
                              [-1, 1])
     result.update(stats)
     result['loss'] = float(1 - result['test_accuracy']/100.)
-    result['decisions'] = {'DevTrain': list(train_decisions),
-                           'DevTest': list(test_decisions)}
-    result['labels'] = {'DevTrain': list(train_data[1]),
-                        'DevTest': list(test_data[1])}
+    result['decisions'] = {'DevTrain': train_decisions.tolist(),
+                           'DevTest': test_decisions.tolist()}
+    result['labels'] = {'DevTrain': train_data[1].tolist(),
+                        'DevTest': test_data[1].tolist()}
     return result
 
 
@@ -299,11 +305,9 @@ def get_performance(slm, preproc, comparison, ctrl,
         ctrl.attachments['decisions'] = blob
     else:
         dec = cPickle.loads(ctrl.attachments['decisions'])
-        assert dec.hasattr('keys') and len(dec) == 2
-        assert 'DevTrain' in dec 
-        assert len(dec['DevTrain']) == 2200
-        assert 'DevTest' in dec
-        assert len(dec['DevTest']) == 1000 
+        assert len(dec['DevTrain']) == 2200, len(dec['DevTrain'])
+        assert len(dec['DevTest']) == 1000, len(dec['DevTest'])
+    
     prog_fn = genson.JSONFunction(prog[progkey])
     return prog_fn(ctrl=ctrl)
 
