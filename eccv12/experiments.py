@@ -28,26 +28,31 @@ class SerialMixin(object):
 ##############
 
 class SimpleMixture(object):
-    def __init__(self, exp):
-        self.exp = exp
+    def __init__(self, trials, bandit):
+        self.trials = trials
+        self.bandit = bandit
 
     def mix_inds(self, A):
-        exp = self.exp
-        assert len(exp.results) >= A
-        losses = np.array([x['loss'] for x in exp.results])
-        s = losses.argsort()
+        specs = self.trials.specs
+        results = self.trials.results
+        assert len(results) >= A
+        losses = map(self.bandit.loss, results, specs)
+        if None in losses:
+            raise NotImplementedError()
+        s = np.asarray(losses).argsort()
         return s[:A], np.ones((A,)) / float(A)
 
     def mix_models(self, A):
-        exp = self.exp
+        specs = self.trials.specs
         inds, weights = self.mix_inds(A)
-        return [exp.trials[ind] for ind in inds], weights
+        return [specs[ind] for ind in inds], weights
 
 
 class AdaboostMixture(SimpleMixture):
     def fetch_labels(self, splitname):
-        exp = self.exp
-        labels = np.array([_r['labels'][splitname] for _r in exp.results])
+        specs = self.trials.specs
+        results = self.trials.results
+        labels = np.array([_r['labels'][splitname] for _r in results])
         assert (labels == labels[0]).all()
         assert labels.ndim == 2
         assert set(np.unique(labels)) == set([-1, 1])
