@@ -10,117 +10,34 @@ from math import log
 
 import numpy as np
 
-import hyperopt.base
-import hyperopt.utils as utils
-from hyperopt.experiments import SerialExperiment
-from hyperopt.mongoexp import MongoJobs, MongoExperiment, as_mongo_str
+import hyperopt
 
-###XXX:  Code in this module requires that experiment result records satisfy 
-###validation in bandit.py 
-
-
-DEFAULT_MONGO_WORKDIR = None
-DEFAULT_MONGO_MONGO_OPTS = 'localhost/hyperopt'
+###XXX:  Code in this module requires that experiment result records satisfy
+###validation in bandit.py
 
 
 class SerialMixin(object):
     def init_experiment(self, *args, **kwargs):
         bandit = self.bandit_class(*args, **kwargs)
         bandit_algo = self.bandit_algo_class(bandit)
-        return SerialExperiment(bandit_algo)
-
-
-class MongoMixin(object):
-    def init_experiment(self, *args, **kwargs):
-        workdir = getattr(self, 'workdir', DEFAULT_MONGO_WORKDIR)
-        mongo_opts = getattr(self, 'mongo_opts', DEFAULT_MONGO_MONGO_OPTS)
-        return init_mongo_exp(self.bandit_algo_class,
-                              self.bandit_class,
-                              bandit_argv=args,
-                              bandit_kwargs=kwargs,
-                              workdir=workdir,
-                              mongo_opts=mongo_opts)
-
-
-def init_mongo_exp(algo_name,
-                   bandit_name,
-                   bandit_argv=(),
-                   bandit_kwargs=None,
-                   algo_argv=(),
-                   algo_kwargs=None,
-                   workdir=None,
-                   clear_existing=False,
-                   force_lock=False,
-                   mongo_opts='localhost/hyperopt'):
-
-    ###XXX:  OK so this is ripped off from the code in hyperopt.mongoexp
-    ###Perhaps it would be useful to modulized this functionality in a 
-    ###new function in hyperopt.mongoexp, and then just call it here?
-
-    if bandit_kwargs is None:
-        bandit_kwargs = {}
-    if algo_kwargs is None:
-        algo_kwargs = {}
-    if workdir is None:
-        workdir = os.path.expanduser('~/.hyperopt.workdir')
-    bandit = utils.json_call(bandit_name, bandit_argv, bandit_kwargs)
-    algo = utils.json_call(algo_name, (bandit,) + algo_argv, algo_kwargs)
-    bandit_argfile_text = cPickle.dumps((bandit_argv, bandit_kwargs))
-    algo_argfile_text = cPickle.dumps((algo_argv, algo_kwargs))    
-    m = hashlib.md5()  ###XXX: why do we use md5 and not sha1? 
-    m.update(bandit_argfile_text)
-    m.update(algo_argfile_text)
-    exp_key = '%s/%s[arghash:%s]' % (bandit_name, algo_name, m.hexdigest())
-    del m
-    worker_cmd = ('driver_attachment', exp_key)
-    mj = MongoJobs.new_from_connection_str(as_mongo_str(mongo_opts) + '/jobs')
-    experiment = MongoExperiment(bandit_algo=algo,
-                                 mongo_handle=mj,
-                                 workdir=workdir,
-                                 exp_key=exp_key,
-                                 cmd=worker_cmd)
-    experiment.ddoc_get()  
-    # XXX: this is bad, better to check what bandit_tuple is already there
-    #      and assert that it matches if something is already there
-    experiment.ddoc_attach_bandit_tuple(bandit_name,
-                                        bandit_argv,
-                                        bandit_kwargs)
-    if clear_existing:
-        print >> sys.stdout, "Are you sure you want to delete",
-        print >> sys.stdout, ("all %i jobs with exp_key: '%s' ?"
-                % (mj.jobs.find({'exp_key':exp_key}).count(),
-                    str(exp_key)))
-        print >> sys.stdout, '(y/n)'
-        y, n = 'y', 'n'
-        if input() != 'y':
-            print >> sys.stdout, "aborting"
-            del self
-            return 1
-        experiment.ddoc_lock(force=force_lock)
-        experiment.clear_from_db()
-        experiment.ddoc_get()
-        experiment.ddoc_attach_bandit_tuple(bandit_name,
-                                            bandit_argv,
-                                            bandit_kwargs)
-    return experiment
-
+        return hyperopt.Experiment(bandit_algo)
 
 
 ##############
 ###MIXTURES###
 ##############
 
-class SimpleMixture(object):    
+class SimpleMixture(object):
     def __init__(self, exp):
         self.exp = exp
-        
+
     def mix_inds(self, A):
         exp = self.exp
         assert len(exp.results) >= A
         losses = np.array([x['loss'] for x in exp.results])
         s = losses.argsort()
         return s[:A], np.ones((A,)) / float(A)
-    
+
     def mix_models(self, A):
         exp = self.exp
         inds, weights = self.mix_inds(A)
@@ -136,24 +53,24 @@ class AdaboostMixture(SimpleMixture):
         assert set(np.unique(labels)) == set([-1, 1])
         labels = labels[0]
         return labels
-        
+
     def fetch_decisions(self, splitname):
         exp = self.exp
         decisions = np.array([_r['decisions'][splitname] for _r in exp.results])
         assert decisions.ndim == 2
         return decisions
-        
+
     def predictions_from_decisions(self, decisions):
         return np.sign(decisions).astype(np.int)
-        
+
     def fetch_predictions(self, splitname):
         decisions = self.fetch_decisions(splitname)
         return self.predictions_from_decisions(decisions)
-        
+
     def mix_inds(self, A, splitname):
         exp = self.exp
         assert len(exp.results) >= A
-        labels = self.fetch_labels(splitname)        
+        labels = self.fetch_labels(splitname)
         predictions = self.fetch_predictions(splitname)
         errors = (predictions != labels).astype(np.int)
         L = len(labels)
@@ -198,7 +115,7 @@ class ParallelExperiment(hyperopt.base.Experiment):
         self.proc_args = proc_args
         for k, v in init_kwargs.items():
             setattr(self, k, v)
-        
+
     def run(self):
         if self.experiments is None:
             for a, b in self.proc_args:
@@ -214,14 +131,11 @@ class ParallelExperiment(hyperopt.base.Experiment):
                 self.results.append(res)
 
     def run_exp(self, exp, N):
-        exp.run(N)     
-    
+        exp.run(N)
 
-class ParallelMongoExperiment(ParallelExperiment, MongoMixin):        
-    pass
-    
-    
-    
+
+
+
 ##############
 ###BOOSTING###
 ##############
@@ -247,7 +161,7 @@ class BoostedExperiment(hyperopt.base.Experiment):
         self.selected_inds = []
         for k, v in init_kwargs.items():
             setattr(self, k, v)
-        
+
     def run(self):
         while self.boost_round < self.boost_rounds:
             ###do number of trials always line with num results??
@@ -276,8 +190,65 @@ class BoostedExperiment(hyperopt.base.Experiment):
 
 class BoostedSerialExperiment(BoostedExperiment, SerialMixin):
     pass
-    
 
-class BoostedMongoExperiment(BoostedExperiment, MongoMixin):
-    def run_exp(self, exp, N):
-        exp.run(N, block_until_done=True)
+
+class BoostingAlgo(hyperopt.BanditAlgo):
+    def __init__(self, sub_algo, round_len):
+        hyperopt.BanditAlgo.__init__(self, sub_algo.bandit)
+        self.sub_algo = sub_algo
+        self.round_len = round_len
+
+    def suggest(self,
+            new_ids,
+            specs,
+            results,
+            stochastic_idxs,
+            stochastic_vals):
+        #print 'ALL'
+        #print specs
+        #print round_results
+        #print stochastic_idxs
+        #print stochastic_vals
+        #print ''
+        n_trials = len(specs)
+        cutoff = (n_trials // self.round_len) * self.round_len
+        #print 'CUTOFF', cutoff
+        round_specs = specs[cutoff:]
+        round_results = results[cutoff:]
+        round_idxs = {}
+        round_vals = {}
+        for key in stochastic_idxs:
+            round_idxs[key] = [idx
+                    for idx in stochastic_idxs[key]
+                    if idx >= cutoff]
+            round_idxs[key] = [val
+                    for val, idx in zip(stochastic_vals[key], stochastic_idxs[key])
+                    if idx >= cutoff]
+        if cutoff:
+            # -- deal with error / unfinished trials
+            # XXX: this assumes that triald id == position in specs list
+            #      It is currently true, but need not always be!!
+            tids_losses = enumerate(map(self.bandit.loss, results[:cutoff], specs[:cutoff]))
+            losses_tids = [(loss, tid)
+                    for (tid, loss) in tids_losses
+                    if loss != None]
+            losses_tids.sort()
+            selected_ind = losses_tids[0][1]
+            decisions = results[selected_ind]['decisions']
+        else:
+            decisions = None
+        #print 'ROUND'
+        #print round_specs
+        #print round_results
+        #print round_idxs
+        #print round_vals
+        docs, idxs, vals = self.sub_algo.suggest(new_ids, round_specs, round_results,
+                round_idxs, round_vals)
+        for doc in docs:
+            # -- patch in decisions of the best current model from previous
+            #    round
+            assert doc['decisions'] == None
+            doc['decisions'] = decisions
+        return docs, idxs, vals
+
+

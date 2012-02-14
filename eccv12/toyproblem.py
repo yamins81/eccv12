@@ -2,6 +2,7 @@ import cPickle
 
 import numpy as np
 
+import hyperopt
 from skdata.digits import Digits
 
 import pyll
@@ -182,6 +183,8 @@ def combine_results(split_results, tt_idxs_list, new_ds, split_decisions, y):
     result['loss'] = np.mean([test_margin_mean(ii, rr)
         for ii, rr in enumerate(split_results)])
 
+    result['status'] = hyperopt.STATUS_OK
+
     return result
 
 
@@ -197,11 +200,12 @@ def run_all(*args):
     return args
 
 
-def screening_prog(n_examples, n_folds, feat_spec, split_decisions,
+def screening_prog(n_examples, n_folds, feat_spec, decisions,
         save_svms, ctrl):
     """
     Build a pyll graph representing the experiment.
     """
+    split_decisions = decisions
 
     if split_decisions is None:
         split_decisions = np.zeros((n_folds, n_examples))
@@ -272,17 +276,17 @@ class BoostableDigits(BaseBandit):
             n_examples=1795,
             n_folds=5,
             feat_spec=dict(
-                seed=scope.choice([1, 2, 3, 4, 5]),
-                n_features=scope.choice([1, 5, 10]),
+                seed=scope.one_of(1, 2, 3, 4, 5),
+                n_features=scope.one_of(2, 5, 10),
                 scale=scope.uniform(0, 5)
                 ),
-            split_decisions=None
+            decisions=None
             )
 
     def evaluate(self, config, ctrl):
         if 'split_decisions' in ctrl.attachments:
             config['split_decisions'] = ctrl.attachments['split_decisions']
-        prog = screening_prog(ctrl=ctrl, **config)
+        prog = screening_prog(save_svms=False, ctrl=ctrl, **config)
         rval = pyll.rec_eval(prog)
         return rval
 

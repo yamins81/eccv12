@@ -1,43 +1,45 @@
 """
-testing experiment classes
-
-as of now, these tests are mostly for demonstrating the api -- they don't really
-test anything of importance, since they're not really good for unit tests, being
-too slow.  We'll have to figure out exactly what to test.   There's also testing
-for error and exception and re-starting handling, which is hard but important.
+Testing experiment classes
 """
 
 import hyperopt
-import hyperopt.experiments
 
 import eccv12.experiments as experiments
-import eccv12.lfw
+from eccv12.experiments import BoostedSerialExperiment
+
+from eccv12.toyproblem import BoostableDigits
+
+
+def test_boosting_algo():
+    exp = hyperopt.Experiment(
+            hyperopt.Trials(),
+            experiments.BoostingAlgo(
+                hyperopt.Random(
+                    BoostableDigits()),
+                round_len=3),
+            async=False)
+    exp.run(5)
 
 
 def test_boosted_serial():
-    exp = experiments.BoostedSerialExperiment(hyperopt.Random,
-                                              eccv12.lfw.TestBandit,
-                                              2, 1)
+    exp = BoostedSerialExperiment(
+            trials_class=hyperopt.Trials,
+            bandit_algo_class=hyperopt.Random,
+            bandit_class=BoostableDigits,
+            boost_rounds=2,
+            round_len=1)
+    # smoke test
     exp.run()
     assert len(exp.results) == 2
-    
 
-def test_boosted_mongo():
-    exp = experiments.BoostedMongoExperiment('hyperopt.Random',
-                                             'eccv12.lfw.TestBandit',
-                                             2,
-                                             1,
-                                             mongo_opts='localhost:27017/testdb')
-    exp.run()
-    assert len(exp.results) == 2
-        
 
 def test_mixtures():
-    M = 5    
-    bandit_algo = hyperopt.Random(eccv12.lfw.TestBandit())
-    exp = hyperopt.experiments.SerialExperiment(bandit_algo)
+    # -- run random search of M trials
+    M = 5
+    bandit_algo = hyperopt.Random(BoostableDigits)
+    exp = hyperopt.Experiment(bandit_algo)
     exp.run(M)
-    
+
     N = 2
     simple = experiments.SimpleMixture(exp)
     inds, weights = simple.mix_inds(N)
@@ -49,11 +51,5 @@ def test_mixtures():
     ada_inds, ada_weights = ada.mix_inds(N)
     assert len(ada_inds) == 2
     #I'm not 100 sure exactly what to test here ...
-    
 
-def test_parallel_mongo():
-    """
-        I've only testing the class experiments.ParallelMongoExperiment
-        informally ...
-    """
-    pass
+
