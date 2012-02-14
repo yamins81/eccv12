@@ -9,34 +9,40 @@
 
 \section{Introduction}
 
-It is almost always possible to improve the accuracy of a learning
-algorithm by one or both of the following two techniques:
+Many learning algorithms are actually algorithm families parametrized by 
+``hyper-parameters,"  parameters that are fixed before the algorithm 
+actually runs on a given dataset and which characterize various options for how
+the algorithm will operate.
+
+\vspace{11pt}
+In this context, it is almost always possible to improve performance 
+by:
 \begin{enumerate}
- \item search the space of hyper-parameters more exhaustively,
- \item build an ensemble of many complementary models
+ \item performing a high-throughput search of hyper-parameter space, and/or
+ \item building an ensemble of many complementary models.
 \end{enumerate}
 
 \vspace{11pt}
-These two techniques can be used to increase accuracy by investing in
-additional computational time.
 Work such as
 \citet{plos_ht}, \citet{fg11}, \citet{coates+lee+ng:2010},
 \citet{gehler}, \citet{bergstra+bardenet+bengio+kegl:2011}
 demonstrates that the combination of these two techniques can set new
 records on competitive benchmarks, without \emph{any} innovative modeling or
-learning algorithms.  The validity and utility of statements of the form
-``approach X scores accuracy Y on dataset Z,'' are undermined by such
-advances; accuracy is affected significantly by hyper-parameter search
-strateges and the number of features in the full ensemble, and that
-dependence must be reflected in the characterization of the performance
-of a model family on a particular dataset.
+learning algorithms.  In fact, the meaning of statements of the form
+``approach X achieves accuracy Y on dataset Z'' has been fundamentally undermined by such
+advances, since accuracy is so strongly dependent on parameter search and
+ensemble construction strategies.
 
 \vspace{11pt}
-When hyper-parameter optimization is carried out by hand, it is often
-difficult to characterize the relationship between search effort and the
-accuracy of the best models. However, recent work in hyper-parameter
-optimization in learning algorithms suggests that hyper-parameter
-optimization should not be done by hand.
+These two techniques increase accuracy at the expense of 
+additional computation time, and when hyper-parameter 
+optimization is carried out by hand, it is often
+difficult to characterize the relationship between search 
+effort and optimal performance.  Recent work in hyper-parameter
+optimization in learning algorithms suggests how automated approaches
+can help.
+
+\vspace{11pt}
 \citet{bergstra+bengio:2012} shows that random search is much more
 efficient than grid search, at least for hyper-parameter optimization in
 neural networks and deep belief networks
@@ -44,30 +50,25 @@ neural networks and deep belief networks
 \citet{bergstra+bardenet+bengio+kegl:2011} shows that algorithms based on
 sequential model-based optimization (Bayesian optimization,
 see e.g. \citep{hutter:2006}, \citet{brochu:2008})
-can be both practical and highly profitable in terms of accuracy.
+can be both practical and highly profitable.
 
 \vspace{11pt}
-Despite these advances in hyper-parameter optimization, there remains
-the importance of model averaging.  However hyper-parameter optimization
-may not be an efficient strategy to search the space of ensembles.  At
-the same time, works such as \citet{gehler}, \citet{coates+lee+ng:2010},
-and \citet{fg11} highlight the importance of learning ensembles in
-order to achieve the best performance on a given dataset.
+However, despite these advances, hyperparameter optimization techniques have not 
+yet been brought to bear on ensemble construction.  Works such as \citet{gehler}, \citet{coates+lee+ng:2010},
+and \citet{fg11} highlight the importance of learning ensembles, so there is an incentive
+to unify the approaches.  
 
 \vspace{11pt}
-The objection that ensemble learning is orthogonal to hyper-parameter
-optimization is difficult to sustain.  If a model has the form of
-a feature extractor and a classifier, and if the number of features is
-a hyper-parameter that's up for optimization, then ensemble construction
-can be seen simply an efficient way of searching the space of models
-that have large numbers of features.  In this light, ensemble learning
-could be seen as a sequential strategy for hyper-parameter optimization.
+This work is based on the insight that, for models consisting of feature extractor followed by a classifier, 
+an ensemble construction meta-algorithm can be seen simply as an
+efficient sequential strategy for hyper-parameter optimization of 
+models with a larger number of features.
 
 \vspace{11pt}
-This work investigates strategies for combining sequential model-based
+More specifically, we investigate a variety of strategies for combining sequential model-based
 optimization approaches to hyper-parameter optimization with boosting
-approaches to ensemble construction \citep{mason,friedman}.  The
-objective is a black-box algorithm that is able to match or exceed the
+approaches to ensemble construction \citep{mason,friedman}.  
+The objective is a black-box algorithm that is able to match or exceed the
 results of published results which used additional domain knowledge or
 heuristic manual search.
 
