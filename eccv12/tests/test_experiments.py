@@ -10,27 +10,48 @@ from eccv12.experiments import BoostedSerialExperiment
 from eccv12.toyproblem import BoostableDigits
 
 
+class FastBoostableDigits(BoostableDigits):
+    param_gen = dict(BoostableDigits.param_gen)
+    param_gen['svm_max_observations'] = 5000 # -- this is smaller
+
 def test_boosting_algo():
+    n_trials = 12
+    round_len = 3
+
+    trials = hyperopt.Trials()
+    calls = [0]
+    bandit = FastBoostableDigits()
+    class FakeAlgo(hyperopt.Random):
+        def suggest(self, ids, specs, results, idxs, vals):
+            calls[0] += 1
+            assert len(specs) <= round_len
+            return hyperopt.Random.suggest(self,
+                    ids, specs, results, idxs, vals)
+    algo = FakeAlgo(bandit)
+    boosting_algo = experiments.BoostingAlgo(algo,
+                round_len=round_len)
     exp = hyperopt.Experiment(
-            hyperopt.Trials(),
-            experiments.BoostingAlgo(
-                hyperopt.Random(
-                    BoostableDigits()),
-                round_len=3),
+            trials,
+            boosting_algo,
             async=False)
-    exp.run(5)
+
+    last_mixture_score = float('inf')
+
+    round_ii = 0
+    while len(trials) < n_trials:
+        round_ii += 1
+        exp.run(round_len)
+        assert len(trials) == round_ii * round_len
+        assert calls[0] == round_ii * round_len
+        best_trials = boosting_algo.best_by_round(list(trials))
+        assert len(best_trials) == round_ii
+        new_mixture_score = bandit.score_mixture(best_trials,
+                partial_svm=True)
+        assert new_mixture_score < last_mixture_score
+        last_mixture_score = new_mixture_score
 
 
-def test_boosted_serial():
-    exp = BoostedSerialExperiment(
-            trials_class=hyperopt.Trials,
-            bandit_algo_class=hyperopt.Random,
-            bandit_class=BoostableDigits,
-            boost_rounds=2,
-            round_len=1)
-    # smoke test
-    exp.run()
-    assert len(exp.results) == 2
+
 
 
 def test_mixtures():

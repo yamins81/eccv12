@@ -198,21 +198,36 @@ class BoostingAlgo(hyperopt.BanditAlgo):
         self.sub_algo = sub_algo
         self.round_len = round_len
 
+    def best_by_round(self, trials):
+        ii = 0
+        rval = []
+        while ii < len(trials):
+            rtrials = trials[ii:ii + self.round_len]
+
+            # -- deal with error / unfinished trials
+            # XXX: this assumes that triald id == position in specs list
+            #      It is currently true, but need not always be!!
+            # XXX: REFACTOR WITH CODE BELOW
+            results_ii = [tt['result'] for tt in rtrials]
+            specs_ii = [tt['spec'] for tt in rtrials]
+            tids_losses = enumerate(map(self.bandit.loss, results_ii, specs_ii))
+            losses_tids = [(loss, tid)
+                    for (tid, loss) in tids_losses
+                    if loss != None]
+            losses_tids.sort()
+            selected_ind = losses_tids[0][1]
+            rval.append(rtrials[selected_ind])
+            ii += self.round_len
+        return rval
+
     def suggest(self,
             new_ids,
             specs,
             results,
             stochastic_idxs,
             stochastic_vals):
-        #print 'ALL'
-        #print specs
-        #print round_results
-        #print stochastic_idxs
-        #print stochastic_vals
-        #print ''
         n_trials = len(specs)
         cutoff = (n_trials // self.round_len) * self.round_len
-        #print 'CUTOFF', cutoff
         round_specs = specs[cutoff:]
         round_results = results[cutoff:]
         round_idxs = {}
@@ -237,11 +252,6 @@ class BoostingAlgo(hyperopt.BanditAlgo):
             decisions = results[selected_ind]['decisions']
         else:
             decisions = None
-        #print 'ROUND'
-        #print round_specs
-        #print round_results
-        #print round_idxs
-        #print round_vals
         docs, idxs, vals = self.sub_algo.suggest(new_ids, round_specs, round_results,
                 round_idxs, round_vals)
         for doc in docs:

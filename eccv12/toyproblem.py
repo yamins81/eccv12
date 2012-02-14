@@ -16,15 +16,17 @@ from .margin_asgd import MarginBinaryASGD
 
 
 @scope.define_info(o_len=2)
-def digits_xy(n_examples):
+def digits_xy(begin, N):
     """
     Turn digits to binary classification: 0-4 vs. 5-9
     Returns, X, y as in classification task.
     """
     X, y = Digits().classification_task()
+    np.random.RandomState(42).shuffle(X)
+    np.random.RandomState(42).shuffle(y)
     y = (y < 5) * 2 - 1 # -- convert to +-1
     assert X.shape[1] == 64, X.shape[1]
-    return X[:n_examples], y[:n_examples]
+    return X[begin:begin+N], y[begin:begin+N]
 
 
 @scope.define_info(o_len=2)
@@ -99,7 +101,7 @@ def features(Xyd, config):
 
 
 @scope.define
-def train_svm(Xyd, l2_regularization):
+def train_svm(Xyd, l2_regularization, max_observations):
     """
     Return a sklearn-like classification model.
     """
@@ -112,7 +114,9 @@ def train_svm(Xyd, l2_regularization):
         n_features=train_X.shape[1],
         l2_regularization=l2_regularization,
         dtype=train_X.dtype,
-        rstate=np.random.RandomState(1234))
+        rstate=np.random.RandomState(1234),
+        max_observations=max_observations,
+        )
     binary_fit(svm, (train_X, train_y, np.asarray(decisions)))
     print "INFO: fitting done!"
     return svm
@@ -180,6 +184,9 @@ def combine_results(split_results, tt_idxs_list, new_ds, split_decisions, y):
         labels = y[tt_idxs_list[ii][1]]
         margin = np.asarray(rr['test_decisions']) * labels
         return 1 - np.minimum(margin, 1).mean()
+
+    # -- use last fold for held-out data... not use to choose the
+    #    ensemble members
     result['loss'] = np.mean([test_margin_mean(ii, rr)
         for ii, rr in enumerate(split_results)])
 
@@ -200,20 +207,28 @@ def run_all(*args):
     return args
 
 
-def screening_prog(n_examples, n_folds, feat_spec, decisions,
-        save_svms, ctrl):
+def screening_prog(
+        n_examples_train,
+        n_examples_test,
+        n_folds,
+        feat_spec,
+        decisions,
+        svm_l2_regularization,
+        svm_max_observations,
+        save_svms,
+        ctrl):
     """
     Build a pyll graph representing the experiment.
     """
     split_decisions = decisions
 
     if split_decisions is None:
-        split_decisions = np.zeros((n_folds, n_examples))
+        split_decisions = np.zeros((n_folds, n_examples_train))
     else:
         # -- experiment may store this as list
         split_decisions = np.asarray(split_decisions)
 
-    Xy = scope.digits_xy(n_examples)
+    Xy = scope.digits_xy(0, n_examples_train)
 
     # -- build a graph with n_folds paths
     split_results = []
@@ -224,7 +239,7 @@ def screening_prog(n_examples, n_folds, feat_spec, decisions,
         decisions = np.asarray(split_decisions[fold_idx])
 
         train_idxs, test_idxs = scope.random_train_test_idxs(
-                n_examples, n_folds, fold_idx)
+                n_examples_train, n_folds, fold_idx)
 
         train_Xyd = scope.slice_Xyd(Xy, decisions, train_idxs)
         test_Xyd = scope.slice_Xyd(Xy, decisions, test_idxs)
@@ -237,7 +252,10 @@ def screening_prog(n_examples, n_folds, feat_spec, decisions,
         train_Xyd_fn, test_Xyd_fn = scope.normalize_Xcols(
                 train_Xyd_f, test_Xyd_f)
 
-        svm = scope.train_svm(train_Xyd_fn, l2_regularization=1e-3)
+        svm = scope.train_svm(train_Xyd_fn,
+                l2_regularization=svm_l2_regularization,
+                max_observations=svm_max_observations,
+                )
 
         new_d_train = scope.svm_decisions(svm, train_Xyd_fn)
         new_d_test = scope.svm_decisions(svm, test_Xyd_fn)
@@ -273,21 +291,70 @@ def screening_prog(n_examples, n_folds, feat_spec, decisions,
 
 class BoostableDigits(BaseBandit):
     param_gen = dict(
-            n_examples=1795,
+            n_examples_train=1250,
+            n_examples_test=500,
             n_folds=5,
             feat_spec=dict(
                 seed=scope.one_of(1, 2, 3, 4, 5),
                 n_features=scope.one_of(2, 5, 10),
                 scale=scope.uniform(0, 5)
                 ),
-            decisions=None
+            svm_l2_regularization=1e-3,
+            decisions=None,
+            svm_max_observations=20000,
             )
 
+    # XXX: add the loss_variance to result dict
     def evaluate(self, config, ctrl):
         if 'split_decisions' in ctrl.attachments:
             config['split_decisions'] = ctrl.attachments['split_decisions']
         prog = screening_prog(save_svms=False, ctrl=ctrl, **config)
         rval = pyll.rec_eval(prog)
         return rval
+
+
+    def score_mixture(self, trials, partial_svm):
+        """
+        partial_svm means fit an svm to each feature set as opposed to one
+        joint training of svm.
+        """
+        n_examples_train = 1250
+        n_examples_test = 500
+        # -- load up the old training data
+        Xy_train = digits_xy(begin=0, N=n_examples_train)
+        # -- this data is really held-out, not used for model selection
+        Xy_test = digits_xy(begin=n_examples_train, N=500)
+        decisions_train = np.zeros(n_examples_train)
+        decisions_test = np.zeros(n_examples_test)
+        if not partial_svm:
+            raise NotImplementedError()
+
+        for ii, trial in enumerate(trials):
+            assert trial['spec']['n_examples_train'] == n_examples_train
+            train_Xyd_n, test_Xyd_n = normalize_Xcols(
+                    (Xy_train[0], Xy_train[1], decisions_train),
+                    (Xy_test[0], Xy_test[1], decisions_test))
+            train_Xyd_f = features(train_Xyd_n,
+                    trial['spec']['feat_spec'])
+            test_Xyd_f = features(test_Xyd_n,
+                    trial['spec']['feat_spec'])
+            train_Xyd_fn, test_Xyd_fn = normalize_Xcols(
+                    train_Xyd_f, test_Xyd_f)
+            # XXX: match this
+            svm = train_svm(train_Xyd_fn,
+                    l2_regularization=trial['spec']['svm_l2_regularization'],
+                    max_observations=trial['spec']['svm_max_observations'],
+                    )
+
+            decisions_train = svm_decisions(svm, train_Xyd_fn)
+            decisions_test = svm_decisions(svm, test_Xyd_fn)
+
+            train_err_ii = (np.sign(decisions_train) != Xy_train[1]).mean()
+            test_err_ii = (np.sign(decisions_test) != Xy_test[1]).mean()
+
+            print 'score_mixture', ii
+            print 'train err:', train_err_ii
+            print 'test err:', test_err_ii
+        return test_err_ii
 
 
