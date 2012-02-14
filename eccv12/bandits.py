@@ -3,8 +3,7 @@ put bandits here
 """
 import cPickle
 
-import hyperopt.genson_bandits as gb
-import hyperopt.genson_helpers as gh
+import hyperopt
 
 
 def validate_result(result):
@@ -14,19 +13,15 @@ def validate_result(result):
     assert all([len(decs[k]) == len(labs[k]) for k in decs])
 
 
-class BaseBandit(gb.GensonBandit):
+class BaseBandit(hyperopt.Bandit):
     # Required: self.param_gen
 
     def __init__(self, decisions=None):
-        super(BaseBandit, self).__init__(source_string=gh.string(self.param_gen)) 
+        super(BaseBandit, self).__init__(self.param_gen)
         self.decisions = decisions
-        
+
     def status(self, result, config=None):
-        try:
-            return result.get('status', 'ok')
-        except:
-            print result.keys()
-            raise
+        return result.get('status', 'ok')
 
     def evaluate(self, config, ctrl):
         if not self.decisions is None:

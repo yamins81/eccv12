@@ -2,22 +2,19 @@ import cPickle
 
 import numpy as np
 
-from hyperopt.genson_helpers import choice
-from hyperopt.genson_helpers import uniform
-
 from skdata.digits import Digits
 
-from genson import lazy
-from genson import lazyinfo
-from genson import JSONFunction
+import pyll
+from pyll import scope
+
+from asgd.auto_step_size import binary_fit
 
 from .bandits import BaseBandit
 from .classifier import get_result
 from .margin_asgd import MarginBinaryASGD
-from asgd.auto_step_size import binary_fit
 
 
-@lazyinfo(len=2)
+@scope.define_info(o_len=2)
 def digits_xy(n_examples):
     """
     Turn digits to binary classification: 0-4 vs. 5-9
@@ -29,7 +26,7 @@ def digits_xy(n_examples):
     return X[:n_examples], y[:n_examples]
 
 
-@lazyinfo(len=2)
+@scope.define_info(o_len=2)
 def random_train_test_idxs(n_examples, n_fold, split_idx, rseed=42):
     """ Returns train_idxs, test_idxs of n_fold cross-validation.
 
@@ -51,7 +48,7 @@ def random_train_test_idxs(n_examples, n_fold, split_idx, rseed=42):
     return train_idxs, test_idxs
 
 
-@lazyinfo(len=3)
+@scope.define_info(o_len=3)
 def slice_Xyd(Xy, decisions, idxs):
     """
     """
@@ -62,8 +59,7 @@ def slice_Xyd(Xy, decisions, idxs):
     return X[idxs], y[idxs], decisions[idxs]
 
 
-
-@lazyinfo(len=2)
+@scope.define_info(o_len=2)
 def normalize_Xcols(train_Xyd, test_Xyd):
     X_train, y_train, d_train = train_Xyd
     X_test, y_test, d_test = test_Xyd
@@ -84,7 +80,7 @@ def normalize_Xcols(train_Xyd, test_Xyd):
             ]
 
 
-@lazy
+@scope.define
 def features(Xyd, config):
     """Map from (X, y, d) -> (f(X), y, d)
     """
@@ -101,7 +97,7 @@ def features(Xyd, config):
     return (feat, y, d)
 
 
-@lazy
+@scope.define
 def train_svm(Xyd, l2_regularization):
     """
     Return a sklearn-like classification model.
@@ -121,13 +117,14 @@ def train_svm(Xyd, l2_regularization):
     return svm
 
 
-@lazy
+@scope.define
 def svm_decisions(svm, Xyd):
     X, y, d = Xyd
     inc = svm.decision_function(X)
     return d + inc
 
-@lazy
+
+@scope.define
 def result_binary_classifier_stats(
         train_data,
         test_data,
@@ -155,7 +152,7 @@ def result_binary_classifier_stats(
     return result
 
 
-@lazy
+@scope.define
 def combine_results(split_results, tt_idxs_list, new_ds, split_decisions, y):
     """
     Result has
@@ -188,28 +185,31 @@ def combine_results(split_results, tt_idxs_list, new_ds, split_decisions, y):
     return result
 
 
-@lazy
+@scope.define
 def attach_svm(ctrl, svm, name='svm'):
     obj = dict(weights=svm.asgd_weights, bias=svm.asgd_bias)
     ctrl.attachments[name] = cPickle.dumps(obj)
+    return ctrl
 
 
-@lazy
+@scope.define
 def run_all(*args):
     return args
 
 
 def screening_prog(n_examples, n_folds, feat_spec, split_decisions,
-        save_svms):
+        save_svms, ctrl):
     """
-    Build a genson execution graph representing the experiment.
+    Build a pyll graph representing the experiment.
     """
 
     if split_decisions is None:
         split_decisions = np.zeros((n_folds, n_examples))
+    else:
+        # -- experiment may store this as list
+        split_decisions = np.asarray(split_decisions)
 
-    Xy = digits_xy.lazy(n_examples)
-    ctrl = JSONFunction.KWARGS['ctrl']
+    Xy = scope.digits_xy(n_examples)
 
     # -- build a graph with n_folds paths
     split_results = []
@@ -219,26 +219,26 @@ def screening_prog(n_examples, n_folds, feat_spec, split_decisions,
         split_result = {}
         decisions = np.asarray(split_decisions[fold_idx])
 
-        train_idxs, test_idxs = random_train_test_idxs.lazy(
+        train_idxs, test_idxs = scope.random_train_test_idxs(
                 n_examples, n_folds, fold_idx)
 
-        train_Xyd = slice_Xyd.lazy(Xy, decisions, train_idxs)
-        test_Xyd = slice_Xyd.lazy(Xy, decisions, test_idxs)
+        train_Xyd = scope.slice_Xyd(Xy, decisions, train_idxs)
+        test_Xyd = scope.slice_Xyd(Xy, decisions, test_idxs)
 
-        train_Xyd_n, test_Xyd_n = normalize_Xcols.lazy(train_Xyd, test_Xyd)
+        train_Xyd_n, test_Xyd_n = scope.normalize_Xcols(train_Xyd, test_Xyd)
 
-        train_Xyd_f = features.lazy(train_Xyd_n, feat_spec)
-        test_Xyd_f = features.lazy(test_Xyd_n, feat_spec)
+        train_Xyd_f = scope.features(train_Xyd_n, feat_spec)
+        test_Xyd_f = scope.features(test_Xyd_n, feat_spec)
 
-        train_Xyd_fn, test_Xyd_fn = normalize_Xcols.lazy(
+        train_Xyd_fn, test_Xyd_fn = scope.normalize_Xcols(
                 train_Xyd_f, test_Xyd_f)
 
-        svm = train_svm.lazy(train_Xyd_fn, l2_regularization=1e-3)
+        svm = scope.train_svm(train_Xyd_fn, l2_regularization=1e-3)
 
-        new_d_train = svm_decisions.lazy(svm, train_Xyd_fn)
-        new_d_test = svm_decisions.lazy(svm, test_Xyd_fn)
+        new_d_train = scope.svm_decisions(svm, train_Xyd_fn)
+        new_d_test = scope.svm_decisions(svm, test_Xyd_fn)
 
-        split_result = result_binary_classifier_stats.lazy(
+        split_result = scope.result_binary_classifier_stats(
                 train_Xyd,
                 test_Xyd,
                 new_d_train,
@@ -250,15 +250,14 @@ def screening_prog(n_examples, n_folds, feat_spec, split_decisions,
 
         # -- if we save weights, then do this:
         if save_svms:
-            split_results.append(run_all.lazy(
+            split_results.append(scope.run_all(
                 split_result,
-                attach_svm.lazy(ctrl, svm, 'svm_%i' % fold_idx,
+                scope.attach_svm(ctrl, svm, 'svm_%i' % fold_idx,
                 ))[0])
         else:
             split_results.append(split_result)
 
-
-    result = combine_results.lazy(
+    result = scope.combine_results(
             split_results,
             tt_idxs_list,
             new_ds,
@@ -269,27 +268,22 @@ def screening_prog(n_examples, n_folds, feat_spec, split_decisions,
 
 
 class BoostableDigits(BaseBandit):
-    if 0:
-        # this causes bug in genson
-        param_gen = dict(
-                n_examples=1795,
-                n_folds=5,
-                feat_spec=dict(
-                    seed=choice([1, 2, 3, 4, 5]),
-                    n_features=choice([1, 5, 10]),
-                    scale=uniform(0, 5)
-                    ),
-                split_decisions=None
-                )
-    else:
-        param_gen = {}
+    param_gen = dict(
+            n_examples=1795,
+            n_folds=5,
+            feat_spec=dict(
+                seed=scope.choice([1, 2, 3, 4, 5]),
+                n_features=scope.choice([1, 5, 10]),
+                scale=scope.uniform(0, 5)
+                ),
+            split_decisions=None
+            )
 
     def evaluate(self, config, ctrl):
         if 'split_decisions' in ctrl.attachments:
             config['split_decisions'] = ctrl.attachments['split_decisions']
-        prog = screening_prog(**config)
-        fn = JSONFunction(prog)
-        rval = fn(ctrl=ctrl)
+        prog = screening_prog(ctrl=ctrl, **config)
+        rval = pyll.rec_eval(prog)
         return rval
 
 

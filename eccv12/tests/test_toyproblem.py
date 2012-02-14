@@ -1,5 +1,5 @@
-import genson
 from eccv12.toyproblem import *
+from hyperopt import Ctrl
 
 # ---------------------------------------------------------------------------
 # Tests
@@ -8,10 +8,11 @@ from eccv12.toyproblem import *
 config_tiny=dict(
         n_examples=100,
         n_folds=2,
-        feat_spec=dict( seed=1, n_features=5, scale=2.2),
+        feat_spec=dict(seed=1, n_features=5, scale=2.2),
         split_decisions=None,
         save_svms=True
         )
+
 
 def test_random_train_test_idxs():
     for n_examples in 66, 100:
@@ -36,9 +37,10 @@ def test_random_train_test_idxs():
 
 def test_screening_prog():
     # smoke test
-    prog = screening_prog(**config_tiny)
-    print genson.dumps(prog)
-    rval = JSONFunction(prog)(ctrl=Ctrl())
+    prog = screening_prog(ctrl=Ctrl(), **config_tiny)
+    sprog = str(prog)
+    #print sprog
+    rval = pyll.rec_eval(prog)
     print rval
     assert 'loss' in rval
     assert 'decisions' in rval
@@ -122,10 +124,12 @@ def test_boosting_margin_goes_down():
     print list(sorted(margins))
     assert list(reversed(margins)) == list(sorted(margins))
 
+
 def mean_acc(result):
     tr_acc = np.mean([r['train_accuracy'] for r in result['splits']])
     te_acc = np.mean([r['test_accuracy'] for r in result['splits']])
     return tr_acc, te_acc
+
 
 def test_boosting_for_smoke():
     n_examples = 1790
@@ -177,7 +181,7 @@ def test_boosting_for_smoke():
     # assert that round-training and joint training are both way better than
     # training just one
     assert joint_tr_acc > 95
-    assert joint_te_acc > 90
+    assert joint_te_acc > 88
     assert one_tr_acc < 70
     assert one_te_acc < 70
     assert tr_acc > 90

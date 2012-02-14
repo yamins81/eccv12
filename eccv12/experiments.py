@@ -1,6 +1,7 @@
 """
-experiment classes
+Experiment classes
 """
+
 import os
 import sys
 import cPickle
