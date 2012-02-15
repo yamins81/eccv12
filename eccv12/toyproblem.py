@@ -371,8 +371,8 @@ class BoostableDigits(BaseBandit):
         Xy_test = digits_xy(begin=n_examples_train, N=500)
         decisions_train = np.zeros(n_examples_train)
         decisions_test = np.zeros(n_examples_test)
-        features = []
-        train_err_rates = []
+        train_Xs = []
+        test_Xs = []
 
         for ii, trial in enumerate(trials):
             assert trial['spec']['n_examples_train'] == n_examples_train
@@ -385,22 +385,28 @@ class BoostableDigits(BaseBandit):
                     trial['spec']['feat_spec'])
             train_Xyd_fn, test_Xyd_fn = normalize_Xcols(
                     train_Xyd_f, test_Xyd_f)
-            # XXX: match this
-            svm = train_svm(train_Xyd_fn,
-                    l2_regularization=trial['spec']['svm_l2_regularization'],
-                    max_observations=trial['spec']['svm_max_observations'],
-                    )
+            train_Xs.append(train_Xyd_fn[0])
+            test_Xs.append(test_Xyd_fn[0])
 
-            decisions_train = svm_decisions(svm, train_Xyd_fn)
-            decisions_test = svm_decisions(svm, test_Xyd_fn)
+        XX_train = np.hstack(train_Xs)
+        XX_test = np.hstack(test_Xs)
+        train_XXyd_fn = (XX_train, train_Xyd_f[1], decisions_train)
+        test_XXyd_fn = (XX_test, test_Xyd_f[1], decisions_test)
 
-            train_err_ii = (np.sign(decisions_train) != Xy_train[1]).mean()
-            test_err_ii = (np.sign(decisions_test) != Xy_test[1]).mean()
+        # XXX: match this
+        svm = train_svm(train_XXyd_fn,
+                l2_regularization=trial['spec']['svm_l2_regularization'],
+                max_observations=trial['spec']['svm_max_observations'],
+                )
 
-            print 'score_mixture', ii
-            print 'train err:', train_err_ii
-            print 'test err:', test_err_ii
-            test_err_rates.append(test_err_ii)
-            train_err_rates.append(train_err_ii)
-        return train_err_rates, test_err_rates
+        decisions_train = svm_decisions(svm, train_XXyd_fn)
+        decisions_test = svm_decisions(svm, test_XXyd_fn)
+
+        train_err_ii = (np.sign(decisions_train) != Xy_train[1]).mean()
+        test_err_ii = (np.sign(decisions_test) != Xy_test[1]).mean()
+
+        print 'score_mixture', ii
+        print 'train err:', train_err_ii
+        print 'test err:', test_err_ii
+        return train_err_ii, test_err_ii
 
