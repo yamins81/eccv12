@@ -161,14 +161,12 @@ def test_mixture_ensembles():
     simple = experiments.SimpleMixture(trials, bandit)
     simple_specs, simple_weights = simple.mix_models(NUM_ROUNDS)
     simple_specs = [{'spec': spec} for spec in simple_specs]
-    
     simple_er_partial = bandit.score_mixture_partial_svm(simple_specs)
     simple_er_full = bandit.score_mixture_full_svm(simple_specs)
 
     ada = experiments.AdaboostMixture(trials, bandit)
-    ada_specs, ada_weights = simple.mix_models(NUM_ROUNDS)
+    ada_specs, ada_weights = ada.mix_models(NUM_ROUNDS)
     ada_specs = [{'spec': spec} for spec in ada_specs]
-
     ada_er_partial = bandit.score_mixture_partial_svm(ada_specs)
     ada_er_full = bandit.score_mixture_full_svm(ada_specs)    
     
@@ -180,15 +178,16 @@ def test_mixture_ensembles():
     selected_specs = {'simple': simple_specs,
                       'ada': ada_specs}
     
-    assert selected_specs['ada'] == selected_specs['simple']
     assert np.abs(errors['simple_full'][0] - .234) < 1e-2
-    
     ptl = np.array([0.2744,
                     0.2304,
                     0.236,
                     0.2256,
                     0.2232])
     assert np.abs(errors['simple_partial'][0] - ptl).max() < 1e-2
+    assert np.abs(errors['ada_full'][0] - .1696) < 1e-2
+    ptl = np.array([0.2744, 0.2336, 0.1968, 0.1832, 0.1688])
+    assert np.abs(errors['ada_partial'][0] - ptl).max() < 1e-2
     
     return exp, errors, selected_specs
     
