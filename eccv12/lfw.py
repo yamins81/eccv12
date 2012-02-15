@@ -72,7 +72,7 @@ def get_decisions(split, decisions):
     assert split in ['DevTrain', 'DevTest']
     if split == 'DevTrain':
         split_inds = np.arange(0, 2200) 
-    else
+    else:
         split_inds = np.arange(2200, 3200)
     return decisions[split_inds][:, 0]
 

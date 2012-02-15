@@ -11,7 +11,7 @@ def validate_result(result):
     assert decs.ndim == 2
     labs = np.asarray(result['labels'])
     assert labs.ndim == 1
-    assert decs.shape[0] = len(labs)
+    assert decs.shape[0] == len(labs)
     
     
 def validate_config(config):
