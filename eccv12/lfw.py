@@ -64,7 +64,7 @@ class TestBandit(MainBandit):
 
 
 @genson.lazy
-def fetch_decisions(split, decisions):
+def get_decisions(split, decisions):
     """
     Load the accumulated decisions of models selected for the ensemble,
     for the verification examples of the given split.
@@ -263,8 +263,8 @@ def screening_program(slm_desc, decisions, comparison, preproc, namebase):
     test_X, test_y = pairs_dataset('DevTest')
 
     ctrl = genson.JSONFunction.KWARGS['ctrl']
-    train_d = fetch_decisions.lazy('DevTrain', decisions)
-    test_d = fetch_decisions.lazy('DevTest', decisions)
+    train_d = get_decisions.lazy('DevTrain', decisions)
+    test_d = get_decisions.lazy('DevTest', decisions)
 
     train_Xyd_n, test_Xyd_n = normalize_Xcols.lazy(
         (train_X, train_y, train_d,),
