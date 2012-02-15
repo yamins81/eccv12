@@ -9,10 +9,11 @@ import hyperopt
 def validate_result(result):
     assert set(result['decisions'].keys()) == set(result['labels'].keys())
     decs = result['decisions']
-    labs = result['labels']
-    assert decs.shape[:-1] = labs.shape[:-1]
     assert decs.ndim == 2
-
+    labs = result['labels']
+    assert labs.ndim == 1
+    assert decs.shape[0] = len(labs)
+    
 
 class BaseBandit(hyperopt.Bandit):
     # Required: self.param_gen
