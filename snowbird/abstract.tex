@@ -24,8 +24,8 @@ by:
 
 \vspace{11pt}
 Work such as
-\citet{plos_ht}, \citet{fg11}, \citet{coates+lee+ng:2010},
-\citet{gehler}, \citet{bergstra+bardenet+bengio+kegl:2011}
+\cite{Pinto-2009}, \cite{pinto+cox:2011}, \cite{coates+lee+ng:2011},
+\cite{gehler+nowozin:2009}, \cite{bergstra+bardenet+bengio+kegl:2011}
 demonstrates that the combination of these two techniques can set new
 records on competitive benchmarks, without \emph{any} innovative modeling or
 learning algorithms.  In fact, the meaning of statements of the form
@@ -43,47 +43,73 @@ optimization in learning algorithms suggests how automated approaches
 can help.
 
 \vspace{11pt}
-\citet{bergstra+bengio:2012} shows that random search is much more
+\cite{bergstra+bengio:2012} shows that random search is much more
 efficient than grid search, at least for hyper-parameter optimization in
 neural networks and deep belief networks
-\citep{hinton+osinero+teh:2006}.
-\citet{bergstra+bardenet+bengio+kegl:2011} shows that algorithms based on
+\cite{hinton+osindero+teh:2006}.
+\cite{bergstra+bardenet+bengio+kegl:2011} shows that algorithms based on
 sequential model-based optimization (Bayesian optimization,
-see e.g. \citep{hutter:2006}, \citet{brochu:2008})
+see e.g. \cite{hutter:2009})
 can be both practical and highly profitable.
 
 \vspace{11pt}
-However, despite these advances, hyperparameter optimization techniques have not 
-yet been brought to bear on ensemble construction.  Works such as \citet{gehler}, \citet{coates+lee+ng:2010},
-and \citet{fg11} highlight the importance of learning ensembles, so there is an incentive
-to unify the approaches.  
+However, despite these advances, hyperparameter optimization techniques have not
+yet been brought to bear on ensemble construction.  Works such as
+\cite{gehler+nowozin:2009}, \cite{coates+lee+ng:2011},
+and \cite{pinto+cox:2011} highlight the importance of learning ensembles, so there is an incentive
+to unify the approaches.
 
 \vspace{11pt}
-This work is based on the insight that, for models consisting of feature extraction followed by classification, 
+This work is based on the insight that, for models consisting of feature extraction followed by classification,
 an ensemble construction meta-algorithm can be seen simply as an
-efficient sequential strategy for hyper-parameter optimization of 
+efficient sequential strategy for hyper-parameter optimization of
 models with a larger number of features.
 
 \vspace{11pt}
 More specifically, we investigate a variety of strategies for combining sequential model-based
 optimization approaches to hyper-parameter optimization with boosting
-approaches to ensemble construction \citep{mason,friedman}.  
+approaches to ensemble construction \cite{mason+baxter+bartlett+fraen:1999,
+friedman:1999}.
 The objective is a black-box algorithm that is able to match or exceed the
 results of published results which used additional domain knowledge or
 heuristic manual search.
 
+\iffalse
+\begin{figure}
+    \includegraphics[scale=0.37]{convergence_100_10.pdf}
+
+    \includegraphics[scale=0.37]{figures/dbn_efficiency/dbn_efficiency_mnist_basic}
+    \caption{
+
+    }
+\end{figure}
+\fi
+
+
 \section{Contribution}
 
-This work compares several algorithms for combining high-throughput hyperparameter searches with various ensemble construction techniques: 
+This work compares several algorithms for combining high-throughput hyperparameter searches with various ensemble construction techniques.
+
+We begin with comparisons of four increasingly sophisticated approaches, using random hyperparameter choice: 
 \begin{enumerate}
-\item ``Standard high-throughput mixing":  for integers $A$ and $N$, randomly sample $A \times N$ hyper-parameter settings; compute features and train classifiers for each independently; and then take the unweighted additive combination of the top-$A$ best performing models.  This is a basic control against which all the following are judged. 
+\item ``Basic random selection":  for integers $A$ and $N$, randomly sample $N$ sized-$A$ ensembles of hyper-parameter settings; compute features and train classifiers for each independently; and then take the unweighted additive combination within each ensemble.  This is a basic control against which all the following are judged. 
+\item ``Standard high-throughput mixing":  for integers $A$ and $N$, randomly sample $A \times N$ hyper-parameter settings; compute features and train classifiers for each independently; and then take the unweighted additive combination of the top-$A$ best performing models.  This algorithm is the most common approach for ensemble construction in the hyper-parameter context. 
 \item ``Traditional static boosting":  again take $A \times N$ independently trained random hyperparameter samples; but then sequentially choose an ensemble of $A$ models from this set using Adaboost, a standard boosting algorithm, to determine the ensemble composition and weighting.   This algorithm attempts to combine models that have complementary error patterns.  
 \item ``High-throughput boosting":  in each of $A$ sequential rounds, choose $N$ randomly sampled hyper-parameters, and compute their features; train cross-validated classifiers within each round using the decisions boundary from the ensemble chosen up to previous round to bias the classifier training margins; and at the end of each round add to the ensemble the hyper-parameter setting that achieved the best cross-validated performance.   This algorithm engages the boosting idea more completely in the optimization process, along a spectrum between highly parallelizable ($A \ll N$) and highly sequential ($A \gg N$) versions.
-\item Versions of the above in which random hyper-parameter sampling is replaced with sequential hyperparameter optimization, using an adapted Graphical Parzen model algorithm for optimization.   This is then compared to a control of $A$ separate Parzen-optimized runs each of length $N$.
+\end{enumerate}
+
+We will then investigate how optimization in hyperparameter space interacts with these approaches by:
+\begin{enumerate}
+\item Running rersions of the above in which random hyper-parameter sampling is replaced with sequential hyperparameter optimization, using an adapted Graphical Parzen model algorithm for optimization.   
+\item Comparing to a control consisting of $A$ independent optimized runs each of length $N$.
 \end{enumerate}
 
 In comparing these algorithms, we investigate the trade-offs between ensemble performance, runtime (both of the model selection process and the final ensemble), feature vector size, and parallelizability, using two datasets:  a comparatively small categorization problem from the UC Irvine Handwritten Digits dataset, and a larger face-verification problem from the Labeled Faces in the Wild dataset. 
 
+
+\small
+\bibliographystyle{unsrt}
+\bibliography{local}
 
 \end{document}
 
