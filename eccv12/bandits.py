@@ -10,7 +10,8 @@ def validate_result(result):
     assert set(result['decisions'].keys()) == set(result['labels'].keys())
     decs = result['decisions']
     labs = result['labels']
-    assert all([len(decs[k]) == len(labs[k]) for k in decs])
+    assert decs.shape[:-1] = labs.shape[:-1]
+    assert decs.ndim == 2
 
 
 class BaseBandit(hyperopt.Bandit):

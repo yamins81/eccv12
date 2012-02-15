@@ -68,6 +68,11 @@ def fetch_decisions(split, ctrl):
     """
     blob = ctrl.attachments['decisions']
     dct = cPickle.loads(blob)
+    assert split in ['DevTrain', 'DevTest']
+    if split == 'DevTrain':
+        split_inds = np.arange(0, 2200) 
+    else
+        split_inds = np.arange(2200, 3200)
     return np.asarray(dct[split])
 
 
@@ -216,10 +221,10 @@ def result_binary_classifier_stats(
                              [-1, 1])
     result.update(stats)
     result['loss'] = float(1 - result['test_accuracy']/100.)
-    result['decisions'] = {'DevTrain': train_decisions.tolist(),
-                           'DevTest': test_decisions.tolist()}
-    result['labels'] = {'DevTrain': train_data[1].tolist(),
-                        'DevTest': test_data[1].tolist()}
+    dec = np.concatenate([train_decisions[1], test_decisions[1]])
+    dec = dec.reshape((len(dec), 1))
+    result['decisions'] = dec.tolist()
+    result['labels'] = np.concatenate([train_data[1], test_data[1]]).tolist()
     return result
 
 
@@ -298,15 +303,11 @@ def get_performance(slm, preproc, comparison, ctrl,
             comparison=comparison,
             namebase=namebase)[1]
     if 'decisions' not in ctrl.attachments:
-        blob = cPickle.dumps(dict(
-            DevTrain=np.zeros(2200),
-            DevTest=np.zeros(1000),
-            ), -1)
+        blob = cPickle.dumps(np.zeros(3200), -1)
         ctrl.attachments['decisions'] = blob
     else:
         dec = cPickle.loads(ctrl.attachments['decisions'])
-        assert len(dec['DevTrain']) == 2200, len(dec['DevTrain'])
-        assert len(dec['DevTest']) == 1000, len(dec['DevTest'])
+        assert dec.shape == (3200, 1)
     
     prog_fn = genson.JSONFunction(prog[progkey])
     return prog_fn(ctrl=ctrl)
