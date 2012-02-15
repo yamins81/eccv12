@@ -80,7 +80,6 @@ class AdaboostMixture(SimpleMixture):
             prediction = predictions[ind]
             weights = weights * np.exp(-alpha * labels * prediction)
             weights = weights / weights.sum(0)
-        alphas = np.array(alphas)
         return selected_inds, np.array(alphas)
 
 
@@ -103,17 +102,14 @@ class ParallelAlgo(hyperopt.BanditAlgo):
             stochastic_vals):
         trial_num = len(specs)
         proc_num = trial_num % self.num_procs
-        proc_specs = [s for s, r in zip(specs, results) if r['proc_num'] == proc_num]
-        proc_results = [_res in results if res['proc_num'] == proc_num]
+        proc_idxs = [idx for idx, s in enumerate(specs) if s['proc_num'] == proc_num]
+        proc_specs = [specs[idx] for idx in proc_idx]
+        proc_results = [results[idx] for idx in proc_idx]
         proc_idxs = {}
         proc_vals = {}
         for key in stochastic_idxs:
-            proc_idxs[key] = [idx
-                    for idx in stochastic_idxs[key]
-                    if idx >= cutoff]
-            proc_vals[key] = [val
-                    for val, idx in zip(stochastic_vals[key], stochastic_idxs[key])
-                    if idx >= cutoff]
+            proc_idxs[key] = [idx for idx in stochastic_idxs[key] if idx in proc_idx]
+            proc_vals[key] = [val for val, idx in zip(stochastic_vals[key], stochastic_idxs[key]) if idx in proc_idx]
         docs, idxs, vals = self.sub_algo.suggest(new_ids, proc_specs,
                                           proc_results, round_idxs, round_vals)
         for doc in docs:
