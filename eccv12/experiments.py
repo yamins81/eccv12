@@ -24,7 +24,7 @@ class SimpleMixture(object):
         results = self.trials.results
         assert len(results) >= A
         specs = self.trials.specs
-        losses = map(self.bandit.loss, results[:cutoff], specs[:cutoff])
+        losses = np.array(map(self.bandit.loss, results, specs))
         s = losses.argsort()
         return s[:A], np.ones((A,)) / float(A)
 
@@ -63,24 +63,27 @@ class AdaboostMixture(SimpleMixture):
         labels = self.fetch_labels()
         L = len(labels)
         predictions = self.fetch_predictions()
-        assert predictions.shape[1] == L
-        weights = (1./L) * np.ones((L, predictions.shape[2]))
-        labels = labels[:, np.newaxis]        
+        assert predictions.shape[2] == L, '%d != %d' % (predictions.shape[2], L)
+        weights = (1./L) * np.ones((predictions.shape[1], L))
+        labels = labels[np.newaxis, :]  
         errors = (predictions != labels).astype(np.int)
         selected_inds = []
         alphas = []
         for round in range(A):
-            ep_array = (errors * weights).sum(1)
+            ep_array = (errors * weights).sum(2)
             ep_diff_array = np.abs(0.5 - ep_array)
+            ep_diff_array[selected_inds] = -1 #hacky way to prevent re-selection
             ind = ep_diff_array.mean(1).argmax()
             selected_inds.append(ind)
             ep = ep_array[ind]
             alpha = 0.5 * np.log((1 - ep) / ep)
+            alpha = alpha.reshape((len(alpha), 1))
             alphas.append(alpha)
             prediction = predictions[ind]
             weights = weights * np.exp(-alpha * labels * prediction)
-            weights = weights / weights.sum(0)
-        return selected_inds, np.array(alphas)
+            weights = weights / weights.sum(1).reshape((weights.shape[0], 1))
+        alphas = np.array(alphas)
+        return np.array(selected_inds), alphas.reshape(alphas.shape[:2])
 
 
 
@@ -103,15 +106,15 @@ class ParallelAlgo(hyperopt.BanditAlgo):
         trial_num = len(specs)
         proc_num = trial_num % self.num_procs
         proc_idxs = [idx for idx, s in enumerate(specs) if s['proc_num'] == proc_num]
-        proc_specs = [specs[idx] for idx in proc_idx]
-        proc_results = [results[idx] for idx in proc_idx]
+        proc_specs = [specs[idx] for idx in proc_idxs]
+        proc_results = [results[idx] for idx in proc_idxs]
         proc_idxs = {}
         proc_vals = {}
         for key in stochastic_idxs:
-            proc_idxs[key] = [idx for idx in stochastic_idxs[key] if idx in proc_idx]
-            proc_vals[key] = [val for val, idx in zip(stochastic_vals[key], stochastic_idxs[key]) if idx in proc_idx]
+            proc_idxs[key] = [idx for idx in stochastic_idxs[key] if idx in proc_idxs]
+            proc_vals[key] = [val for val, idx in zip(stochastic_vals[key], stochastic_idxs[key]) if idx in proc_idxs]
         docs, idxs, vals = self.sub_algo.suggest(new_ids, proc_specs,
-                                          proc_results, round_idxs, round_vals)
+                                          proc_results, proc_idxs, proc_vals)
         for doc in docs:
             assert 'proc_num' not in doc
             doc['proc_num'] = proc_num
