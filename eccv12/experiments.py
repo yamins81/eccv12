@@ -47,7 +47,7 @@ class AdaboostMixture(SimpleMixture):
     def fetch_decisions(self):
         results = self.trials.results
         decisions = np.array([_r['decisions'] for _r in results])
-        assert decisions.ndim in 3
+        assert decisions.ndim == 3
         return decisions
 
     def predictions_from_decisions(self, decisions):

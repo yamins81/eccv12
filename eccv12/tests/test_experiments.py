@@ -5,7 +5,6 @@ Testing experiment classes
 import hyperopt
 
 import eccv12.experiments as experiments
-from eccv12.experiments import BoostedSerialExperiment
 
 from eccv12.toyproblem import BoostableDigits
 
@@ -13,6 +12,7 @@ from eccv12.toyproblem import BoostableDigits
 class FastBoostableDigits(BoostableDigits):
     param_gen = dict(BoostableDigits.param_gen)
     param_gen['svm_max_observations'] = 5000 # -- this is smaller
+
 
 def test_boosting_algo():
     n_trials = 12
@@ -49,9 +49,6 @@ def test_boosting_algo():
                 partial_svm=True)
         assert new_mixture_score < last_mixture_score
         last_mixture_score = new_mixture_score
-
-
-
 
 
 def test_mixtures():

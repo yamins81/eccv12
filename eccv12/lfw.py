@@ -38,7 +38,8 @@ class FG11Bandit(BaseBandit):
         slm = config['slm']
         preproc = config['preproc']
         comparison = config['comparison']
-        return get_performance(slm, preproc, comparison, ctrl)
+        decisions = config['decisions']
+        return get_performance(slm, decisions, preproc, comparison, ctrl)
 
 
 class MainBandit(BaseBandit):
@@ -51,7 +52,9 @@ class MainBandit(BaseBandit):
         slm = config['model']['slm']
         preproc = config['model']['preproc']
         comparison = config['comparison']
-        return get_performance(slm, preproc, comparison, ctrl)
+        decisions = config['decisions']
+        return get_performance(slm, decisions, preproc, comparison, ctrl)
+
 
 class TestBandit(MainBandit):
         param_gen = dict(
@@ -61,19 +64,17 @@ class TestBandit(MainBandit):
 
 
 @genson.lazy
-def fetch_decisions(split, ctrl):
+def fetch_decisions(split, decisions):
     """
     Load the accumulated decisions of models selected for the ensemble,
     for the verification examples of the given split.
     """
-    blob = ctrl.attachments['decisions']
-    dct = cPickle.loads(blob)
     assert split in ['DevTrain', 'DevTest']
     if split == 'DevTrain':
         split_inds = np.arange(0, 2200) 
     else
         split_inds = np.arange(2200, 3200)
-    return np.asarray(dct[split])
+    return decisions[split_inds][:, 0]
 
 
 @genson.lazy
@@ -235,7 +236,7 @@ def svm_decisions(svm, Xyd):
     return d + inc
 
 
-def screening_program(slm_desc, comparison, preproc, namebase):
+def screening_program(slm_desc, decisions, comparison, preproc, namebase):
     image_features = slm_memmap.lazy(
                 desc=slm_desc,
                 X=get_images.lazy('float32', preproc=preproc),
@@ -262,8 +263,8 @@ def screening_program(slm_desc, comparison, preproc, namebase):
     test_X, test_y = pairs_dataset('DevTest')
 
     ctrl = genson.JSONFunction.KWARGS['ctrl']
-    train_d = fetch_decisions.lazy('DevTrain', ctrl)
-    test_d = fetch_decisions.lazy('DevTest', ctrl)
+    train_d = fetch_decisions.lazy('DevTrain', decisions)
+    test_d = fetch_decisions.lazy('DevTest', decisions)
 
     train_Xyd_n, test_Xyd_n = normalize_Xcols.lazy(
         (train_X, train_y, train_d,),
@@ -288,26 +289,24 @@ def screening_program(slm_desc, comparison, preproc, namebase):
         delete_memmap.lazy(image_features),
         )[0]
 
-    # TODO: do we really need to attach svm ? It's big
-
     return result_w_cleanup, locals()
 
 
-def get_performance(slm, preproc, comparison, ctrl,
+def get_performance(slm, decisions, preproc, comparison, ctrl,
                     namebase=None, progkey='result_w_cleanup'):
+    if decisions is None:
+        decisions = np.zeros((3200, 1))
+    else:
+        decisions = np.asarray(decisions)
+    assert decisions.shape == (3200, 1)
     if namebase is None:
         namebase = 'memmap_' + str(np.random.randint(1e8))
     prog = screening_program(
             slm_desc=slm,
             preproc=preproc,
             comparison=comparison,
-            namebase=namebase)[1]
-    if 'decisions' not in ctrl.attachments:
-        blob = cPickle.dumps(np.zeros(3200), -1)
-        ctrl.attachments['decisions'] = blob
-    else:
-        dec = cPickle.loads(ctrl.attachments['decisions'])
-        assert dec.shape == (3200, 1)
+            namebase=namebase,
+            decisions=decisions)[1]
     
     prog_fn = genson.JSONFunction(prog[progkey])
     return prog_fn(ctrl=ctrl)
