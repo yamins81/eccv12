@@ -21,7 +21,6 @@ class SimpleMixture(object):
         self.bandit = bandit
 
     def mix_inds(self, A):
-<<<<<<< HEAD
         results = self.trials.results
         assert len(results) >= A
         specs = self.trials.specs
@@ -31,34 +30,14 @@ class SimpleMixture(object):
 
     def mix_models(self, A):
         specs = self.trials.sepcs
-=======
-        specs = self.trials.specs
-        results = self.trials.results
-        assert len(results) >= A
-        losses = map(self.bandit.loss, results, specs)
-        if None in losses:
-            raise NotImplementedError()
-        s = np.asarray(losses).argsort()
-        return s[:A], np.ones((A,)) / float(A)
-
-    def mix_models(self, A):
-        specs = self.trials.specs
->>>>>>> nsf/master
         inds, weights = self.mix_inds(A)
         return [specs[ind] for ind in inds], weights
 
 
 class AdaboostMixture(SimpleMixture):
-<<<<<<< HEAD
     def fetch_labels(self):
         results = self.trials.results
         labels = np.array([_r['labels'] for _r in results])
-=======
-    def fetch_labels(self, splitname):
-        specs = self.trials.specs
-        results = self.trials.results
-        labels = np.array([_r['labels'][splitname] for _r in results])
->>>>>>> nsf/master
         assert (labels == labels[0]).all()
         assert labels.ndim == 2
         assert set(np.unique(labels)) == set([-1, 1])
