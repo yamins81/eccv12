@@ -1,4 +1,6 @@
 import copy
+
+###these need to be replaced with pyll.scope  references
 from hyperopt.genson_helpers import null
 #from hyperopt.genson_helpers import false
 #from hyperopt.genson_helpers import true
