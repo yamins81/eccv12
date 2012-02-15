@@ -104,3 +104,103 @@ def test_parallel_algo():
     
     #TODO:  do we really need to test for independence of the various runs here?  
     #what's a good way to do that, even if we wanted to?
+
+
+###########Experiment Sketch
+
+NUM_ROUNDS = 5
+BASE_NUM_FEATURES = 50
+ROUND_LEN = 5
+
+class LargerBoostableDigits(FastBoostableDigits):
+    param_gen = dict(FastBoostableDigits.param_gen)
+    param_gen['feat_spec']['n_features'] = BASE_NUM_FEATURES
+    
+
+class NormalBoostableDigits(FastBoostableDigits):
+    param_gen = dict(FastBoostableDigits.param_gen)
+    param_gen['feat_spec']['n_features'] = BASE_NUM_FEATURES / ROUND_LEN
+    
+    
+def test_random_ensembles():
+    bandit = LargerBoostableDigits()
+    bandit_algo = hyperopt.Random(bandit)
+    trials = hyperopt.Trials()
+    exp = hyperopt.Experiment(
+            trials,
+            bandit_algo,
+            async=False)
+    exp.run(NUM_ROUNDS)
+    results = trials.results
+    specs = trials.specs
+    losses = np.array(map(bandit.loss, results, specs))
+    s = losses.argsort()
+    selected_specs = [list(trials)[s[0]]]
+    er_partial = bandit.score_mixture_partial_svm(selected_specs)
+    er_full = bandit.score_mixture_full_svm(selected_specs)
+    errors = {'random_partial': er_partial, 
+              'random_full': er_full}
+    selected_specs = {'random': selected_specs}
+    return exp, errors, selected_specs
+
+
+def test_mixture_ensembes():
+    bandit = NormalBoostableDigits()
+    bandit_algo = hyperopt.Random(bandit)
+    trials = hyperopt.Trials()
+    exp = hyperopt.Experiment(
+            trials,
+            bandit_algo,
+            async=False)
+    exp.run(NUM_ROUNDS * ROUND_LEN)
+    results = trials.results
+    specs = trials.specs
+    
+    simple = experiments.SimpleMixture(trials, bandit)
+    simple_specs, simple_weights = simple.mix_models(NUM_ROUNDS)
+    simple_specs = [{'spec': spec} for spec in simple_specs]
+    
+    simple_er_partial = bandit.score_mixture_partial_svm(simple_specs)
+    simple_er_full = bandit.score_mixture_full_svm(simple_specs)
+
+    ada = experiments.AdaboostMixture(trials, bandit)
+    ada_specs, ada_weights = simple.mix_models(NUM_ROUNDS)
+    ada_specs = [{'spec': spec} for spec in ada_specs]
+
+    ada_er_partial = bandit.score_mixture_partial_svm(ada_specs)
+    ada_er_full = bandit.score_mixture_full_svm(ada_specs)    
+    
+    errors = {'simple_partial': simple_er_partial, 
+              'simple_full': simple_er_full,
+              'ada_partial': ada_er_partial,
+              'ada_full': ada_er_full}
+    
+    selected_specs = {'simple': simple_specs,
+                      'ada': ada_specs}
+                      
+    return exp, errors, selected_specs
+    
+
+def test_boosted_ensembles():
+    bandit = NormalBoostableDigits()
+    bandit_algo = hyperopt.Random(bandit)    
+    boosting_algo = experiments.BoostingAlgo(bandit_algo,
+                                             round_len=ROUND_LEN)
+    trials = hyperopt.Trials()                                             
+    exp = hyperopt.Experiment(
+            trials,
+            boosting_algo,
+            async=False)
+    exp.run(NUM_ROUNDS * ROUND_LEN)
+    
+    selected_specs = boosting_algo.best_by_round(list(trials))
+    
+    er_partial = bandit.score_mixture_partial_svm(selected_specs)
+    er_full = bandit.score_mixture_full_svm(selected_specs)
+    
+    errors = {'boosted_partial': er_partial, 
+              'boosted_full': er_full}
+    
+    selected_specs = {'boosted': selected_specs}
+                      
+    return exp, errors, selected_specs

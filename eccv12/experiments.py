@@ -29,7 +29,7 @@ class SimpleMixture(object):
         return s[:A], np.ones((A,)) / float(A)
 
     def mix_models(self, A):
-        specs = self.trials.sepcs
+        specs = self.trials.specs
         inds, weights = self.mix_inds(A)
         return [specs[ind] for ind in inds], weights
 
