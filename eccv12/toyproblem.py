@@ -109,7 +109,6 @@ def train_svm(Xyd, l2_regularization, max_observations):
     if train_X.ndim != 2:
         raise ValueError('train_X must be matrix')
     assert len(train_X) == len(train_y) == len(decisions)
-    print "INFO: training binary classifier..."
     svm = MarginBinaryASGD(
         n_features=train_X.shape[1],
         l2_regularization=l2_regularization,
@@ -118,7 +117,6 @@ def train_svm(Xyd, l2_regularization, max_observations):
         max_observations=max_observations,
         )
     binary_fit(svm, (train_X, train_y, np.asarray(decisions)))
-    print "INFO: fitting done!"
     return svm
 
 
@@ -180,6 +178,7 @@ def combine_results(split_results, tt_idxs_list, new_ds, split_decisions, y):
     #    XXX: is it right to return test margin mean?
     def rr_loss(rr):
         rr['loss']
+
     def test_margin_mean(ii, rr):
         labels = y[tt_idxs_list[ii][1]]
         margin = np.asarray(rr['test_decisions']) * labels
@@ -313,7 +312,7 @@ class BoostableDigits(BaseBandit):
         return rval
 
 
-    def score_mixture(self, trials, partial_svm):
+    def score_mixture_partial_svm(self, trials):
         """
         partial_svm means fit an svm to each feature set as opposed to one
         joint training of svm.
@@ -326,8 +325,8 @@ class BoostableDigits(BaseBandit):
         Xy_test = digits_xy(begin=n_examples_train, N=500)
         decisions_train = np.zeros(n_examples_train)
         decisions_test = np.zeros(n_examples_test)
-        if not partial_svm:
-            raise NotImplementedError()
+        test_err_rates = []
+        train_err_rates = []
 
         for ii, trial in enumerate(trials):
             assert trial['spec']['n_examples_train'] == n_examples_train
@@ -355,6 +354,59 @@ class BoostableDigits(BaseBandit):
             print 'score_mixture', ii
             print 'train err:', train_err_ii
             print 'test err:', test_err_ii
-        return test_err_ii
+            test_err_rates.append(test_err_ii)
+            train_err_rates.append(train_err_ii)
+        return train_err_rates, test_err_rates
 
+    def score_mixture_full_svm(self, trials):
+        """
+        partial_svm means fit an svm to each feature set as opposed to one
+        joint training of svm.
+        """
+        n_examples_train = 1250
+        n_examples_test = 500
+        # -- load up the old training data
+        Xy_train = digits_xy(begin=0, N=n_examples_train)
+        # -- this data is really held-out, not used for model selection
+        Xy_test = digits_xy(begin=n_examples_train, N=500)
+        decisions_train = np.zeros(n_examples_train)
+        decisions_test = np.zeros(n_examples_test)
+        train_Xs = []
+        test_Xs = []
+
+        for ii, trial in enumerate(trials):
+            assert trial['spec']['n_examples_train'] == n_examples_train
+            train_Xyd_n, test_Xyd_n = normalize_Xcols(
+                    (Xy_train[0], Xy_train[1], decisions_train),
+                    (Xy_test[0], Xy_test[1], decisions_test))
+            train_Xyd_f = features(train_Xyd_n,
+                    trial['spec']['feat_spec'])
+            test_Xyd_f = features(test_Xyd_n,
+                    trial['spec']['feat_spec'])
+            train_Xyd_fn, test_Xyd_fn = normalize_Xcols(
+                    train_Xyd_f, test_Xyd_f)
+            train_Xs.append(train_Xyd_fn[0])
+            test_Xs.append(test_Xyd_fn[0])
+
+        XX_train = np.hstack(train_Xs)
+        XX_test = np.hstack(test_Xs)
+        train_XXyd_fn = (XX_train, train_Xyd_f[1], decisions_train)
+        test_XXyd_fn = (XX_test, test_Xyd_f[1], decisions_test)
+
+        # XXX: match this
+        svm = train_svm(train_XXyd_fn,
+                l2_regularization=trial['spec']['svm_l2_regularization'],
+                max_observations=trial['spec']['svm_max_observations'],
+                )
+
+        decisions_train = svm_decisions(svm, train_XXyd_fn)
+        decisions_test = svm_decisions(svm, test_XXyd_fn)
+
+        train_err_ii = (np.sign(decisions_train) != Xy_train[1]).mean()
+        test_err_ii = (np.sign(decisions_test) != Xy_test[1]).mean()
+
+        print 'score_mixture', ii
+        print 'train err:', train_err_ii
+        print 'test err:', test_err_ii
+        return train_err_ii, test_err_ii
 
