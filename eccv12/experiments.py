@@ -229,25 +229,11 @@ class BoostingAlgo(hyperopt.BanditAlgo):
             new_ids,
             specs,
             results,
-            stochastic_idxs,
-            stochastic_vals):
-        assert len(specs) == len(results)
-        assert set(stochastic_idxs.keys()) == set(stochastic_vals.keys())
-        for key in stochastic_idxs:
-            assert len(stochastic_idxs[key]) == len(stochastic_vals[key])
+            miscs):
+        assert len(specs) == len(results) == len(miscs)
         n_trials = len(specs)
         cutoff = (n_trials // self.round_len) * self.round_len
-        round_specs = specs[cutoff:]
-        round_results = results[cutoff:]
-        round_idxs = {}
-        round_vals = {}
-        for key in stochastic_idxs:
-            round_idxs[key] = [idx
-                    for idx in stochastic_idxs[key]
-                    if idx >= cutoff]
-            round_vals[key] = [val
-                    for val, idx in zip(stochastic_vals[key], stochastic_idxs[key])
-                    if idx >= cutoff]
+
         if cutoff:
             # -- deal with error / unfinished trials
             # XXX: this assumes that triald id == position in specs list
@@ -261,13 +247,15 @@ class BoostingAlgo(hyperopt.BanditAlgo):
             decisions = results[selected_ind]['decisions']
         else:
             decisions = None
-        docs, idxs, vals = self.sub_algo.suggest(new_ids, round_specs, round_results,
-                round_idxs, round_vals)
-        for doc in docs:
+        new_specs, new_results, new_miscs = self.sub_algo.suggest(new_ids,
+                specs[cutoff:],
+                results[cutoff:],
+                miscs[cutoff:])
+        for spec in new_specs:
             # -- patch in decisions of the best current model from previous
             #    round
-            assert doc['decisions'] == None
-            doc['decisions'] = decisions
-        return docs, idxs, vals
+            assert spec['decisions'] == None
+            spec['decisions'] = decisions
+        return new_specs, new_results, new_miscs
 
 

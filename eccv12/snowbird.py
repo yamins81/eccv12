@@ -131,17 +131,6 @@ def budget_feature_search(n_search, n_keep):
 
 
 
-def after_the_fact_adaboost(orig_n_trials, orig_round_len, boosting_rounds):
-    dct = cPickle.load(
-            open('snowbird.boost_digits_%i_%i.pkl' % (n_trials, round_len)))
-    trials = dct['trials']
-    bandit = BoostableDigits()
-
-    ada = AdaboostMixture(trials, bandit)
-    ada_inds, ada_weights = ada.mix_inds(boosting_rounds)
-
-    print ada_inds
-
 
 def main():
     cmd = sys.argv[1]
