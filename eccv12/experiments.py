@@ -101,25 +101,20 @@ class ParallelAlgo(hyperopt.BanditAlgo):
             new_ids,
             specs,
             results,
-            stochastic_idxs,
-            stochastic_vals):
+            miscs):
         trial_num = len(specs)
         proc_num = trial_num % self.num_procs
-        proc_idxs = [idx for idx, s in enumerate(specs) if s['proc_num'] == proc_num]
+        proc_idxs = [idx for idx, s in enumerate(miscs) if s['proc_num'] == proc_num]
         proc_specs = [specs[idx] for idx in proc_idxs]
         proc_results = [results[idx] for idx in proc_idxs]
-        proc_idxs = {}
-        proc_vals = {}
-        for key in stochastic_idxs:
-            proc_idxs[key] = [idx for idx in stochastic_idxs[key] if idx in proc_idxs]
-            proc_vals[key] = [val for val, idx in zip(stochastic_vals[key], stochastic_idxs[key]) if idx in proc_idxs]
-        docs, idxs, vals = self.sub_algo.suggest(new_ids, proc_specs,
-                                          proc_results, proc_idxs, proc_vals)
-        for doc in docs:
+        proc_miscs = [miscs[idx] for idx in proc_idxs]
+        new_specs, new_results, new_miscs = self.sub_algo.suggest(new_ids,
+                                           proc_specs, proc_results, proc_miscs)
+        for doc in new_miscs:
             assert 'proc_num' not in doc
             doc['proc_num'] = proc_num
-        return docs, idxs, vals
-
+        return new_specs, new_results, new_miscs
+        
 
 ##############
 ###BOOSTING###

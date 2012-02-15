@@ -89,15 +89,18 @@ def test_parallel_algo():
     calls = [0]
     bandit = FastBoostableDigits()
     class FakeAlgo(hyperopt.Random):
-        def suggest(self, ids, specs, results, idxs, vals):
+        def suggest(self, ids, specs, results, miscs):
             calls[0] += 1
             return hyperopt.Random.suggest(self,
-                    ids, specs, results, idxs, vals)
+                    ids, specs, results, miscs)
     algo = FakeAlgo(bandit)
     parallel_algo = experiments.ParallelAlgo(algo, num_procs)
     exp = hyperopt.Experiment(
             trials,
             parallel_algo,
             async=False)
+    exp.run(7)
+    assert [m['proc_num'] for m in exp.trials.miscs] == [0, 1, 2, 3, 4, 0, 1]
     
-    ##resolve issue with proc_num key
+    #TODO:  do we really need to test for independence of the various runs here?  
+    #what's a good way to do that, even if we wanted to?
