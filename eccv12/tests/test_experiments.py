@@ -141,10 +141,12 @@ def test_random_ensembles():
     errors = {'random_partial': er_partial, 
               'random_full': er_full}
     selected_specs = {'random': selected_specs}
+    
+    assert np.abs(errors['random_full'][0] - .274) < 1e-2
     return exp, errors, selected_specs
 
 
-def test_mixture_ensembes():
+def test_mixture_ensembles():
     bandit = NormalBoostableDigits()
     bandit_algo = hyperopt.Random(bandit)
     trials = hyperopt.Trials()
@@ -177,7 +179,17 @@ def test_mixture_ensembes():
     
     selected_specs = {'simple': simple_specs,
                       'ada': ada_specs}
-                      
+    
+    assert selected_specs['ada'] == selected_specs['simple']
+    assert np.abs(errors['simple_full'][0] - .234) < 1e-2
+    
+    ptl = np.array([0.2744,
+                    0.2304,
+                    0.236,
+                    0.2256,
+                    0.2232])
+    assert np.abs(errors['simple_partial'][0] - ptl).max() < 1e-2
+    
     return exp, errors, selected_specs
     
 
@@ -192,15 +204,14 @@ def test_boosted_ensembles():
             boosting_algo,
             async=False)
     exp.run(NUM_ROUNDS * ROUND_LEN)
-    
     selected_specs = boosting_algo.best_by_round(list(trials))
-    
     er_partial = bandit.score_mixture_partial_svm(selected_specs)
     er_full = bandit.score_mixture_full_svm(selected_specs)
-    
     errors = {'boosted_partial': er_partial, 
               'boosted_full': er_full}
-    
     selected_specs = {'boosted': selected_specs}
                       
+    assert np.abs(errors['boosted_full'][0] - .1528) < 1e-2
+    assert np.abs(np.mean(errors['boosted_partial'][0]) - 0.21968) < 1e-2
+    
     return exp, errors, selected_specs
