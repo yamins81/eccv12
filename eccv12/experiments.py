@@ -240,9 +240,7 @@ class SyncBoostingAlgo(BoostingAlgoBase):
         if miscs:
             rounds = [m['round'] for m in miscs]
             complete_rounds = [m['round'] for m, r in zip(miscs, results) if 'loss' in r]
-            print ('rounds', rounds)
-            print ('complete_rounds', complete_rounds)
-                    
+
             max_round = max(rounds)
             urounds = np.unique(rounds)
             urounds.sort()
