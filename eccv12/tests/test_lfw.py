@@ -32,9 +32,10 @@ def test_fg11_top_bandit():
     L = lfw.FG11Bandit()
     config = stochastic.sample(L.template, np.random.RandomState(0))
     config['decisions'] = None
-    config['slm'] = params.fg11_top
+    config['slm'] = stochastic.sample(pyll.as_apply(params.fg11_top), np.random.RandomState(0))
     config['comparison'] = 'sqrtabsdiff'
     rec = L.evaluate(config, hyperopt.base.Ctrl())
+    assert np.abs(rec['loss'] - .194) < 1e-2
     return rec
     
 
