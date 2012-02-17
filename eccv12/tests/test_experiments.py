@@ -191,12 +191,22 @@ def test_mixture_ensembles():
     
     return exp, errors, selected_specs
     
+def test_boosted_ensembles_async():
+    """
+    this test must be run via 
+    """
+    return boosted_ensembles_base(experiments.AsyncBoostingAlgo)
 
-def test_boosted_ensembles():
+
+def test_boosted_ensembles_sync():
+    return boosted_ensembles_base(experiments.SyncBoostingAlgo)
+    
+
+def boosted_ensembles_base(boosting_algo_class):
     bandit = NormalBoostableDigits()
     bandit_algo = hyperopt.Random(bandit)    
-    boosting_algo = experiments.BoostingAlgo(bandit_algo,
-                                             round_len=ROUND_LEN)
+    boosting_algo = boosting_algo_class(bandit_algo,
+                                        round_len=ROUND_LEN)
     trials = hyperopt.Trials()                                             
     exp = hyperopt.Experiment(
             trials,
@@ -209,7 +219,7 @@ def test_boosted_ensembles():
     errors = {'boosted_partial': er_partial, 
               'boosted_full': er_full}
     selected_specs = {'boosted': selected_specs}
-                      
+     
     assert np.abs(errors['boosted_full'][0] - .1528) < 1e-2
     assert np.abs(np.mean(errors['boosted_partial'][0]) - 0.21968) < 1e-2
     
