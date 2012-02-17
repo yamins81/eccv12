@@ -32,7 +32,7 @@ class FG11Bandit(BaseBandit):
             preproc={'global_normalize': 0,
                      'size': [200, 200],
                      'crop': [0, 0, 250, 250],
-                    }
+                    }, # XXX: THIS IS NOT TESTED SINCE CHANGING THE CROPPING
             )
 
     def performance_func(self, config, ctrl):

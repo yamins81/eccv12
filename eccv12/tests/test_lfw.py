@@ -18,6 +18,7 @@ def test_lfw_basic():
     assert rec['label_set'] == [-1, 1]
     return rec
 
+
 def test_lfw_bandit():
     L = lfw.TestBandit()
     config = stochastic.sample(L.template, np.random.RandomState(0))
@@ -27,10 +28,12 @@ def test_lfw_bandit():
     return rec
 
 
-def test_fg11_bandit():
+def test_fg11_top_bandit():
     L = lfw.FG11Bandit()
     config = stochastic.sample(L.template, np.random.RandomState(0))
     config['decisions'] = None
+    config['slm'] = params.fg11_top
+    config['comparison'] = 'sqrtabsdiff'
     rec = L.evaluate(config, hyperopt.base.Ctrl())
     return rec
     
