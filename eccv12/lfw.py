@@ -76,7 +76,7 @@ def get_decisions_lfw(split, decisions):
         split_inds = np.arange(0, 2200) 
     else:
         split_inds = np.arange(2200, 3200)
-    return decisions[split_inds][:, 0]
+    return decisions[0][split_inds]
 
 
 @scope.define
@@ -224,8 +224,8 @@ def result_binary_classifier_stats_lfw(
                              [-1, 1])
     result.update(stats)
     result['loss'] = float(1 - result['test_accuracy']/100.)
-    dec = np.concatenate([train_decisions[1], test_decisions[1]])
-    dec = dec.reshape((len(dec), 1))
+    dec = np.concatenate([train_decisions, test_decisions])
+    dec = dec.reshape((1, len(dec)))
     result['decisions'] = dec.tolist()
     result['labels'] = np.concatenate([train_data[1], test_data[1]]).tolist()
     return result
@@ -271,7 +271,7 @@ def screening_program(slm_desc, decisions, comparison, preproc, namebase):
         (train_X, train_y, train_d,),
         (test_X, test_y, test_d,))
 
-    svm = scope.train_svm(train_Xyd_n, l2_regularization=1e-3)
+    svm = scope.train_svm(train_Xyd_n, l2_regularization=1e-3, max_observations=20000)
 
     new_d_train = scope.svm_decisions_lfw(svm, train_Xyd_n)
     new_d_test = scope.svm_decisions_lfw(svm, test_Xyd_n)
@@ -296,10 +296,10 @@ def screening_program(slm_desc, decisions, comparison, preproc, namebase):
 def get_performance(slm, decisions, preproc, comparison,
                     namebase=None, progkey='result_w_cleanup'):
     if decisions is None:
-        decisions = np.zeros((3200, 1))
+        decisions = np.zeros((1, 3200))
     else:
         decisions = np.asarray(decisions)
-    assert decisions.shape == (3200, 1)
+    assert decisions.shape == (1, 3200)
     if namebase is None:
         namebase = 'memmap_' + str(np.random.randint(1e8))
     prog = screening_program(

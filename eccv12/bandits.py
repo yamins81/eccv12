@@ -3,10 +3,11 @@ put bandits here
 """
 import cPickle
 
+import numpy as np
 import hyperopt
 
 
-def validate_result(result):
+def validate_result(result, config):
     """this checks that the result has the right format for being used by both
     the boosting bandit algo as well as the adaboost mixture 
     decs are a matrix of decisions of shape (num_splits, num_examples)
@@ -17,11 +18,16 @@ def validate_result(result):
     labs = np.asarray(result['labels'])
     assert labs.ndim == 1
     assert decs.shape[1] == len(labs)
+
+    if config['decisions'] is not None:
+        assert decs.shape == np.array(config['decisions']).shape
     
     
 def validate_config(config):
-    decs = np.asarray(config['decisions'])
-    assert decs.ndim == 2
+    assert 'decisions' in config
+    if config['decisions'] is not None:
+        decs = np.asarray(config['decisions'])
+        assert decs.ndim == 2
 
 
 class BaseBandit(hyperopt.Bandit):
@@ -36,5 +42,5 @@ class BaseBandit(hyperopt.Bandit):
     def evaluate(self, config, ctrl):
         validate_config(config)
         result = self.performance_func(config, ctrl)
-        validate_result(result)
+        validate_result(result, config)
         return result
