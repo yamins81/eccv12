@@ -238,7 +238,8 @@ class BoostingAlgo(hyperopt.BanditAlgo):
             # -- deal with error / unfinished trials
             # XXX: this assumes that triald id == position in specs list
             #      It is currently true, but need not always be!!
-            tids_losses = enumerate(map(self.bandit.loss, results[:cutoff], specs[:cutoff]))
+            tids_losses = enumerate(map(self.bandit.loss,
+                results[:cutoff], specs[:cutoff]))
             losses_tids = [(loss, tid)
                     for (tid, loss) in tids_losses
                     if loss != None]
