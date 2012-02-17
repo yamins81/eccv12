@@ -26,4 +26,40 @@ def test_lfw_bandit():
     assert np.abs(rec['test_accuracy'] - 69.80) < .1
     return rec
 
+
+def test_fg11_bandit():
+    L = lfw.FG11Bandit()
+    config = stochastic.sample(L.template, np.random.RandomState(0))
+    config['decisions'] = None
+    rec = L.evaluate(config, hyperopt.base.Ctrl())
+    return rec
     
+
+NUM_ROUNDS = 2
+ROUND_LEN = 2
+
+def test_mixture_ensembles():
+    bandit = lfw.TestBandit()
+    bandit_algo = hyperopt.Random(bandit)
+    trials = hyperopt.Trials()
+    exp = hyperopt.Experiment(
+            trials,
+            bandit_algo,
+            async=False)
+    exp.run(NUM_ROUNDS * ROUND_LEN)
+    results = trials.results
+    specs = trials.specs
+    
+    simple = experiments.SimpleMixture(trials, bandit)
+    simple_specs, simple_weights = simple.mix_models(NUM_ROUNDS)
+    
+    ada = experiments.AdaboostMixture(trials, bandit)
+    ada_specs, ada_weights = ada.mix_models(NUM_ROUNDS)
+    
+    ###XXXX: need to test on view 2
+        
+    selected_specs = {'simple': simple_specs,
+                      'ada': ada_specs}
+    
+    return exp, selected_specs
+
