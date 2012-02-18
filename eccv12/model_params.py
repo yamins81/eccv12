@@ -1,17 +1,13 @@
 import copy
-from hyperopt.genson_helpers import null
-#from hyperopt.genson_helpers import false
-#from hyperopt.genson_helpers import true
-from hyperopt.genson_helpers import choice
-from hyperopt.genson_helpers import uniform
-#from hyperopt.genson_helpers import gaussian
-#from hyperopt.genson_helpers import lognormal
-#from hyperopt.genson_helpers import qlognormal
-from hyperopt.genson_helpers import ref
 
+import pyll
+choice = pyll.scope.choice
+uniform = pyll.scope.uniform
 
-lnorm = {'kwargs':{'inker_shape' : choice([(3,3),(5,5),(7,7),(9,9)]),
-         'outker_shape' : ref('this','inker_shape'),
+norm_shape_choice = choice([(3,3),(5,5),(7,7),(9,9)])
+
+lnorm = {'kwargs':{'inker_shape' : norm_shape_choice,
+         'outker_shape' : norm_shape_choice,
          'remove_mean' : choice([0,1]),
          'stretch' : uniform(0,10),
          'threshold' : choice([.1,1,10])
@@ -28,8 +24,8 @@ lpool_sub2 = {'kwargs': {'ker_shape' : choice([(3,3),(5,5),(7,7),(9,9)]),
 
 rescale = {'kwargs': {'stride' : 2}}
 
-activ =  {'kwargs': {'min_out' : choice([null, 0]),
-                     'max_out' : choice([1, null])}}
+activ =  {'kwargs': {'min_out' : choice([None, 0]),
+                     'max_out' : choice([1, None])}}
 
 filter1 = dict(
          initialize=dict(
@@ -70,7 +66,7 @@ lfwtop = [[('lnorm',{'kwargs':{'inker_shape': (9, 9),
                                      'generate': ('random:uniform', 
                                                   {'rseed': choice(range(5))})},
                       'kwargs':{'min_out': 0,
-                                'max_out': null}}),
+                                'max_out': None}}),
           ('lpool', {'kwargs': {'ker_shape': (7, 7),
                                 'order': 1,
                                 'stride': 2}}),
@@ -83,7 +79,7 @@ lfwtop = [[('lnorm',{'kwargs':{'inker_shape': (9, 9),
                                      'generate': ('random:uniform',
                                                   {'rseed': choice(range(5))})},
                       'kwargs': {'min_out': 0,
-                                 'max_out': null}}),
+                                 'max_out': None}}),
           ('lpool', {'kwargs': {'ker_shape': (5, 5),
                                 'order': 1,
                                 'stride': 2}}),
@@ -96,7 +92,7 @@ lfwtop = [[('lnorm',{'kwargs':{'inker_shape': (9, 9),
                                      'generate': ('random:uniform',
                                                  {'rseed': choice(range(5))})},
                       'kwargs': {'min_out': 0,
-                                 'max_out': null}}),
+                                 'max_out': None}}),
            ('lpool', {'kwargs': {'ker_shape': (7, 7),
                                  'order': 10,
                                  'stride': 2}}),
@@ -117,7 +113,7 @@ cvpr_top = [[('lnorm',
        {'initialize': {'filter_shape': [5, 5],
          'generate': ['random:uniform', {'rseed': 12}],
          'n_filters': 64},
-        'kwargs': {'max_out': null, 'min_out': 0}}),
+        'kwargs': {'max_out': None, 'min_out': 0}}),
       ('lpool', {'kwargs': {'ker_shape': [7, 7], 'order': 10, 'stride': 2}}),
       ('lnorm',
        {'kwargs': {'inker_shape': [5, 5],
@@ -129,7 +125,7 @@ cvpr_top = [[('lnorm',
        {'initialize': {'filter_shape': [7, 7],
          'generate': ['random:uniform', {'rseed': 24}],
          'n_filters': 64},
-        'kwargs': {'max_out': null, 'min_out': 0}}),
+        'kwargs': {'max_out': None, 'min_out': 0}}),
       ('lpool', {'kwargs': {'ker_shape': [3, 3], 'order': 1, 'stride': 2}}),
       ('lnorm',
        {'kwargs': {'inker_shape': [3, 3],
@@ -141,7 +137,7 @@ cvpr_top = [[('lnorm',
        {'initialize': {'filter_shape': [3, 3],
          'generate': ['random:uniform', {'rseed': 32}],
          'n_filters': 256},
-        'kwargs': {'max_out': null, 'min_out': null}}),
+        'kwargs': {'max_out': None, 'min_out': None}}),
       ('lpool', {'kwargs': {'ker_shape': [3, 3], 'order': 2, 'stride': 2}}),
       ('lnorm',
        {'kwargs': {'inker_shape': [3, 3],
@@ -185,6 +181,6 @@ l2_params = {'slm': [[('lnorm', lnorm)],
 main_params = choice([l3_params, l2_params])
 
 test_params = {'slm': [[('lnorm', lnorm)]],
-               'preproc': {'global_normalize': 0,
-                           'crop': crop_choice,
-                           'size': [20, 20]}}
+                          'preproc': {'global_normalize': 0,
+                                      'crop': crop_choice,
+                                      'size': [20, 20]}}

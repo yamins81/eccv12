@@ -8,7 +8,8 @@ import skdata.utils
 import skdata.lfw
 import numpy as np
 
-import genson
+import pyll
+from pyll import scope
 
 import model_params
 import comparisons
@@ -38,7 +39,8 @@ class FG11Bandit(BaseBandit):
         slm = config['slm']
         preproc = config['preproc']
         comparison = config['comparison']
-        return get_performance(slm, preproc, comparison, ctrl)
+        decisions = config.get('decisions')
+        return get_performance(slm, decisions, preproc, comparison)
 
 
 class MainBandit(BaseBandit):
@@ -51,7 +53,9 @@ class MainBandit(BaseBandit):
         slm = config['model']['slm']
         preproc = config['model']['preproc']
         comparison = config['comparison']
-        return get_performance(slm, preproc, comparison, ctrl)
+        decisions = config.get('decisions')
+        return get_performance(slm, decisions, preproc, comparison)
+
 
 class TestBandit(MainBandit):
         param_gen = dict(
@@ -60,18 +64,22 @@ class TestBandit(MainBandit):
                     )
 
 
-@genson.lazy
-def fetch_decisions(split, ctrl):
+#XXX currently the weird name (e.g. '_lfw') here is handle the namespace problem in pyll
+@scope.define
+def get_decisions_lfw(split, decisions):
     """
     Load the accumulated decisions of models selected for the ensemble,
     for the verification examples of the given split.
     """
-    blob = ctrl.attachments['decisions']
-    dct = cPickle.loads(blob)
-    return np.asarray(dct[split])
+    assert split in ['DevTrain', 'DevTest']
+    if split == 'DevTrain':
+        split_inds = np.arange(0, 2200) 
+    else:
+        split_inds = np.arange(2200, 3200)
+    return decisions[0][split_inds]
 
 
-@genson.lazy
+@scope.define
 def get_images(dtype, preproc):
     """
     Return a lazy array whose elements are all the images in lfw.
@@ -104,7 +112,7 @@ def _verification_pairs_helper(all_paths, lpaths, rpaths):
     return lidxs, ridxs
 
 
-@genson.lazy
+@scope.define
 def verification_pairs(split):
     """
     Return three integer arrays: lidxs, ridxs, match.
@@ -120,7 +128,7 @@ def verification_pairs(split):
     return lidxs, ridxs, (matches * 2 - 1)
 
 
-@genson.lazy
+@scope.define
 def slm_memmap(desc, X, name):
     """
     Return a cache_memmap object representing the features of the entire
@@ -132,7 +140,7 @@ def slm_memmap(desc, X, name):
     return rval
 
 
-@genson.lazy
+@scope.define
 def delete_memmap(obj):
     """
     Delete the files associated with cache_memmap `obj`
@@ -170,7 +178,7 @@ class PairFeaturesFn(object):
         return self.fn(lx, rx)
 
 
-@genson.lazyinfo(len=2)
+@scope.define_info(o_len=2)
 def pairs_memmap(pair_labels, X, comparison_name, name):
     """
     pair_labels    - something like comes out of verification_pairs
@@ -185,7 +193,7 @@ def pairs_memmap(pair_labels, X, comparison_name, name):
     pf_cache = larray.cache_memmap(pf, name, basedir=os.getcwd())
     return pf_cache, np.asarray(matches)
 
-@genson.lazy
+@scope.define
 def pairs_cleanup(obj):
     """
     Pass in the rval from pairs_memmap to clean up the memmap
@@ -193,8 +201,8 @@ def pairs_cleanup(obj):
     obj[0].delete_files()
 
 
-@genson.lazy
-def result_binary_classifier_stats(
+@scope.define
+def result_binary_classifier_stats_lfw(
         train_data,
         test_data,
         train_decisions,
@@ -216,24 +224,24 @@ def result_binary_classifier_stats(
                              [-1, 1])
     result.update(stats)
     result['loss'] = float(1 - result['test_accuracy']/100.)
-    result['decisions'] = {'DevTrain': train_decisions.tolist(),
-                           'DevTest': test_decisions.tolist()}
-    result['labels'] = {'DevTrain': train_data[1].tolist(),
-                        'DevTest': test_data[1].tolist()}
+    dec = np.concatenate([train_decisions, test_decisions])
+    dec = dec.reshape((1, len(dec)))
+    result['decisions'] = dec.tolist()
+    result['labels'] = np.concatenate([train_data[1], test_data[1]]).tolist()
     return result
 
 
-@genson.lazy
-def svm_decisions(svm, Xyd):
+@scope.define
+def svm_decisions_lfw(svm, Xyd):
     X, y, d = Xyd
     inc = svm.decision_function(X)
     return d + inc
 
 
-def screening_program(slm_desc, comparison, preproc, namebase):
-    image_features = slm_memmap.lazy(
+def screening_program(slm_desc, decisions, comparison, preproc, namebase):
+    image_features = scope.slm_memmap(
                 desc=slm_desc,
-                X=get_images.lazy('float32', preproc=preproc),
+                X=scope.get_images('float32', preproc=preproc),
                 name=namebase + '_img_feat')
     # XXX: check that float32 images lead to correct features
 
@@ -244,8 +252,8 @@ def screening_program(slm_desc, comparison, preproc, namebase):
     #      because it's important that the memmaps don't interfere on disk
 
     def pairs_dataset(split):
-        return pairs_memmap.lazy(
-            verification_pairs.lazy(split=split),
+        return scope.pairs_memmap(
+            scope.verification_pairs(split=split),
             image_features,
             comparison_name=comparison,
             name=namebase + '_pairs_' + split,
@@ -256,58 +264,51 @@ def screening_program(slm_desc, comparison, preproc, namebase):
     train_X, train_y = pairs_dataset('DevTrain')
     test_X, test_y = pairs_dataset('DevTest')
 
-    ctrl = genson.JSONFunction.KWARGS['ctrl']
-    train_d = fetch_decisions.lazy('DevTrain', ctrl)
-    test_d = fetch_decisions.lazy('DevTest', ctrl)
+    train_d = scope.get_decisions_lfw('DevTrain', decisions)
+    test_d = scope.get_decisions_lfw('DevTest', decisions)
 
-    train_Xyd_n, test_Xyd_n = normalize_Xcols.lazy(
+    train_Xyd_n, test_Xyd_n = scope.normalize_Xcols(
         (train_X, train_y, train_d,),
         (test_X, test_y, test_d,))
 
-    svm = train_svm.lazy(train_Xyd_n, l2_regularization=1e-3)
+    svm = scope.train_svm(train_Xyd_n, l2_regularization=1e-3, max_observations=20000)
 
-    new_d_train = svm_decisions.lazy(svm, train_Xyd_n)
-    new_d_test = svm_decisions.lazy(svm, test_Xyd_n)
+    new_d_train = scope.svm_decisions_lfw(svm, train_Xyd_n)
+    new_d_test = scope.svm_decisions_lfw(svm, test_Xyd_n)
 
-    result = result_binary_classifier_stats.lazy(
+    result = scope.result_binary_classifier_stats_lfw(
             train_Xyd_n,
             test_Xyd_n,
             new_d_train,
             new_d_test,
             result=result)
 
-    result_w_cleanup = run_all.lazy(
+    result_w_cleanup = scope.run_all(
         result,
-        delete_memmap.lazy(train_X),
-        delete_memmap.lazy(test_X),
-        delete_memmap.lazy(image_features),
+        scope.delete_memmap(train_X),
+        scope.delete_memmap(test_X),
+        scope.delete_memmap(image_features),
         )[0]
-
-    # TODO: do we really need to attach svm ? It's big
 
     return result_w_cleanup, locals()
 
 
-def get_performance(slm, preproc, comparison, ctrl,
+def get_performance(slm, decisions, preproc, comparison,
                     namebase=None, progkey='result_w_cleanup'):
+    if decisions is None:
+        decisions = np.zeros((1, 3200))
+    else:
+        decisions = np.asarray(decisions)
+    assert decisions.shape == (1, 3200)
     if namebase is None:
         namebase = 'memmap_' + str(np.random.randint(1e8))
     prog = screening_program(
             slm_desc=slm,
             preproc=preproc,
             comparison=comparison,
-            namebase=namebase)[1]
-    if 'decisions' not in ctrl.attachments:
-        blob = cPickle.dumps(dict(
-            DevTrain=np.zeros(2200),
-            DevTest=np.zeros(1000),
-            ), -1)
-        ctrl.attachments['decisions'] = blob
-    else:
-        dec = cPickle.loads(ctrl.attachments['decisions'])
-        assert len(dec['DevTrain']) == 2200, len(dec['DevTrain'])
-        assert len(dec['DevTest']) == 1000, len(dec['DevTest'])
+            namebase=namebase,
+            decisions=decisions)[1]
     
-    prog_fn = genson.JSONFunction(prog[progkey])
-    return prog_fn(ctrl=ctrl)
+    rval = pyll.rec_eval(prog[progkey])
+    return rval
 

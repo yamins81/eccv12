@@ -190,6 +190,7 @@ def combine_results(split_results, tt_idxs_list, new_ds, split_decisions, y):
         for ii, rr in enumerate(split_results)])
 
     result['status'] = hyperopt.STATUS_OK
+    result['labels'] = y.tolist()
 
     return result
 
