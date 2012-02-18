@@ -35,11 +35,9 @@ class BaseBandit(hyperopt.Bandit):
     def __init__(self):
         super(BaseBandit, self).__init__(self.param_gen)
 
-    def status(self, result, config=None):
-        return result.get('status', 'ok')
-
     def evaluate(self, config, ctrl):
         validate_config(config)
         result = self.performance_func(config, ctrl)
         validate_result(result, config)
+        result.setdefault('status', hyperopt.STATUS_OK)
         return result
