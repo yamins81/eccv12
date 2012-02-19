@@ -250,9 +250,7 @@ def test_boosted_ensembles_async():
     this test must be run via 
     """
     return boosted_ensembles_base(
-            functools.partial(
-                experiments.AsyncBoostingAlgo,
-                look_back=1))
+            experiments.AsyncBoostingAlgoA)
 
 
 def test_boosted_ensembles_sync():
