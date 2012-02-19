@@ -1,3 +1,4 @@
+import copy
 import numpy as np
 import pyll
 import hyperopt
@@ -98,9 +99,13 @@ def test_search_dummy():
                        hyperopt.Random,
                        "localhost:22334/test_hyperopt",
                        "test_stuff")
+    S.trials.delete_all()
     S.run(10)
     assert len(S.trials.results) == 10
     assert 1 > np.mean([x['loss'] for x in S.trials.results]) > 0
+    T = copy.deepcopy(S.trials.results)
+    S.run(20)
+    assert all([t == s for t, s in zip(T, S.trials.results[:10])])
     
     
 def test_mix_dummy():
@@ -111,6 +116,7 @@ def test_mix_dummy():
                        hyperopt.Random,
                        "localhost:22334/test_hyperopt",
                        "test_stuff")
+    S.trials.delete_all()
     S.run(20)
     res = S.get_result()
     assert len(res['mixture_inds']) == 5
@@ -119,7 +125,11 @@ def test_mix_dummy():
 
 def test_meta_dummy():
     """
-    THIS TEST IS NOT YET COMPLETE
+    THIS TEST IS NOT YET COMPLETE:  most of the time it works
+    but then for reasons I don't yet know i sometimes see:
+       331                 last_best = losses.argmin() 
+       TypeError: unsupported operand type(s) for -: 'int' and 'NoneType'
+       
     """
     S = exps.MetaExp(experiments.SyncBoostingAlgo,
                     {"round_len": 5},
@@ -128,3 +138,27 @@ def test_meta_dummy():
                    hyperopt.Random,
                    "localhost:22334/test_hyperopt",
                    "test_stuff")
+    S.trials.delete_all()
+    S.run(10)
+    selected = S.bandit_algo.best_by_round(list(S.trials))
+    assert len(selected) == 2
+    T = copy.deepcopy(S.trials.results)
+    S.run(20)
+    assert all([t == s for t, s in zip(T, S.trials.results[:10])])
+    selected = S.bandit_algo.best_by_round(list(S.trials))
+    assert len(selected) == 4
+
+
+def test_budget_experiment():
+    S = exps.BudgetExperiment(10, 
+                       False,
+                       num_features=10,
+                       ensemble_sizes=[2, 5],
+                       bandit_func=DummyDecisionsBandit,
+                       bandit_algo_class=hyperopt.Random,
+                       exp_prefix='test_stuff',
+                       mongo_opts='localhost:22334/test_hyperopt',
+                       look_back=1,
+                       run_parallel=False)
+    return S
+                      
