@@ -164,7 +164,7 @@ class BoostingAlgoBase(hyperopt.BanditAlgo):
         specs = [t['spec'] for t in trials]
         miscs = [t['misc'] for t in trials]
         losses = np.array(map(self.bandit.loss, results, specs))
-        rounds = np.array([m['round'] for m in miscs])
+        rounds = np.array([m['boosting']['round'] for m in miscs])
         urounds = np.unique(rounds)
         urounds.sort()
         assert urounds.tolist() == range(urounds.max() + 1)
@@ -175,79 +175,107 @@ class BoostingAlgoBase(hyperopt.BanditAlgo):
             rval.append(trials[_inds[min_ind]])
         return rval
 
+    def idxs_continuing(self, miscs, tid):
+        """Return the positions in the trials object of
+        all trials that continue trial tid.
+        """
+        rval = [idx for idx, misc in enumerate(miscs)
+                if misc['boosting']['continues'] == tid]
+        return rval
+
 
 class AsyncBoostingAlgo(BoostingAlgoBase):
-    def __init__(self, sub_algo, round_len, look_back=1):
+    """
+    sub_algo
+
+    round_len - start a new round when there are at least this
+        many trials in the latest round.
+
+    look_back - positive integer
+        1 requires continuing a member of the previous round
+        2 allows continuing a member among previous 2 rounds...
+        3 ...
+
+    Note that only completed jobs can be continued. Therefore if (a) this
+    algorithm is run on a cluster, (b) look_back is 1, and (c) round_len <=
+    number of machines, then it can happen that actually no boosting takes
+    place at all.
+
+    """
+    def __init__(self, sub_algo, round_len, look_back):
         hyperopt.BanditAlgo.__init__(self, sub_algo.bandit)
         self.sub_algo = sub_algo
         self.round_len = round_len
         self.look_back = look_back
 
-    def suggest(self,
-            new_ids,
-            specs,
-            results,
-            miscs):
+    def suggest(self, new_ids, specs, results, miscs):
         assert len(specs) == len(results) == len(miscs)
+        if len(new_ids) > 1:
+            raise NotImplementedError()
+
+        # -- filter out all of the non-ok jobs
+        ok_idxs = [ii for ii, result in enumerate(results)
+                if result['status'] == hyperopt.STATUS_OK]
+        specs = [specs[ii] for ii in ok_idxs]
+        results = [results[ii] for ii in ok_idxs]
+        miscs = [miscs[ii] for ii in ok_idxs]
+
         round_len = self.round_len
         look_back = self.look_back
-       
-        cont_decisions = None
-        cont_id = None
-        selected_results = []
-        selected_specs = []
-        selected_miscs = []
+
         my_round = 0
+        cont_decisions = None
+        cont_tid = None
+        others = []
+       
         if miscs:
-            rounds = [m['round'] for m in miscs]
-            max_round = max(rounds)
-            urounds = np.unique(rounds)
-            urounds.sort()
-            assert list(urounds) == range(max_round + 1)
-            rounds_counts = [rounds.count(j) for j in urounds]
-            assert all([rc >= round_len for rc in rounds_counts[: -1]])
+            # -- pick a trial to continue
+            rounds_counts = np.bincount([m['boosting']['round']
+                for m in miscs])
+            assert np.all(rounds_counts > 0)
+            assert np.all(rounds_counts[:-1] >= round_len)
+            # -- this is the round of the trial we're going to suggest
             if rounds_counts[-1] >= round_len:
-                my_round = max_round + 1
+                my_round = len(rounds_counts)
             else:
-                my_round = max_round
-            consider_continuing = []
-            for idx, x in enumerate(miscs):
-                if my_round - look_back <= x['round'] < my_round:
-                    if 'loss' in results[idx]:  #better way to check completion?
-                        consider_continuing.append(idx)
+                my_round = len(rounds_counts) - 1
+            horizon = my_round - look_back
+            consider_continuing = [idx
+                    for idx, misc in enumerate(miscs)
+                    if (horizon <= misc['boosting']['round'] < my_round
+                        and results[idx]['status'] == hyperopt.STATUS_OK)]
+
             if consider_continuing:
-                cc_results = [results[idx] for idx in consider_continuing]
                 cc_specs = [specs[idx] for idx in consider_continuing]
+                cc_results = [results[idx] for idx in consider_continuing]
                 cc_miscs = [miscs[idx] for idx in consider_continuing]
+
                 cc_losses = np.array(map(self.bandit.loss, cc_results, cc_specs))
                 cont_idx = cc_losses.argmin()
-                cont_misc = cc_miscs[cont_idx]
-                cont_id = cont_misc['id']
-                cont_res = cc_results[cont_idx]
-                cont_decisions = cont_res['decisions']
-                selected = [idx for idx, m in enumerate(cc_miscs) if m['continues'] == cont_id]
-                selected_results = [cc_results[idx] for idx in selected]
-                selected_specs = [cc_specs[idx] for idx in selected]
-                selected_miscs = [cc_miscs[idx] for idx in selected]
+
+                cont_decisions = cc_results[cont_idx]['decisions']
+                cont_tid = cc_miscs[cont_idx]['tid']
+                others = self.idxs_continuing(miscs, cont_tid)
+
         new_specs, new_results, new_miscs = self.sub_algo.suggest(new_ids,
-                selected_specs,
-                selected_results,
-                selected_miscs)
+                [results[idx] for idx in others],
+                [specs[idx] for idx in others],
+                [miscs[idx] for idx in others])
         
         for spec in new_specs:
             # -- patch in decisions of the best current model from previous
             #    round
+            # -- This is an assertion because the Bandit should be written
+            #    to use these values, and thus be written with the awareness
+            #    that they are coming...
             assert spec['decisions'] == None
             spec['decisions'] = cont_decisions
         
-        if miscs:
-            id = max([m['id'] for m in miscs]) + 1
-        else:
-            id = 0
         for misc in new_miscs:
-            misc['round'] = my_round
-            misc['continues'] = cont_id
-            misc['id'] = id
+            assert 'boosting' not in misc
+            misc['boosting'] = dict(
+                    round=my_round,
+                    continues=cont_tid)
             
         return new_specs, new_results, new_miscs
 
@@ -263,8 +291,8 @@ class SyncBoostingAlgo(BoostingAlgoBase):
         round_len = self.round_len
         
         if miscs:
-            rounds = [m['round'] for m in miscs]
-            complete_rounds = [m['round'] for m, r in zip(miscs, results) if 'loss' in r]
+            rounds = [m['boosting']['round'] for m in miscs]
+            complete_rounds = [m['boosting']['round'] for m, r in zip(miscs, results) if 'loss' in r]
 
             max_round = max(rounds)
             urounds = np.unique(rounds)
@@ -275,14 +303,14 @@ class SyncBoostingAlgo(BoostingAlgoBase):
             complete_rounds_counts = [complete_rounds.count(j) for j in urounds]          
             assert all([rc == crc >= round_len for crc, rc in zip(rounds_counts[:-1], complete_rounds_counts[:-1])])
             
-            round_decs = [[s['decisions'] for m, s in zip(miscs, specs) if m['round'] == j] for j in urounds]
+            round_decs = [[s['decisions'] for m, s in zip(miscs, specs) if m['boosting']['round'] == j] for j in urounds]
             assert all([all([_rd == rd[0] for _rd in rd]) for rd in round_decs])
             round_decs = [rd[0] for rd in round_decs]
             
             if complete_rounds_counts[-1] >= round_len:
                 my_round = max_round + 1
-                last_specs = [s for s, m in zip(specs, miscs) if m['round'] == max_round]
-                last_results = [s for s, m in zip(results, miscs) if m['round'] == max_round]
+                last_specs = [s for s, m in zip(specs, miscs) if m['boosting']['round'] == max_round]
+                last_results = [s for s, m in zip(results, miscs) if m['boosting']['round'] == max_round]
                 losses = np.array(map(self.bandit.loss, last_results, last_specs))
                 last_best = losses.argmin()
                 decisions = last_results[last_best]['decisions']
@@ -293,9 +321,9 @@ class SyncBoostingAlgo(BoostingAlgoBase):
             decisions = None
             my_round = 0
 
-        selected_specs = [s for s, m in zip(specs, miscs) if m['round'] == my_round]
-        selected_results = [s for s, m in zip(results, miscs) if m['round'] == my_round]
-        selected_miscs = [m for m in miscs if m['round'] == my_round]
+        selected_specs = [s for s, m in zip(specs, miscs) if m['boosting']['round'] == my_round]
+        selected_results = [s for s, m in zip(results, miscs) if m['boosting']['round'] == my_round]
+        selected_miscs = [m for m in miscs if m['boosting']['round'] == my_round]
 
         new_specs, new_results, new_miscs = self.sub_algo.suggest(new_ids,
                 selected_specs,
@@ -309,7 +337,7 @@ class SyncBoostingAlgo(BoostingAlgoBase):
             spec['decisions'] = decisions
         
         for misc in new_miscs:
-            misc['round'] = my_round
+            misc['boosting'] = {'round': my_round}
             
         return new_specs, new_results, new_miscs
 

@@ -2,16 +2,40 @@
 Testing experiment classes
 """
 
+import functools
 import numpy as np
 import hyperopt
+import pyll
 import eccv12.experiments as experiments
 from eccv12.toyproblem import BoostableDigits
+from eccv12.bandits import BaseBandit
 
 
 class FastBoostableDigits(BoostableDigits):
     param_gen = dict(BoostableDigits.param_gen)
     param_gen['svm_max_observations'] = 5000 # -- smaller value for speed
 
+
+class DummyDecisionsBandit(BaseBandit):
+    param_gen = dict(
+            seed=pyll.scope.randint(1000),
+            decisions=None)
+
+    def performance_func(self, config, ctrl):
+        r34 = np.random.RandomState(34)
+        y = np.sign(r34.randn(100))
+        rs = np.random.RandomState(config['seed'])
+        yhat = rs.randn(100)
+        decisions = config['decisions']
+        if decisions is None:
+            decisions = np.zeros(100)
+        new_dec = yhat + decisions
+        result = dict(
+                status=hyperopt.STATUS_OK,
+                loss=np.mean(y != np.sign(new_dec)),
+                labels=y,
+                decisions=new_dec)
+        return result
 
 
 def test_boosting_algo():
@@ -49,6 +73,25 @@ def test_boosting_algo():
         print test_errs # train_errs, test_errs
         assert test_errs[-1] < last_mixture_score
         last_mixture_score = test_errs[-1]
+
+
+def test_syncboost_idxs_continuing():
+    n_trials = 20
+    round_len = 3
+
+    trials = hyperopt.Trials()
+    algo = hyperopt.Random(DummyDecisionsBandit())
+    boosting_algo = experiments.AsyncBoostingAlgo(algo,
+                round_len=round_len,
+                look_back=1)
+    exp = hyperopt.Experiment(trials, boosting_algo)
+    exp.run(n_trials)
+    for misc in trials.miscs:
+        idxs = boosting_algo.idxs_continuing(trials.miscs, misc['tid'])
+        myrounds = [miscs[idx]['boosting']['round']
+                for idxs in idxs]
+        assert len(set(myrounds)) in (0, 1)
+
 
 
 def test_mixtures():
@@ -192,7 +235,10 @@ def test_boosted_ensembles_async():
     """
     this test must be run via 
     """
-    return boosted_ensembles_base(experiments.AsyncBoostingAlgo)
+    return boosted_ensembles_base(
+            functools.partial(
+                experiments.AsyncBoostingAlgo,
+                look_back=1))
 
 
 def test_boosted_ensembles_sync():
