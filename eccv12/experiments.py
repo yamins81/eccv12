@@ -105,7 +105,7 @@ class ParallelAlgo(hyperopt.BanditAlgo):
         num_procs = self.num_procs
         proc_nums = [s['proc_num'] for s in miscs]
         proc_counts = np.array([proc_nums.count(j) for j in range(num_procs)])
-        proc_num = proc_counts.argmin()
+        proc_num = int(proc_counts.argmin())
         proc_nums = np.array(proc_nums)
         proc_idxs = (proc_nums == proc_num).nonzero()[0]
         proc_specs = [specs[idx] for idx in proc_idxs]
@@ -125,25 +125,19 @@ class ParallelAlgo(hyperopt.BanditAlgo):
 
 class BoostingAlgoBase(hyperopt.BanditAlgo):
     def best_by_round(self, trials):
-        ii = 0
+        results = [t['result'] for t in trials]
+        specs = [t['spec'] for t in trials]
+        miscs = [t['misc'] for t in trials]
+        losses = np.array(map(self.bandit.loss, results, specs))
+        rounds = np.array([m['round'] for m in miscs])
+        urounds = np.unique(rounds)
+        urounds.sort()
+        assert urounds.tolist() == range(urounds.max() + 1)
         rval = []
-        while ii < len(trials):
-            rtrials = trials[ii:ii + self.round_len]
-
-            # -- deal with error / unfinished trials
-            # XXX: this assumes that triald id == position in specs list
-            #      It is currently true, but need not always be!!
-            # XXX: REFACTOR WITH CODE BELOW
-            results_ii = [tt['result'] for tt in rtrials]
-            specs_ii = [tt['spec'] for tt in rtrials]
-            tids_losses = enumerate(map(self.bandit.loss, results_ii, specs_ii))
-            losses_tids = [(loss, tid)
-                    for (tid, loss) in tids_losses
-                    if loss != None]
-            losses_tids.sort()
-            selected_ind = losses_tids[0][1]
-            rval.append(rtrials[selected_ind])
-            ii += self.round_len
+        for u in urounds:
+            _inds = (rounds == u).nonzero()[0]
+            min_ind = losses[_inds].argmin()
+            rval.append(trials[_inds[min_ind]])
         return rval
 
 
@@ -174,9 +168,9 @@ class AsyncBoostingAlgo(BoostingAlgoBase):
             max_round = max(rounds)
             urounds = np.unique(rounds)
             urounds.sort()
-            assert list(urounds) == range(max_round+1)
+            assert list(urounds) == range(max_round + 1)
             rounds_counts = [rounds.count(j) for j in urounds]
-            assert all([rc >= round_len for rc in rounds_counts[:-1]])
+            assert all([rc >= round_len for rc in rounds_counts[: -1]])
             if rounds_counts[-1] >= round_len:
                 my_round = max_round + 1
             else:

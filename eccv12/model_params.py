@@ -184,3 +184,11 @@ test_params = {'slm': [[('lnorm', lnorm)]],
                           'preproc': {'global_normalize': 0,
                                       'crop': crop_choice,
                                       'size': [20, 20]}}
+
+
+def main_param_func(nf):
+    v3 = l3_params
+    v3['slm'][-1][0][1]['initialize']['n_filters'] = nf
+    v2 = l2_params
+    v2['slm'][-1][0][1]['initialize']['n_filters'] = nf
+    return choice([v2, v3])
