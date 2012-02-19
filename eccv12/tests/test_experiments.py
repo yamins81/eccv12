@@ -195,6 +195,7 @@ def test_mixture_ensembles():
             bandit_algo,
             async=False)
     exp.run(NUM_ROUNDS * ROUND_LEN)
+
     results = trials.results
     specs = trials.specs
     
@@ -209,11 +210,17 @@ def test_mixture_ensembles():
     ada_specs = [{'spec': spec} for spec in ada_specs]
     ada_er_partial = bandit.score_mixture_partial_svm(ada_specs)
     ada_er_full = bandit.score_mixture_full_svm(ada_specs)    
-    
+    ada_specs_test, ada_weights_test = ada.mix_models(NUM_ROUNDS, test_mask=True)
+    ada_specs_test = [{'spec': spec} for spec in ada_specs_test]
+    ada_er_test_partial = bandit.score_mixture_partial_svm(ada_specs_test)
+    ada_er_test_full = bandit.score_mixture_full_svm(ada_specs_test)     
+
     errors = {'simple_partial': simple_er_partial, 
               'simple_full': simple_er_full,
               'ada_partial': ada_er_partial,
-              'ada_full': ada_er_full}
+              'ada_full': ada_er_full,
+              'ada_test_partial': ada_er_test_partial,
+              'ada_test_full': ada_er_test_full}
     
     selected_specs = {'simple': simple_specs,
                       'ada': ada_specs}
@@ -228,6 +235,7 @@ def test_mixture_ensembles():
     assert np.abs(errors['ada_full'][0] - .1696) < 1e-2
     ptl = np.array([0.2744, 0.2336, 0.1968, 0.1832, 0.1688])
     assert np.abs(errors['ada_partial'][0] - ptl).max() < 1e-2
+    assert np.abs(errors['ada_test_full'][0] - .1672) < 1e-2
     
     return exp, errors, selected_specs
     

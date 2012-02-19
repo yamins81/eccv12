@@ -35,13 +35,13 @@ class SimpleMixture(object):
         s = losses.argsort()
         return s[:A], np.ones((A,)) / float(A)
 
-    def mix_models(self, A):
+    def mix_models(self, A, **kwargs):
         """Identify the top `A` trials.
 
         Return list of specs, list of weights.
         """
         specs = self.trials.specs
-        inds, weights = self.mix_inds(A)
+        inds, weights = self.mix_inds(A, **kwargs)
         return [specs[ind] for ind in inds], weights
 
 
