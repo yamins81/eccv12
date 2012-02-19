@@ -75,15 +75,14 @@ class DummyDecisionsBandit(BaseBandit):
     def performance_func(self, config, ctrl):
         r34 = np.random.RandomState(34)
         y = np.sign(r34.randn(self.n_features))
-        rs = np.random.RandomState(config['seed'])
-        yhat = rs.randn(self.n_features)
+        rs = np.random.RandomState(int(config['seed']))
+        yhat = rs.normal(loc=0, scale=1, size=(1, self.n_features))
         decisions = config['decisions']
         if decisions is None:
-            decisions = np.zeros(self.n_features)       
+            decisions = np.zeros((1, self.n_features))     
         new_dec = yhat + decisions         
         is_test = np.ones(decisions.shape)
         result = dict(
-                status=hyperopt.STATUS_OK,
                 loss=np.mean(y != np.sign(new_dec)),
                 labels=y,
                 decisions=new_dec,
@@ -97,6 +96,6 @@ def test_search_dummy():
                        hyperopt.Random,
                        "localhost:22334/test_hyperopt",
                        "test_stuff")
-    
-    
-    return S
+    S.run(10)
+    assert len(S.trials.results) == 10
+    assert 1 > np.mean([x['loss'] for x in S.trials.results]) > 0
