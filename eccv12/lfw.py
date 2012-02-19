@@ -228,6 +228,8 @@ def result_binary_classifier_stats_lfw(
     dec = dec.reshape((1, len(dec)))
     result['decisions'] = dec.tolist()
     result['labels'] = np.concatenate([train_data[1], test_data[1]]).tolist()
+    result['is_test'] = np.column_stack([np.zeros((1, 2200)), np.ones((1, 1000))]).tolist()
+    
     return result
 
 

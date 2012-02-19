@@ -167,11 +167,17 @@ def combine_results(split_results, tt_idxs_list, new_ds, split_decisions, y):
 
     # -- calculate the decisions
     new_decisions = np.zeros_like(split_decisions)
+    is_test = []
     for fold_idx, rr in enumerate(split_results):
         new_d_train, new_d_test = new_ds[fold_idx]
         train_idxs, test_idxs = tt_idxs_list[fold_idx]
         new_decisions[fold_idx][train_idxs] = new_d_train
         new_decisions[fold_idx][test_idxs] = new_d_test
+        test = np.zeros((len(new_decisions[fold_idx]),))
+        test[test_idxs] = 1
+        is_test.append(test)
+    
+    result['is_test'] = np.array(is_test).tolist()    
     result['decisions'] = [list(dd) for dd in new_decisions]
 
     # -- calculate the loss
