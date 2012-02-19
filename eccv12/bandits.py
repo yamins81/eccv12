@@ -20,7 +20,6 @@ def validate_result(result, config):
     assert decs.shape[1] == len(labs)
     is_test = np.asarray(result['is_test'])
     assert is_test.shape == decs.shape
-
     if config.get('decisions') is not None:
         assert decs.shape == np.array(config['decisions']).shape
     

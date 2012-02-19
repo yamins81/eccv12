@@ -11,6 +11,7 @@ import sys
 import matplotlib.pyplot
 import copy
 
+from hyperopt import Trials
 from hyperopt.mongoexp import MongoTrials, as_mongo_str
 
 try:
@@ -39,6 +40,10 @@ from .experiments import (SyncBoostingAlgo,
                                 SimpleMixture,
                                 ParallelAlgo)
 from .model_params import main_param_func
+
+
+def cname(cls):
+    return cls.__class__.__module__ + '.' + cls.__class__.__name__
               
               
 def num_features_lfw(nf):
@@ -58,22 +63,19 @@ class SearchExp(object):
         self.exp_prefix = exp_prefix
         self.exp_key = self.get_exp_key()
         if trials is None:
-            trials = MongoTrials(as_mongo_str(self.mongo_opts) + '/jobs',
-                                      exp_key=self.exp_key)
+            #trials = MongoTrials(as_mongo_str(self.mongo_opts) + '/jobs',
+            #                          exp_key=self.exp_key)
+            trials = Trials()
         self.trials = trials
                 
     def init_bandit_algo(self):
         self.bandit_algo = self.bandit_algo_class(self.bandit)
         
     def get_info(self):
-        b = self.bandit
-        bname = b.__class__.__module__ + '.' + b.__class__.__name__
-        ba = self.bandit_algo
-        baname = ba.__class__.__module__ + '.' + ba.__class__.__name__
         return OrderedDict(
             num_features=self.num_features,
-            bandit=bname,
-            bandit_algo=baname
+            bandit=cname(self.bandit),
+            bandit_algo=cname(self.bandit_algo)
             )
     
     def get_exp_key(self):
@@ -94,9 +96,13 @@ class SearchExp(object):
     def run(self, n_trials):        
         exp = hyperopt.Experiment(
                 self.trials,
-                self.bandit_algo)
-        num_left = n_trials - len(self.trials.results)  ##count results differently/better?
+                self.bandit_algo,
+                async=False)
+                #cmd=None) ##THIS NEEDS TO BE REPLACED WITH PROPER ATTACHMENT CMD)
+                
+        num_left = n_trials - len(self.trials.results)  ##count results differently/better
         exp.run(num_left, block_until_done=True)
+        
 
     def save(self):
         result = self.get_result()
@@ -114,8 +120,7 @@ class MixtureExp(SearchExp):
 
     def get_info(self):
         info = SearchExp.get_info(self)
-        dummy = self.mixture_class(None, None)
-        info['mixture'] = dummy.__class__.__module__ + '.' + dummy.__class__.__name__
+        info['mixture'] = cname(self.mixture_class(None, None))
         info['ensemble_size'] = self.ensemble_size
         return info
             
@@ -141,8 +146,7 @@ class MetaExp(SearchExp):
     def get_info(self):
         info = SearchExp.get_info(self)
         info['meta_algo'] = info.pop('bandit_algo')
-        base_ba = self.base_bandit_algo
-        info['bandit_algo'] = base_ba.__class__.__module__ + '.' + base_ba.__class__.__name__
+        info['bandit_algo'] = cname(self.base_bandit_algo)
         info['meta_kwargs'] = self.meta_kwargs
         return info
 
