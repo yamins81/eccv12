@@ -11,9 +11,25 @@ from eccv12.toyproblem import BoostableDigits
 from eccv12.bandits import BaseBandit
 
 
+###########Experiment Sketch
+
+NUM_ROUNDS = 5
+BASE_NUM_FEATURES = 50
+ROUND_LEN = 5
+
 class FastBoostableDigits(BoostableDigits):
     param_gen = dict(BoostableDigits.param_gen)
     param_gen['svm_max_observations'] = 5000 # -- smaller value for speed
+
+
+class LargerBoostableDigits(FastBoostableDigits):
+    param_gen = dict(FastBoostableDigits.param_gen)
+    param_gen['feat_spec']['n_features'] = BASE_NUM_FEATURES
+
+
+class NormalBoostableDigits(FastBoostableDigits):
+    param_gen = dict(FastBoostableDigits.param_gen)
+    param_gen['feat_spec']['n_features'] = BASE_NUM_FEATURES / ROUND_LEN
 
 
 class DummyDecisionsBandit(BaseBandit):
@@ -123,21 +139,22 @@ def test_mixtures():
     results = trials.results
     specs = trials.specs
     losses = np.array(map(bandit.loss, results, specs))
-    
+
     s = losses.argsort()
     assert list(inds) == s[:N].tolist()
 
     ada = experiments.AdaboostMixture(trials, bandit)
     ada_inds, ada_weights = ada.mix_inds(N)
+    # -- assert that adaboost adds weights in decreasing order
     assert (ada_weights[:-1] >= ada_weights[1:]).all()
 
     #TODO: tests that shows that ensemble performance is increasing with
     #number of components
-    
+
 
 def test_parallel_algo():
     num_procs = 5
-    
+
     trials = hyperopt.Trials()
     calls = [0]
     bandit = FastBoostableDigits()
@@ -154,27 +171,11 @@ def test_parallel_algo():
             async=False)
     exp.run(7)
     assert [m['proc_num'] for m in exp.trials.miscs] == [0, 1, 2, 3, 4, 0, 1]
-    
+
     #TODO:  do we really need to test for independence of the various runs here?  
     #what's a good way to do that, even if we wanted to?
 
 
-###########Experiment Sketch
-
-NUM_ROUNDS = 5
-BASE_NUM_FEATURES = 50
-ROUND_LEN = 5
-
-class LargerBoostableDigits(FastBoostableDigits):
-    param_gen = dict(FastBoostableDigits.param_gen)
-    param_gen['feat_spec']['n_features'] = BASE_NUM_FEATURES
-    
-
-class NormalBoostableDigits(FastBoostableDigits):
-    param_gen = dict(FastBoostableDigits.param_gen)
-    param_gen['feat_spec']['n_features'] = BASE_NUM_FEATURES / ROUND_LEN
-    
-    
 def test_random_ensembles():
     bandit = LargerBoostableDigits()
     bandit_algo = hyperopt.Random(bandit)
@@ -194,7 +195,7 @@ def test_random_ensembles():
     errors = {'random_partial': er_partial, 
               'random_full': er_full}
     selected_specs = {'random': selected_specs}
-    
+
     assert np.abs(errors['random_full'][0] - .274) < 1e-2
     return exp, errors, selected_specs
 
