@@ -16,11 +16,18 @@ import hyperopt
 ##############
 
 class SimpleMixture(object):
+    """
+    Uses a top-A heuristic to select an ensemble from among completed trials.
+    """
     def __init__(self, trials, bandit):
         self.trials = trials
         self.bandit = bandit
 
     def mix_inds(self, A):
+        """Identify the top `A` trials.
+
+        Return list of positions in self.trials, list of weights.
+        """
         results = self.trials.results
         assert len(results) >= A
         specs = self.trials.specs
@@ -29,14 +36,25 @@ class SimpleMixture(object):
         return s[:A], np.ones((A,)) / float(A)
 
     def mix_models(self, A):
+        """Identify the top `A` trials.
+
+        Return list of specs, list of weights.
+        """
         specs = self.trials.specs
         inds, weights = self.mix_inds(A)
         return [specs[ind] for ind in inds], weights
 
 
 class AdaboostMixture(SimpleMixture):
+    """
+    Uses AdaBoost to select an ensemble from among completed trials.
+    """
     def fetch_labels(self):
+        """Return the 1D vector of +-1 labels for all examples.
+        """
         results = self.trials.results
+        # -- take a detour and do a sanity check:
+        #    All trials should have actually stored the *same* labels.
         labels = np.array([_r['labels'] for _r in results])
         assert (labels == labels[0]).all()
         assert labels.ndim == 2
@@ -45,45 +63,62 @@ class AdaboostMixture(SimpleMixture):
         return labels
 
     def fetch_decisions(self):
+        """Return the 3D decisions array of each (trial, split, example)
+        """
         results = self.trials.results
         decisions = np.array([_r['decisions'] for _r in results])
         assert decisions.ndim == 3
         return decisions
 
     def predictions_from_decisions(self, decisions):
+        """Return 3D prediction array (elements in +-1)
+        """
         return np.sign(decisions).astype(np.int)
 
     def fetch_predictions(self):
+        """Return 3D prediction array (elements in +-1)
+        """
         decisions = self.fetch_decisions()
         return self.predictions_from_decisions(decisions)
 
     def mix_inds(self, A):
+        """Identify `A` trials to use in boosted ensemble
+
+        Return (list of positions in self.trials), (list of weights).
+        """
         results = self.trials.results
-        assert len(results) >= A
+        assert len(results) >= A  # XXX: should just return indexes right?
         labels = self.fetch_labels()
         L = len(labels)
         predictions = self.fetch_predictions()
         assert predictions.shape[2] == L, '%d != %d' % (predictions.shape[2], L)
-        weights = (1./L) * np.ones((predictions.shape[1], L))
-        labels = labels[np.newaxis, :]  
+        # -- compute a 3D array errors on all trials, splits, examples.
         errors = (predictions != labels).astype(np.int)
         selected_inds = []
         alphas = []
         for round in range(A):
+            # -- set weights across examples for each split
+            if round:
+                prediction = predictions[selected_ind[-1]]
+                weights *= np.exp(-alpha[:, np.newaxis] * labels * prediction)
+            else:
+                weights = np.ones((predictions.shape[1], L))
+            weights /= weights.sum(1)[:, np.newaxis]
+
+            # -- weighted error rate for each trial, split
             ep_array = (errors * weights).sum(2)
             ep_diff_array = np.abs(0.5 - ep_array)
-            ep_diff_array[selected_inds] = -1 #hacky way to prevent re-selection
+
+            # -- pick the trial whose mean across splits is best
             ind = ep_diff_array.mean(1).argmax()
             selected_inds.append(ind)
+
+            # -- determine the weight of the new ensemble member
             ep = ep_array[ind]
             alpha = 0.5 * np.log((1 - ep) / ep)
-            alpha = alpha.reshape((len(alpha), 1))
             alphas.append(alpha)
-            prediction = predictions[ind]
-            weights = weights * np.exp(-alpha * labels * prediction)
-            weights = weights / weights.sum(1).reshape((weights.shape[0], 1))
-        alphas = np.array(alphas)
-        return np.array(selected_inds), alphas.reshape(alphas.shape[:2])
+
+        return np.array(selected_inds), np.array(alphas)
 
 
 
@@ -92,16 +127,16 @@ class AdaboostMixture(SimpleMixture):
 ##############
 
 class ParallelAlgo(hyperopt.BanditAlgo):
+    """Interleaves calls to `num_procs` independent Trials sets
+    
+    Injects a `proc_num` field into the miscs document for book-keeping.
+    """
     def __init__(self, sub_algo, num_procs):
         hyperopt.BanditAlgo.__init__(self, sub_algo.bandit)
         self.sub_algo = sub_algo
         self.num_procs = num_procs
 
-    def suggest(self,
-            new_ids,
-            specs,
-            results,
-            miscs):
+    def suggest(self, new_ids, specs, results, miscs):
         num_procs = self.num_procs
         proc_nums = [s['proc_num'] for s in miscs]
         proc_counts = np.array([proc_nums.count(j) for j in range(num_procs)])
@@ -125,6 +160,8 @@ class ParallelAlgo(hyperopt.BanditAlgo):
 
 class BoostingAlgoBase(hyperopt.BanditAlgo):
     def best_by_round(self, trials):
+        print >> sys.stderr, ("ERR: best_by_found"
+            " should use misc['boosting_round']")
         ii = 0
         rval = []
         while ii < len(trials):
@@ -229,11 +266,7 @@ class SyncBoostingAlgo(BoostingAlgoBase):
         self.sub_algo = sub_algo
         self.round_len = round_len
 
-    def suggest(self,
-            new_ids,
-            specs,
-            results,
-            miscs):
+    def suggest(self, new_ids, specs, results, miscs):
         assert len(specs) == len(results) == len(miscs)
         round_len = self.round_len
         
