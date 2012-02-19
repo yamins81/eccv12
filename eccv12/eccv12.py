@@ -13,9 +13,6 @@ import sys
 import matplotlib.pyplot
 import copy
 
-from hyperopt import Trials
-from hyperopt.mongoexp import MongoTrials, as_mongo_str
-
 try:
     from collections import OrderedDict
 except ImportError:
@@ -31,6 +28,9 @@ except ImportError:
 
 import hyperopt
 import hyperopt.plotting
+from hyperopt import Trials
+from hyperopt.mongoexp import MongoTrials, as_mongo_str
+
 from pyll import scope, clone, as_apply
 
 import lfw 
@@ -68,9 +68,9 @@ class SearchExp(object):
         self.exp_prefix = exp_prefix
         self.exp_key = self.get_exp_key()
         if trials is None:
-            #trials = MongoTrials(as_mongo_str(self.mongo_opts) + '/jobs',
-            #                          exp_key=self.exp_key)
-            trials = Trials()
+            trials = MongoTrials(as_mongo_str(self.mongo_opts) + '/jobs',
+                                      exp_key=self.exp_key)
+            #trials = Trials()
         self.trials = trials
                 
     def init_bandit_algo(self):
@@ -107,14 +107,22 @@ class SearchExp(object):
         trial_info['trials'] = self.trials
         return trial_info
 
-    def run(self, n_trials):        
+    def run(self, n_trials):
+        bandit_name = self.get_info()['bandit']
+        bandit_args = (self.num_features,)
+        bandit_kwargs = {}
+        blob = cPickle.dumps((bandit_name, bandit_args, bandit_kwargs))
+        self.trials.attachments['bandit_data'] = blob
         exp = hyperopt.Experiment(
                 self.trials,
                 self.bandit_algo,
-                async=False)
-                #cmd=None) ##THIS NEEDS TO BE REPLACED WITH PROPER ATTACHMENT CMD)
+                async=True,
+                cmd=('driver_attachment', 'bandit_data'))
                 
-        num_left = n_trials - len(self.trials.results)  ##count results differently/better
+        ##count results differently/better
+        num_done = len([_x for _x in self.trials.results 
+                                        if _x['status'] == hyperopt.STATUS_OK])
+        num_left = n_trials - num_done
         exp.run(num_left, block_until_done=True)
         
 

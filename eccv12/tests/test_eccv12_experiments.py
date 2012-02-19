@@ -80,13 +80,15 @@ class DummyDecisionsBandit(BaseBandit):
         decisions = config['decisions']
         if decisions is None:
             decisions = np.zeros((1, self.n_features))     
-        new_dec = yhat + decisions         
+        else:
+            decisions = np.array(decisions)
+        new_dec = yhat + decisions
         is_test = np.ones(decisions.shape)
         result = dict(
                 loss=np.mean(y != np.sign(new_dec)),
-                labels=y,
-                decisions=new_dec,
-                is_test=is_test)
+                labels=y.tolist(),
+                decisions=new_dec.tolist(),
+                is_test=is_test.tolist())
         return result
 
 
@@ -109,12 +111,6 @@ def test_mix_dummy():
                        hyperopt.Random,
                        "localhost:22334/test_hyperopt",
                        "test_stuff")
-    try:
-        res = S.get_result()
-    except experiments.NotEnoughTrialsError:
-        pass
-    else:
-        raise Exception, "Should have raised NotEnoughTrialsError."
     S.run(20)
     res = S.get_result()
     assert len(res['mixture_inds']) == 5
@@ -122,6 +118,9 @@ def test_mix_dummy():
     
 
 def test_meta_dummy():
+    """
+    THIS TEST IS NOT YET COMPLETE
+    """
     S = exps.MetaExp(experiments.SyncBoostingAlgo,
                     {"round_len": 5},
                     10,
@@ -129,4 +128,3 @@ def test_meta_dummy():
                    hyperopt.Random,
                    "localhost:22334/test_hyperopt",
                    "test_stuff")
-    return S
