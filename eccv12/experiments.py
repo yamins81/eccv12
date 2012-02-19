@@ -169,7 +169,7 @@ class ParallelAlgo(hyperopt.BanditAlgo):
             assert 'proc_num' not in doc
             doc['proc_num'] = proc_num
         return new_specs, new_results, new_miscs
-        
+
 
 ##############
 ###BOOSTING###
@@ -243,7 +243,7 @@ class AsyncBoostingAlgo(BoostingAlgoBase):
         cont_decisions = None
         cont_tid = None
         others = []
-       
+
         if miscs:
             # -- pick a trial to continue
             rounds_counts = np.bincount([m['boosting']['round']
@@ -273,11 +273,13 @@ class AsyncBoostingAlgo(BoostingAlgoBase):
                 cont_tid = cc_miscs[cont_idx]['tid']
                 others = self.idxs_continuing(miscs, cont_tid)
 
+        print "OTHERS", others
+
         new_specs, new_results, new_miscs = self.sub_algo.suggest(new_ids,
                 [results[idx] for idx in others],
                 [specs[idx] for idx in others],
                 [miscs[idx] for idx in others])
-        
+
         for spec in new_specs:
             # -- patch in decisions of the best current model from previous
             #    round
@@ -286,14 +288,14 @@ class AsyncBoostingAlgo(BoostingAlgoBase):
             #    that they are coming...
             assert spec['decisions'] == None
             spec['decisions'] = cont_decisions
-        
+
         for misc in new_miscs:
             assert 'boosting' not in misc
             misc['boosting'] = {
                     'variant': 'sync',
                     'round': my_round,
                     'continues': cont_tid}
-            
+
         return new_specs, new_results, new_miscs
 
 
@@ -301,6 +303,7 @@ class AsyncBoostingAlgoA(AsyncBoostingAlgo):
     def __init__(self, bandit_algo, round_len):
         AsyncBoostingAlgo.__init__(self, bandit_algo, round_len,
                 look_back=1)
+
 
 class AsyncBoostingAlgoB(AsyncBoostingAlgo):
     def __init__(self, bandit_algo, round_len):
@@ -318,8 +321,10 @@ class SyncBoostingAlgo(BoostingAlgoBase):
         assert len(specs) == len(results) == len(miscs)
         round_len = self.round_len
 
+        print 'ALLS', len(specs)
         specs, results, miscs = filter_oks(specs, results, miscs)
-        
+        print 'OKS', len(specs)
+
         if miscs:
             rounds = [m['boosting']['round'] for m in miscs]
             # -- actually the rounds of completed trials
@@ -330,24 +335,24 @@ class SyncBoostingAlgo(BoostingAlgoBase):
             urounds = np.unique(rounds)
             urounds.sort()
             assert list(urounds) == range(max_round + 1)
-            
+
             rounds_counts = [rounds.count(j) for j in urounds]
             complete_rounds_counts = [complete_rounds.count(j)
-                    for j in urounds]          
+                    for j in urounds]
             assert all([rc == crc >= round_len
                 for crc, rc in zip(rounds_counts[:-1],
                     complete_rounds_counts[:-1])])
-            
+
             round_decs = [[s['decisions']
                 for m, s in zip(miscs, specs)
                 if m['boosting']['round'] == j] for j in urounds]
             assert all([all([_rd == rd[0]
                 for _rd in rd]) for rd in round_decs])
             round_decs = [rd[0] for rd in round_decs]
-            
+
             if complete_rounds_counts[-1] >= round_len:
                 my_round = max_round + 1
-                last_specs = [s 
+                last_specs = [s
                         for s, m in zip(specs, miscs)
                         if m['boosting']['round'] == max_round]
                 last_results = [s
@@ -381,18 +386,18 @@ class SyncBoostingAlgo(BoostingAlgoBase):
                 selected_specs,
                 selected_results,
                 selected_miscs)
-        
+
         for spec in new_specs:
             # -- patch in decisions of the best current model from previous
             #    round
             assert spec['decisions'] == None
             spec['decisions'] = decisions
-        
+
         for misc in new_miscs:
             misc['boosting'] = {
                     'variant': 'sync',
                     'round': my_round,
                     'continues': decisions_src}
-            
+
         return new_specs, new_results, new_miscs
 
