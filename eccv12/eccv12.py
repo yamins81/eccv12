@@ -1,7 +1,7 @@
 """
 Experiment generator functions
 
-Currently this stuff is untested.
+Currently this stuff is untested mostly.
 
 Entry point is to call something like "random_experiment()" or "tpe_experiment()"
 
@@ -270,3 +270,5 @@ def tpe_experiment():
                        exp_prefix='eccv12_experiments',
                        mongo_opts='localhost:27017/eccv12',
                        run_parallel=True)
+                       
+#####I expect plotting code to go here as well
