@@ -208,7 +208,7 @@ def budget_experiments(num_features,
                            ensemble_size=es,
                            bandit_func=bandit_func,
                            bandit_algo_class=bandit_algo_class,
-                           mongo_ops=mongo_opts,
+                           mongo_opts=mongo_opts,
                            exp_prefix=exp_prefix,
                            run_parallel=run_parallel)
         
@@ -219,7 +219,7 @@ def budget_experiments(num_features,
                            ensemble_size=es,
                            bandit_func=bandit_func,
                            bandit_algo_class=bandit_algo_class,
-                           mongo_ops=mongo_opts,
+                           mongo_opts=mongo_opts,
                            exp_prefix=exp_prefix,
                            run_parallel=run_parallel)
                            
