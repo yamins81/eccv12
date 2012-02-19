@@ -129,6 +129,8 @@ def test_meta_dummy():
     but then for reasons I don't yet know i sometimes see:
        331                 last_best = losses.argmin() 
        TypeError: unsupported operand type(s) for -: 'int' and 'NoneType'
+       This problem appears to go away if you re-run the test ... 
+       This has to be investiaged further.
        
     """
     S = exps.MetaExp(experiments.SyncBoostingAlgo,
@@ -150,8 +152,8 @@ def test_meta_dummy():
 
 
 def test_budget_experiment():
-    S = exps.BudgetExperiment(10, 
-                       False,
+    S = exps.BudgetExperiment(ntrials=10, 
+                       save=False,
                        num_features=10,
                        ensemble_sizes=[2, 5],
                        bandit_func=DummyDecisionsBandit,
