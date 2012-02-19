@@ -16,6 +16,11 @@ import hyperopt
 ###MIXTURES###
 ##############
 
+class NotEnoughTrialsError(Exception):
+    def __init__(self, A, N):
+        self.msg = 'Not enough trials: requires %d, has %d.' % (A, N)
+
+
 class SimpleMixture(object):
     """
     Uses a top-A heuristic to select an ensemble from among completed trials.
@@ -30,19 +35,20 @@ class SimpleMixture(object):
         Return list of positions in self.trials, list of weights.
         """
         results = self.trials.results
-        assert len(results) >= A
+        if len(results) < A:
+            raise NotEnoughTrialsError(A, len(results))
         specs = self.trials.specs
         losses = np.array(map(self.bandit.loss, results, specs))
         s = losses.argsort()
         return s[:A], np.ones((A,)) / float(A)
 
-    def mix_models(self, A):
+    def mix_models(self, A, **kwargs):
         """Identify the top `A` trials.
 
         Return list of specs, list of weights.
         """
         specs = self.trials.specs
-        inds, weights = self.mix_inds(A)
+        inds, weights = self.mix_inds(A, **kwargs)
         return [specs[ind] for ind in inds], weights
 
 
@@ -57,11 +63,17 @@ class AdaboostMixture(SimpleMixture):
         # -- take a detour and do a sanity check:
         #    All trials should have actually stored the *same* labels.
         labels = np.array([_r['labels'] for _r in results])
-        assert (labels == labels[0]).all()
         assert labels.ndim == 2
-        assert set(np.unique(labels)) == set([-1, 1])
+        assert (labels == labels[0]).all()
         labels = labels[0]
-        return labels
+        assert set(np.unique(labels)) == set([-1, 1])
+        
+        split_mask = np.array([_r['is_test'] for _r in results]).astype(int)
+        assert (split_mask == split_mask[0]).all()
+        split_mask = split_mask[0]
+        assert split_mask.shape[1] == len(labels)
+        assert set(np.unique(split_mask)) <= set([0, 1]), set(np.unique(split_mask))
+        return labels, split_mask
 
     def fetch_decisions(self):
         """Return the 3D decisions array of each (trial, split, example)
@@ -82,17 +94,19 @@ class AdaboostMixture(SimpleMixture):
         decisions = self.fetch_decisions()
         return self.predictions_from_decisions(decisions)
 
-    def mix_inds(self, A):
+    def mix_inds(self, A, test_mask=False):
         """Identify `A` trials to use in boosted ensemble
 
         Return (list of positions in self.trials), (list of weights).
         """
         results = self.trials.results
-        assert len(results) >= A
-        labels = self.fetch_labels()
+        if len(results) < A:
+            raise NotEnoughTrialsError(A, len(results))
+        labels, split_mask = self.fetch_labels()
         L = len(labels)
         predictions = self.fetch_predictions()
         assert predictions.shape[2] == L, '%d != %d' % (predictions.shape[2], L)
+        assert predictions.shape[1:] == split_mask.shape, '%d,%d != %d,%d' % (predictions.shape[1:], split_mask.shape)
         # -- compute a 3D array errors on all trials, splits, examples.
         errors = (predictions != labels).astype(np.int)
         selected_inds = []
@@ -103,7 +117,9 @@ class AdaboostMixture(SimpleMixture):
                 prediction = predictions[selected_inds[-1]]
                 weights *= np.exp(-alpha[:, np.newaxis] * labels * prediction)
             else:
-                weights = np.ones((predictions.shape[1], L))
+                weights = np.ones(predictions.shape[1:])
+                if test_mask:
+                    weights *= split_mask
             weights /= weights.sum(1)[:, np.newaxis]
 
             # -- weighted error rate for each trial, split
