@@ -206,11 +206,6 @@ class AsyncBoostingAlgo(BoostingAlgoBase):
         2 allows continuing a member among previous 2 rounds...
         3 ...
 
-    Note that only completed jobs can be continued. Therefore if (a) this
-    algorithm is run on a cluster, (b) look_back is 1, and (c) round_len <=
-    number of machines, then it can happen that actually no boosting takes
-    place at all.
-
     """
     def __init__(self, sub_algo, round_len, look_back):
         hyperopt.BanditAlgo.__init__(self, sub_algo.bandit)
