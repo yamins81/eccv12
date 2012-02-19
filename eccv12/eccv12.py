@@ -126,7 +126,7 @@ class MixtureExp(SearchExp):
             
     def get_result(self):
         trial_info = SearchExp.get_result(self)
-        inds, weights = self.mixture(self.ensemble_size)
+        inds, weights = self.mixture.mix_inds(self.ensemble_size)
         trial_info['mixture_inds'] = inds
         trial_info['mixture_weights'] = weights
         return trial_info

@@ -15,6 +15,11 @@ import hyperopt
 ###MIXTURES###
 ##############
 
+class NotEnoughTrialsError(Exception):
+    def __init__(self, A, N):
+        self.msg = 'Not enough trials: requires %d, has %d.' % (A, N)
+
+
 class SimpleMixture(object):
     """
     Uses a top-A heuristic to select an ensemble from among completed trials.
@@ -29,7 +34,8 @@ class SimpleMixture(object):
         Return list of positions in self.trials, list of weights.
         """
         results = self.trials.results
-        assert len(results) >= A
+        if len(results) < A:
+            raise NotEnoughTrialsError(A, len(results))
         specs = self.trials.specs
         losses = np.array(map(self.bandit.loss, results, specs))
         s = losses.argsort()
@@ -65,7 +71,7 @@ class AdaboostMixture(SimpleMixture):
         assert (split_mask == split_mask[0]).all()
         split_mask = split_mask[0]
         assert split_mask.shape[1] == len(labels)
-        assert set(np.unique(split_mask)) == set([0, 1])
+        assert set(np.unique(split_mask)) <= set([0, 1]), set(np.unique(split_mask))
         return labels, split_mask
 
     def fetch_decisions(self):
@@ -93,7 +99,8 @@ class AdaboostMixture(SimpleMixture):
         Return (list of positions in self.trials), (list of weights).
         """
         results = self.trials.results
-        assert len(results) >= A
+        if len(results) < A:
+            raise NotEnoughTrialsError(A, len(results))
         labels, split_mask = self.fetch_labels()
         L = len(labels)
         predictions = self.fetch_predictions()

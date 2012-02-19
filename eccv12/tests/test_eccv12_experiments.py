@@ -99,3 +99,34 @@ def test_search_dummy():
     S.run(10)
     assert len(S.trials.results) == 10
     assert 1 > np.mean([x['loss'] for x in S.trials.results]) > 0
+    
+    
+def test_mix_dummy():
+    S = exps.MixtureExp(experiments.AdaboostMixture,
+                        5,
+                        10,
+                       DummyDecisionsBandit,
+                       hyperopt.Random,
+                       "localhost:22334/test_hyperopt",
+                       "test_stuff")
+    try:
+        res = S.get_result()
+    except experiments.NotEnoughTrialsError:
+        pass
+    else:
+        raise Exception, "Should have raised NotEnoughTrialsError."
+    S.run(20)
+    res = S.get_result()
+    assert len(res['mixture_inds']) == 5
+    assert res['mixture_weights'].shape == (5, 1)
+    
+
+def test_meta_dummy():
+    S = exps.MetaExp(experiments.SyncBoostingAlgo,
+                    {"round_len": 5},
+                    10,
+                   DummyDecisionsBandit,
+                   hyperopt.Random,
+                   "localhost:22334/test_hyperopt",
+                   "test_stuff")
+    return S
