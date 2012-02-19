@@ -19,13 +19,12 @@ def validate_result(result, config):
     assert labs.ndim == 1
     assert decs.shape[1] == len(labs)
 
-    if config['decisions'] is not None:
+    if config.get('decisions') is not None:
         assert decs.shape == np.array(config['decisions']).shape
     
     
 def validate_config(config):
-    assert 'decisions' in config
-    if config['decisions'] is not None:
+    if config.get('decisions') is not None:
         decs = np.asarray(config['decisions'])
         assert decs.ndim == 2
 

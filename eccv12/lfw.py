@@ -39,7 +39,7 @@ class FG11Bandit(BaseBandit):
         slm = config['slm']
         preproc = config['preproc']
         comparison = config['comparison']
-        decisions = config['decisions']
+        decisions = config.get('decisions')
         return get_performance(slm, decisions, preproc, comparison)
 
 
@@ -53,7 +53,7 @@ class MainBandit(BaseBandit):
         slm = config['model']['slm']
         preproc = config['model']['preproc']
         comparison = config['comparison']
-        decisions = config['decisions']
+        decisions = config.get('decisions')
         return get_performance(slm, decisions, preproc, comparison)
 
 
