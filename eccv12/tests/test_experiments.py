@@ -28,7 +28,7 @@ def test_boosting_algo():
             return hyperopt.Random.suggest(self,
                     ids, specs, results, miscs)
     algo = FakeAlgo(bandit)
-    boosting_algo = experiments.BoostingAlgo(algo,
+    boosting_algo = experiments.SyncBoostingAlgo(algo,
                 round_len=round_len)
     exp = hyperopt.Experiment(
             trials,
@@ -67,16 +67,13 @@ def test_mixtures():
     results = trials.results
     specs = trials.specs
     losses = np.array(map(bandit.loss, results, specs))
+    
     s = losses.argsort()
-    assert list(inds) == [2, 0, 3] 
+    assert list(inds) == s[:N].tolist()
 
     ada = experiments.AdaboostMixture(trials, bandit)
     ada_inds, ada_weights = ada.mix_inds(N)
-    assert list(ada_inds) == [2, 0, 3]
-    weights = np.array([[ 0.46038752,  0.44284515,  0.4722308 ,  0.4584254 ,  0.45255872],
-                        [ 0.31151928,  0.32158091,  0.32195087,  0.30753429,  0.32146415],
-                        [ 0.05972238,  0.02864797,  0.04602044,  0.04298737,  0.0497339 ]])
-    assert np.abs(ada_weights - weights).max() < .001
+    assert (ada_weights[:-1] >= ada_weights[1:]).all()
 
     #TODO: tests that shows that ensemble performance is increasing with
     #number of components
