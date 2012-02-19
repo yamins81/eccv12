@@ -1,8 +1,8 @@
 """
 Testing experiment classes
 """
+import unittest
 
-import functools
 import numpy as np
 import hyperopt
 import pyll
@@ -75,22 +75,35 @@ def test_boosting_algo():
         last_mixture_score = test_errs[-1]
 
 
-def test_syncboost_idxs_continuing():
-    n_trials = 20
-    round_len = 3
+class ForAllBoostinAlgos(object):
 
-    trials = hyperopt.Trials()
-    algo = hyperopt.Random(DummyDecisionsBandit())
-    boosting_algo = experiments.AsyncBoostingAlgo(algo,
-                round_len=round_len,
-                look_back=1)
-    exp = hyperopt.Experiment(trials, boosting_algo)
-    exp.run(n_trials)
-    for misc in trials.miscs:
-        idxs = boosting_algo.idxs_continuing(trials.miscs, misc['tid'])
-        myrounds = [miscs[idx]['boosting']['round']
-                for idxs in idxs]
-        assert len(set(myrounds)) in (0, 1)
+    def test_syncboost(self):
+        self.work(experiments.SyncBoostingAlgo)
+
+    def test_asyncboostA(self):
+        self.work(experiments.AsyncBoostingAlgoA)
+
+    def test_asyncboostB(self):
+        self.work(experiments.AsyncBoostingAlgoB)
+
+
+class TestIdxsContinuing(unittest.TestCase, ForAllBoostinAlgos):
+    def work(self, cls):
+        if 'Boosting' not in cls.__name__:
+            return
+        n_trials = 20
+        round_len = 3
+
+        algo = hyperopt.Random(DummyDecisionsBandit())
+        trials = hyperopt.Trials()
+        boosting_algo = cls(algo, round_len=round_len)
+        exp = hyperopt.Experiment(trials, boosting_algo)
+        exp.run(n_trials)
+        for misc in trials.miscs:
+            idxs = boosting_algo.idxs_continuing(trials.miscs, misc['tid'])
+            myrounds = [miscs[idx]['boosting']['round']
+                    for idxs in idxs]
+            assert len(set(myrounds)) in (0, 1)
 
 
 
@@ -231,6 +244,7 @@ def test_mixture_ensembles():
     
     return exp, errors, selected_specs
     
+
 def test_boosted_ensembles_async():
     """
     this test must be run via 
