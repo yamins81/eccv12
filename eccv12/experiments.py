@@ -87,7 +87,7 @@ class AdaboostMixture(SimpleMixture):
         Return (list of positions in self.trials), (list of weights).
         """
         results = self.trials.results
-        assert len(results) >= A  # XXX: should just return indexes right?
+        assert len(results) >= A
         labels = self.fetch_labels()
         L = len(labels)
         predictions = self.fetch_predictions()
@@ -99,7 +99,7 @@ class AdaboostMixture(SimpleMixture):
         for round in range(A):
             # -- set weights across examples for each split
             if round:
-                prediction = predictions[selected_ind[-1]]
+                prediction = predictions[selected_inds[-1]]
                 weights *= np.exp(-alpha[:, np.newaxis] * labels * prediction)
             else:
                 weights = np.ones((predictions.shape[1], L))
