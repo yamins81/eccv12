@@ -1,8 +1,13 @@
 """
 Testing experiment classes
+
+The "test_digits" tests show validate that the four
+basic algorithms for ensemble selection produce loss results in the 
+right ordering, e.g. random ensembles > Top-A mixture > Adaboost > HTBoost
 """
 import unittest
 import nose
+from nose.plugins.attrib import attr
 
 import numpy as np
 import hyperopt
@@ -10,12 +15,6 @@ import pyll
 import eccv12.experiments as experiments
 from eccv12.toyproblem import BoostableDigits
 from eccv12.bandits import BaseBandit
-
-
-NUM_ROUNDS = 5
-BASE_NUM_FEATURES = 50
-ROUND_LEN = 5
-
 
 def boosting_best_by_round(trials, bandit):
     results = [t['result'] for t in trials]
@@ -78,21 +77,6 @@ class DummyDecisionsBandit(BaseBandit):
         return result
 
 
-class FastBoostableDigits(BoostableDigits):
-    param_gen = dict(BoostableDigits.param_gen)
-    param_gen['svm_max_observations'] = 1000 # -- smaller value for speed
-
-
-class LargerBoostableDigits(FastBoostableDigits):
-    param_gen = dict(FastBoostableDigits.param_gen)
-    param_gen['feat_spec']['n_features'] = BASE_NUM_FEATURES
-
-
-class NormalBoostableDigits(FastBoostableDigits):
-    param_gen = dict(FastBoostableDigits.param_gen)
-    param_gen['feat_spec']['n_features'] = BASE_NUM_FEATURES / ROUND_LEN
-
-
 class ForAllBoostinAlgos(object):
     """Mixin tests that call self.work(<BoostingAlgoCls>)
     """
@@ -105,36 +89,6 @@ class ForAllBoostinAlgos(object):
 
     def test_asyncB(self):
         self.work(experiments.AsyncBoostingAlgoB)
-
-
-# XXX: THIS TEST TAKES 2 MINS ON FAST COMP - SPEED IT UP?
-class TestBoostingLossDecreases(unittest.TestCase, ForAllBoostinAlgos):
-    """Test that boosting decreases generalization loss in a not-so-fast-to-run
-    actual learning setting.
-    """
-    def work(self, cls):
-        n_trials = 12
-        round_len = 3
-        trials = hyperopt.Trials()
-        bandit = FastBoostableDigits()
-        algo = hyperopt.Random(bandit)
-        boosting_algo = experiments.SyncBoostingAlgo(algo,
-                    round_len=round_len)
-        exp = Experiment(trials, boosting_algo)
-
-        last_mixture_score = float('inf')
-
-        round_ii = 0
-        while len(trials) < n_trials:
-            round_ii += 1
-            exp.run(round_len)
-            assert len(trials) == round_ii * round_len
-            best_trials = boosting_best_by_round(list(trials), bandit)
-            assert len(best_trials) == round_ii
-            train_errs, test_errs = bandit.score_mixture_partial_svm(best_trials)
-            print test_errs # train_errs, test_errs
-            assert test_errs[-1] < last_mixture_score
-            last_mixture_score = test_errs[-1]
 
 
 class TestBoostingSubAlgoArgs(unittest.TestCase, ForAllBoostinAlgos):
@@ -262,10 +216,70 @@ def test_parallel_algo():
     assert n_specs_list == [0] * num_procs + [1] * num_procs + [2] * num_procs
 
 
+# XXX TEST WITH SPORADIC FAILURES
 
-# XXX: It's not clear what this is testing
-def test_random_ensembles():
-    raise nose.SkipTest()
+# XXX TEST WITH ASYNC EXECUTION
+
+
+################
+####slow tests##
+################
+
+NUM_ROUNDS = 5
+BASE_NUM_FEATURES = 50
+ROUND_LEN = 5
+
+
+class FastBoostableDigits(BoostableDigits):
+    param_gen = dict(BoostableDigits.param_gen)
+    param_gen['svm_max_observations'] = 1000 # -- smaller value for speed
+
+
+class LargerBoostableDigits(FastBoostableDigits):
+    param_gen = dict(FastBoostableDigits.param_gen)
+    param_gen['feat_spec']['n_features'] = BASE_NUM_FEATURES
+
+
+class NormalBoostableDigits(FastBoostableDigits):
+    param_gen = dict(FastBoostableDigits.param_gen)
+    param_gen['feat_spec']['n_features'] = BASE_NUM_FEATURES / ROUND_LEN
+    
+
+@attr('slow')
+class TestBoostingLossDecreases(unittest.TestCase, ForAllBoostinAlgos):
+    """Test that boosting decreases generalization loss in a not-so-fast-to-run
+    actual learning setting.
+    """
+    def work(self, cls):
+        n_trials = 12
+        round_len = 3
+        trials = hyperopt.Trials()
+        bandit = FastBoostableDigits()
+        algo = hyperopt.Random(bandit)
+        boosting_algo = experiments.SyncBoostingAlgo(algo,
+                    round_len=round_len)
+        exp = Experiment(trials, boosting_algo)
+
+        last_mixture_score = float('inf')
+
+        round_ii = 0
+        while len(trials) < n_trials:
+            round_ii += 1
+            exp.run(round_len)
+            assert len(trials) == round_ii * round_len
+            best_trials = boosting_best_by_round(list(trials), bandit)
+            assert len(best_trials) == round_ii
+            train_errs, test_errs = bandit.score_mixture_partial_svm(best_trials)
+            print test_errs # train_errs, test_errs
+            assert test_errs[-1] < last_mixture_score
+            last_mixture_score = test_errs[-1]
+
+
+
+@attr('slow')
+def test_digits_random_ensembles():
+    """test_digits_random_ensembles
+    """
     bandit = LargerBoostableDigits()
     bandit_algo = hyperopt.Random(bandit)
     trials = hyperopt.Trials()
@@ -286,8 +300,10 @@ def test_random_ensembles():
     return exp, errors, selected_specs
 
 
-def test_mixture_ensembles():
-    raise nose.SkipTest()
+@attr(speed='slow')
+def test_digits_mixture_ensembles():
+    """test_digits_mixture_ensembles 
+    """
     bandit = NormalBoostableDigits()
     bandit_algo = hyperopt.Random(bandit)
     trials = hyperopt.Trials()
@@ -340,22 +356,19 @@ def test_mixture_ensembles():
     
     return exp, errors, selected_specs
 
-
-def test_boosted_ensembles_async():
-    raise nose.SkipTest()
-    """
-    this test must be run via 
+@attr('slow')
+def test_digits_boosted_ensembles_async():
+    """test_digits_boosted_ensembles_async
     """
     return boosted_ensembles_base(
             experiments.AsyncBoostingAlgoA)
 
 
+@attr('slow')
 def test_boosted_ensembles_sync():
-    raise nose.SkipTest()
     return boosted_ensembles_base(experiments.SyncBoostingAlgo)
 
 
-@nose.SkipTest
 def boosted_ensembles_base(boosting_algo_class):
     bandit = NormalBoostableDigits()
     bandit_algo = hyperopt.Random(bandit)    
@@ -378,9 +391,3 @@ def boosted_ensembles_base(boosting_algo_class):
     assert np.abs(np.mean(errors['boosted_partial'][0]) - 0.21968) < 1e-2
     
     return exp, errors, selected_specs
-
-
-# XXX TEST WITH SPORADIC FAILURES
-
-# XXX TEST WITH ASYNC EXECUTION
-

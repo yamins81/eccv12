@@ -5,6 +5,7 @@ import hyperopt
 import eccv12.eccv12 as exps
 import eccv12.experiments as experiments
 from eccv12.bandits import BaseBandit
+from nose.plugins.attrib import attr
 
 try:
     from collections import OrderedDict
@@ -93,6 +94,7 @@ class DummyDecisionsBandit(BaseBandit):
         return result
 
 
+@attr('medium')
 def test_search_dummy():
     S = exps.SearchExp(10,
                        DummyDecisionsBandit,
@@ -108,6 +110,7 @@ def test_search_dummy():
     assert all([t == s for t, s in zip(T, S.trials.results[:10])])
     
     
+@attr('medium')
 def test_mix_dummy():
     S = exps.MixtureExp(experiments.AdaboostMixture,
                         5,
@@ -122,17 +125,16 @@ def test_mix_dummy():
     assert len(res['mixture_inds']) == 5
     assert res['mixture_weights'].shape == (5, 1)
     
-
+    
+@attr('medium')
 def test_meta_dummy():
-    """
-    THIS TEST IS NOT YET COMPLETE:  most of the time it works
-    but then for reasons I don't yet know i sometimes see:
-       331                 last_best = losses.argmin() 
-       TypeError: unsupported operand type(s) for -: 'int' and 'NoneType'
-       This problem appears to go away if you re-run the test ... 
-       This has to be investiaged further.
+    #THIS TEST IS NOT YET COMPLETE:  most of the time it works
+    #but then for reasons I don't yet know i sometimes see:
+    #  331                 last_best = losses.argmin() 
+    #   TypeError: unsupported operand type(s) for -: 'int' and 'NoneType'
+    #   This problem appears to go away if you re-run the test ... 
+    #   This has to be investiaged further.
        
-    """
     S = exps.MetaExp(experiments.SyncBoostingAlgo,
                     {"round_len": 5},
                     10,
@@ -149,8 +151,9 @@ def test_meta_dummy():
     assert all([t == s for t, s in zip(T, S.trials.results[:10])])
     selected = S.bandit_algo.best_by_round(list(S.trials))
     assert len(selected) == 4
+    
 
-
+@attr('slow')
 def test_budget_experiment():
     S = exps.BudgetExperiment(ntrials=10, 
                        save=False,
