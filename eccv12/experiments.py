@@ -370,7 +370,7 @@ class SyncBoostingAlgo(BoostingAlgoBase):
             else:
                 my_round = max_round
                 decisions = round_decs[-1]
-                decisions_src = miscs[-1]['tid']
+                decisions_src = miscs[-1]['boosting']['continues']
         else:
             decisions = None
             my_round = 0

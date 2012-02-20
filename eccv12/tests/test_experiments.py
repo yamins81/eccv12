@@ -170,7 +170,6 @@ class TestBoostingSubAlgoArgs(unittest.TestCase, ForAllBoostinAlgos):
             raise NotImplementedError(boosting_cls)
 
 
-
 class TestIdxsContinuing(unittest.TestCase, ForAllBoostinAlgos):
     """
     Test that all the trials that extend a particular trial have a round
@@ -191,6 +190,8 @@ class TestIdxsContinuing(unittest.TestCase, ForAllBoostinAlgos):
             idxs = boosting_algo.idxs_continuing(trials.miscs, misc['tid'])
             continued_in_rounds = [trials.miscs[idx]['boosting']['round']
                     for idx in idxs]
+            #for s, m in zip(trials.specs, trials.miscs):
+                #print m['tid'], m['boosting'], s['decisions']
             assert all(r > misc['boosting']['round'] for r in continued_in_rounds)
 
 
