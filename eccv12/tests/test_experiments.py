@@ -217,8 +217,8 @@ def test_mixtures():
 
     ada = experiments.AdaboostMixture(trials, bandit)
     ada_inds, ada_weights = ada.mix_inds(N)
-    # -- assert that adaboost adds weights in decreasing order
-    assert (ada_weights[:-1] >= ada_weights[1:]).all()
+    # -- assert that adaboost adds weights in decreasing magnitude
+    assert (abs(ada_weights[:-1]) >= abs(ada_weights[1:])).all()
 
     #TODO: tests that shows that ensemble performance is increasing with
     #number of components
