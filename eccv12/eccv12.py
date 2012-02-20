@@ -109,7 +109,7 @@ class SearchExp(object):
         trial_info['trials'] = self.trials
         return trial_info
 
-    def run(self, n_trials):
+    def run(self, ntrials):
         bandit_name = self.get_info()['bandit']
         bandit_args = (self.num_features,)
         bandit_kwargs = {}
@@ -125,7 +125,7 @@ class SearchExp(object):
         self.trials.refresh()
         num_done = len([_x for _x in self.trials.results 
                                         if _x['status'] == hyperopt.STATUS_OK])
-        num_left = n_trials - num_done
+        num_left = ntrials - num_done
         exp.run(num_left, block_until_done=True)
         
 
@@ -138,6 +138,9 @@ class SearchExp(object):
         ntrials = len(self.trials.results)
         cPickle.dump(result, open(self.get_filename(ntrials), 'w'))
 
+    def delete_all(self):
+        self.trials.delete_all()
+        
 
 class MixtureExp(SearchExp):
     """
@@ -201,6 +204,10 @@ class NestedExperiment(object):
         self.save = save
         self.init_experiments(*args, **kwargs)
         
+    def add_exp(self, exp, tag):
+        exp.ntrials = self.ntrials
+        self.experiments[tag] = exp
+        
     def get_experiment(self, name):
         if len(name) == 0:
             return self
@@ -211,40 +218,26 @@ class NestedExperiment(object):
             else:
                 return e
 
-    def run(self, name=()):
+    def run(self, name=(), ntrials=None):
         exp = self.get_experiment(name)
-        encl_exp = self.get_experiment(name[:-1])
         if isinstance(exp, NestedExperiment):
-            for exp0_name in exp.experiments:
-                exp0 = exp.experiments[exp0_name]
-                if isinstance(exp0, NestedExperiment):
-                    exp0.run()
-                else:
-                    exp0.run(self.ntrials);
-                    if self.save:
-                        exp0.save()
+            for exp0 in exp.experiments.values():
+                exp0.run(ntrials=exp0.ntrials)
         else:
-            exp.run(encl_exp.ntrials)
-            if self.save:
-                exp.save()
+            exp.run(ntrials=exp.ntrials)
             
     def delete_all(self, name=()):
         exp = self.get_experiment(name)
         if isinstance(exp, NestedExperiment):
-            for exp0_name in exp.experiments:
-                exp0 = exp.experiments[exp0_name]
-                if isinstance(exp0, NestedExperiment):
-                    exp0.delete_all()
-                else:
-                    exp0.trials.delete_all()
+            for exp0 in exp.experiments.values():
+                exp0.delete_all()
         else:
-            exp.trials.delete_all()
+            exp.delete_all()
             
     def save(self, name=()):
         exp = self.get_experiment(name)
         if isinstance(exp, NestedExperiment):
-            for exp0_name in exp.experiments:
-                exp0 = exp.experiments[exp0_name]
+            for exp0 in exp.experiments.vales():
                 exp0.save()
         else:
             exp.save()
@@ -297,7 +290,7 @@ class BudgetExperiment(NestedExperiment):
                       bandit_algo_class=bandit_algo_class,
                       mongo_opts=mongo_opts,
                       exp_prefix=exp_prefix)
-        self.experiments['control'] = control_exp
+        self.add_exp(control_exp, 'control')
     
         for es in ensemble_sizes:
             #trade off ensemble size for more trials, fixed final feature size
@@ -341,7 +334,7 @@ class ComparisonExperiment(NestedExperiment):
                       bandit_algo_class=bandit_algo_class,
                       mongo_opts=mongo_opts,
                       exp_prefix=exp_prefix)
-        self.experiments['basic'] = basic_exp
+        self.add_exp(basic_exp, 'basic')
 
         simple_mix = MixtureExp(mixture_class=SimpleMixture,
                             ensemble_size=ensemble_size,
@@ -351,7 +344,7 @@ class ComparisonExperiment(NestedExperiment):
                             mongo_opts=mongo_opts,
                             exp_prefix=exp_prefix,
                             trials=basic_exp.trials)
-        self.experiments['simple_mix'] = simple_mix
+        self.add_exp(simple_mix, 'simple_mix')
 
         
         ada_mix = MixtureExp(mixture_class=AdaboostMixture,
@@ -362,7 +355,7 @@ class ComparisonExperiment(NestedExperiment):
                             mongo_opts=mongo_opts,
                             exp_prefix=exp_prefix,
                             trials=basic_exp.trials)
-        self.experiments['ada_mix'] = ada_mix
+        self.add_exp(ada_mix, 'ada_mix')
         
         syncboost_exp = MetaExp(meta_algo_class=SyncBoostingAlgo,
                                 meta_kwargs={"round_len": round_len},
@@ -371,7 +364,7 @@ class ComparisonExperiment(NestedExperiment):
                                 bandit_algo_class=bandit_algo_class,
                                 mongo_opts=mongo_opts,
                                 exp_prefix=exp_prefix)
-        self.experiments['syncboost'] = syncboost_exp
+        self.add_exp(syncboost_exp, 'syncboost')
     
         asyncboost_exp = MetaExp(meta_algo_class=AsyncBoostingAlgo,
                                 meta_kwargs={"round_len": round_len,
@@ -381,8 +374,8 @@ class ComparisonExperiment(NestedExperiment):
                                 bandit_algo_class=bandit_algo_class,
                                 mongo_opts=mongo_opts,
                                 exp_prefix=exp_prefix)
-        self.experiments['asyncboost'] = asyncboost_exp
-        
+        self.add_exp(asyncboost_exp, 'asyncboost')
+
         if run_parallel:
             parallel_exp = MetaExp(meta_algo_class=ParallelBoostingAlgo,
                                    meta_kwargs={"num_procs": ensemble_size},
@@ -391,7 +384,7 @@ class ComparisonExperiment(NestedExperiment):
                                    bandit_algo_class=bandit_algo_class,
                                    mongo_opts=mongo_opts,
                                    exp_prefix=exp_prefix)
-            self.experiments['parallel'] = parallel_exp
+            self.add_exp(parallel_exp, 'parallel')
         
         
 def run_random_experiment():    
@@ -404,7 +397,7 @@ def run_random_experiment():
                        mongo_opts='localhost:27017/eccv12',
                        look_back=1,
                        run_parallel=False)
-    B.run_all()
+    B.run()
                       
                       
 def run_tpe_experiment():    
@@ -417,4 +410,4 @@ def run_tpe_experiment():
                        mongo_opts='localhost:27017/eccv12',
                        look_back=1,
                        run_parallel=True)
-    B.run_all()
+    B.run()
