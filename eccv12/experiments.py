@@ -308,9 +308,7 @@ class SyncBoostingAlgo(BoostingAlgoBase):
         assert len(specs) == len(results) == len(miscs)
         round_len = self.round_len
 
-        print 'ALLS', len(specs)
         specs, results, miscs = filter_oks(specs, results, miscs)
-        print 'OKS', len(specs)
 
         if miscs:
             rounds = [m['boosting']['round'] for m in miscs]
