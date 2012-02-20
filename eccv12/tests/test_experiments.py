@@ -27,20 +27,35 @@ class DummyDecisionsBandit(BaseBandit):
             seed=pyll.scope.randint(1000),
             decisions=None)
 
+    def __init__(self, n_train, n_test, n_splits, *args, **kwargs):
+        BaseBandit.__init__(self, *args, **kwargs)
+        self.n_train = n_train
+        self.n_test = n_test
+        self.n_splits = n_splits
+
     def performance_func(self, config, ctrl):
-        r34 = np.random.RandomState(34)
-        y = np.sign(r34.randn(100))
+        n_train = self.n_train
+        n_test = self.n_test
+        n_splits = self.n_splits
+        n_examples = n_train + n_test
+
+        r34 = np.random.RandomState(10000)
+        y = np.sign(r34.randn(n_examples))
         rs = np.random.RandomState(config['seed'])
-        yhat = rs.randn(100)
+        yhat = rs.randn(n_examples)
         decisions = config['decisions']
         if decisions is None:
-            decisions = np.zeros((1, 100))
+            decisions = np.zeros((n_splits, n_examples))
         new_dec = yhat + decisions
+        loss = np.mean(y[:n_test] != np.sign(new_dec[:, :n_test]))
+        #print 'PRED', np.sign(new_dec)
+        #print 'Y    ', y
+        #print 'LOSS', loss
         result = dict(
                 status=hyperopt.STATUS_OK,
-                loss=np.mean(y != np.sign(new_dec)),
+                loss=loss,
                 labels=y,
-                is_test=[[1] * 20 + [0] * 80],
+                is_test=[[1] * n_test + [0] * n_train],
                 decisions=new_dec)
         return result
 
@@ -113,54 +128,74 @@ class TestBoostingLossDecreases(unittest.TestCase, ForAllBoostinAlgos):
 
 
 class TestBoostingSubAlgoArgs(unittest.TestCase, ForAllBoostinAlgos):
+    """
+    Test that in a synchronous experiment, the various Boosting algorithms
+    pass the Sub-Algorithm (here Random search) a plausible number of trials
+    on every iteration.
+    """
+    n_trials = 12
+    round_len = 4
     def work(self, boosting_cls):
-        n_trials = 12
-        round_len = 4
         trials = hyperopt.Trials()
         n_sub_trials = []
-        bandit = DummyDecisionsBandit()
+        bandit = DummyDecisionsBandit(n_train=3, n_test=2, n_splits=1)
         class FakeAlgo(hyperopt.Random):
-            def suggest(self, ids, specs, results, miscs):
+            def suggest(_self, ids, specs, results, miscs):
                 n_sub_trials.append(len(specs))
-                assert len(specs) <= round_len
-                return hyperopt.Random.suggest(self,
+                if boosting_cls != experiments.AsyncBoostingAlgoB:
+                    assert len(specs) <= self.round_len
+                return hyperopt.Random.suggest(_self,
                         ids, specs, results, miscs)
         algo = FakeAlgo(bandit)
         boosting_algo = boosting_cls(algo,
-                    round_len=round_len)
+                    round_len=self.round_len)
         exp = Experiment(trials, boosting_algo, async=False)
         round_ii = 0
-        while len(trials) < n_trials:
+        while len(trials) < self.n_trials:
             round_ii += 1
-            exp.run(round_len)
-            assert len(trials) == round_ii * round_len
-            assert len(n_sub_trials) == round_ii * round_len
+            exp.run(self.round_len)
+            assert len(trials) == round_ii * self.round_len
+            assert len(n_sub_trials) == round_ii * self.round_len
         # The FakeAlgo should be passed an increasing number of trials
         # during each round of boosting.
+
         print n_sub_trials
-        if boosting_cls is experiments.AsyncBoostingAlgoB:
-            assert n_sub_trials == range(n_trials)
+        if boosting_cls is experiments.SyncBoostingAlgo:
+            assert n_sub_trials == range(self.round_len) * (self.n_trials // self.round_len)
+        elif boosting_cls is experiments.AsyncBoostingAlgoA:
+            assert n_sub_trials == range(self.round_len) * (self.n_trials // self.round_len)
+        elif boosting_cls is experiments.AsyncBoostingAlgoB:
+            assert n_sub_trials[-1] > round_len
         else:
-            assert n_sub_trials == range(round_len) * (n_trials // round_len)
+            raise NotImplementedError(boosting_cls)
+
+
+class TestBoostingSubAlgoArgs2(TestBoostingSubAlgoArgs):
+    n_trials = 2
+    round_len = 2
 
 
 class TestIdxsContinuing(unittest.TestCase, ForAllBoostinAlgos):
+    """
+    Test that all the trials that extend a particular trial have a round
+    number that is one greater than the trial being extended.
+    """
     def work(self, cls):
         if 'Boosting' not in cls.__name__:
             return
         n_trials = 20
         round_len = 3
 
-        algo = hyperopt.Random(DummyDecisionsBandit())
+        algo = hyperopt.Random(DummyDecisionsBandit(3, 2, 1))
         trials = hyperopt.Trials()
         boosting_algo = cls(algo, round_len=round_len)
         exp = hyperopt.Experiment(trials, boosting_algo)
         exp.run(n_trials)
         for misc in trials.miscs:
             idxs = boosting_algo.idxs_continuing(trials.miscs, misc['tid'])
-            myrounds = [miscs[idx]['boosting']['round']
-                    for idxs in idxs]
-            assert len(set(myrounds)) in (0, 1)
+            continued_in_rounds = [trials.miscs[idx]['boosting']['round']
+                    for idx in idxs]
+            assert all(r > misc['boosting']['round'] for r in continued_in_rounds)
 
 
 def test_mixtures():
@@ -335,3 +370,9 @@ def boosted_ensembles_base(boosting_algo_class):
     assert np.abs(np.mean(errors['boosted_partial'][0]) - 0.21968) < 1e-2
     
     return exp, errors, selected_specs
+
+
+# XXX TEST WITH SPORADIC FAILURES
+
+# XXX TEST WITH ASYNC EXECUTION
+
