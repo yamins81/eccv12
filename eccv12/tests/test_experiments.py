@@ -375,20 +375,23 @@ def test_random_ensembles():
     trials = hyperopt.Trials()
     exp = hyperopt.Experiment(trials, bandit_algo)
     # XXX: is this right? Comment on justification.
-    exp.run(NUM_ROUNDS)
+    exp.run(FastBoostableDigits.NUM_ROUNDS)
     results = trials.results
     specs = trials.specs
     losses = np.array(map(bandit.loss, results, specs))
-    s = losses.argsort()
-    selected_specs = [list(trials)[s[0]]]
-    er_partial = bandit.score_mixture_partial_svm(selected_specs)
-    er_full = bandit.score_mixture_full_svm(selected_specs)
+    # these are pretty consistent:
+    # [ 0.53227277  0.49521992  0.51694432  0.51861616  0.51243517]
+    print losses
+    selected_spec = trials.specs[np.argmin(losses)]
+    er_partial = bandit.score_mixture_partial_svm([selected_spec])
+    er_full = bandit.score_mixture_full_svm([selected_spec])
     errors = {'random_partial': er_partial,
               'random_full': er_full}
-    selected_specs = {'random': selected_specs}
 
+    # XXX I get this failing because it comes out to 0.17 now.. should I
+    # change it
     assert np.abs(errors['random_full'][0] - .274) < 1e-2
-    return exp, errors, selected_specs
+    return exp, errors, {'random': [selected_spec]}
 
 
 @attr('slow')
@@ -397,13 +400,13 @@ def test_mixture_ensembles():
     It runs experiments on "LargerBoostableDigits" and asserts that the
     results come out consistently with our expectation regarding order.
     """
+    NUM_ROUNDS = FastBoostableDigits.NUM_ROUNDS
+    ROUND_LEN = FastBoostableDigits.ROUND_LEN
+
     bandit = NormalBoostableDigits()
     bandit_algo = hyperopt.Random(bandit)
     trials = hyperopt.Trials()
-    exp = hyperopt.Experiment(
-            trials,
-            bandit_algo,
-            async=False)
+    exp = hyperopt.Experiment(trials, bandit_algo, async=False)
     exp.run(NUM_ROUNDS * ROUND_LEN)
 
     results = trials.results
@@ -411,41 +414,89 @@ def test_mixture_ensembles():
 
     simple = experiments.SimpleMixture(trials, bandit)
     simple_specs, simple_weights = simple.mix_models(NUM_ROUNDS)
-    simple_specs = [{'spec': spec} for spec in simple_specs]
     simple_er_partial = bandit.score_mixture_partial_svm(simple_specs)
     simple_er_full = bandit.score_mixture_full_svm(simple_specs)
 
-    ada = experiments.AdaboostMixture(trials, bandit)
-    ada_specs, ada_weights = ada.mix_models(NUM_ROUNDS)
-    ada_specs = [{'spec': spec} for spec in ada_specs]
-    ada_er_partial = bandit.score_mixture_partial_svm(ada_specs)
-    ada_er_full = bandit.score_mixture_full_svm(ada_specs)    
-    ada_specs_test, ada_weights_test = ada.mix_models(NUM_ROUNDS, test_mask=True)
-    ada_specs_test = [{'spec': spec} for spec in ada_specs_test]
-    ada_er_test_partial = bandit.score_mixture_partial_svm(ada_specs_test)
-    ada_er_test_full = bandit.score_mixture_full_svm(ada_specs_test)     
+    ada_nomask = experiments.AdaboostMixture(trials, bandit, test_mask=False)
+    ada_nomask_specs, ada_nomask_weights = ada_nomask.mix_models(NUM_ROUNDS)
+    ada_nomask_er_partial = bandit.score_mixture_partial_svm(ada_nomask_specs)
+    ada_nomask_er_full = bandit.score_mixture_full_svm(ada_nomask_specs)
 
-    errors = {'simple_partial': simple_er_partial, 
+    ada_mask = experiments.AdaboostMixture(trials, bandit, test_mask=True)
+    ada_mask_specs, ada_mask_weights= ada_mask.mix_models(NUM_ROUNDS)
+    ada_mask_er_partial = bandit.score_mixture_partial_svm(ada_mask_specs)
+    ada_mask_er_full = bandit.score_mixture_full_svm(ada_mask_specs)
+
+    errors = {'simple_partial': simple_er_partial,
               'simple_full': simple_er_full,
-              'ada_partial': ada_er_partial,
-              'ada_full': ada_er_full,
-              'ada_test_partial': ada_er_test_partial,
-              'ada_test_full': ada_er_test_full}
+              'ada_nomask_partial': ada_nomask_er_partial,
+              'ada_nomask_full': ada_nomask_er_full,
+              'ada_mask_partial': ada_mask_er_partial,
+              'ada_mask_full': ada_mask_er_full}
+
+    print errors
+
+    ##
+    ## SimpleMixture tests
+    ##
+    ##   -  errors[...][0] is training error
+    ##   -  errors[...][1] is test error
+
+    assert np.allclose(errors['simple_full'][0], 0.156, atol=1e-2)
+
+    assert np.allclose(errors['simple_full'][1], 0.164, atol=1e-2)
+
+    assert np.allclose(errors['simple_partial'][0],
+        [0.1752, 0.1376, 0.1272, 0.1288, 0.12],
+        atol=1e-2)
+
+    assert np.allclose(errors['simple_partial'][1],
+        [0.214, 0.152, 0.15, 0.15, 0.146],
+        atol=1e-2)
+
+    ### XXX: is it normal that the partial fit results get so much lower in
+    #         both train and test, than the full-fit errors?  Usually I saw
+    #         the reverse -- full fitting should certainly get lower training
+    #         error.
+
+    ##
+    ## AdaBoostMixture tests
+    ##
+    ##   -  errors[...][0] is training error
+    ##   -  errors[...][1] is test error
+
+
+    print 'ANF', list(errors['ada_nomask_full'])
+    print 'ANP0', list(errors['ada_nomask_partial'][0])
+    print 'ANP1', list(errors['ada_nomask_partial'][1])
+    print 'AMF', list(errors['ada_mask_full'])
+    print 'AMP0', list(errors['ada_mask_partial'][0])
+    print 'AMP1', list(errors['ada_mask_partial'][1])
+
+    assert np.allclose(errors['ada_nomask_full'][0], 0.10, atol=1e-2)
+    assert np.allclose(errors['ada_nomask_full'][1], 0.128, atol=1e-2)
+
+    assert np.allclose(errors['ada_nomask_partial'][0],
+            [0.1752, 0.1328, 0.108, 0.1008, 0.0928],
+            atol=1e-2)
+    assert np.allclose(errors['ada_nomask_partial'][1],
+            [0.214, 0.158, 0.13, 0.134, 0.132],
+            atol=1e-2)
+
+    assert np.allclose(errors['ada_mask_full'][0], .1088, atol=1e-2)
+    assert np.allclose(errors['ada_mask_full'][1], .1360, atol=1e-2)
+
+    assert np.allclose(errors['ada_mask_partial'][0],
+            [0.1752, 0.1312, 0.0976, 0.0928, 0.0856],
+            atol=1e-2)
+    assert np.allclose(errors['ada_mask_partial'][1],
+            [0.174, 0.168, 0.13, 0.126, 0.134],
+            atol=1e-2)
 
     selected_specs = {'simple': simple_specs,
-                      'ada': ada_specs}
-
-    assert np.abs(errors['simple_full'][0] - .234) < 1e-2
-    ptl = np.array([0.2744,
-                    0.2304,
-                    0.236,
-                    0.2256,
-                    0.2232])
-    assert np.abs(errors['simple_partial'][0] - ptl).max() < 1e-2
-    assert np.abs(errors['ada_full'][0] - .1696) < 1e-2
-    ptl = np.array([0.2744, 0.2336, 0.1968, 0.1832, 0.1688])
-    assert np.abs(errors['ada_partial'][0] - ptl).max() < 1e-2
-    assert np.abs(errors['ada_test_full'][0] - .1672) < 1e-2
+                      'ada_nomask': ada_nomask_specs,
+                      'ada_mask': ada_mask_specs,
+                      }
 
     return exp, errors, selected_specs
 
