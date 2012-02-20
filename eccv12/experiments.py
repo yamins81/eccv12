@@ -56,6 +56,11 @@ class AdaboostMixture(SimpleMixture):
     """
     Uses AdaBoost to select an ensemble from among completed trials.
     """
+
+    def __init__(self, bandit, bandit_algo, test_mask):
+        SimpleMixture.__init__(self, bandit, bandit_algo)
+        self.test_mask = test_mask
+
     def fetch_labels(self):
         """Return the 1D vector of +-1 labels for all examples.
         """
@@ -67,7 +72,7 @@ class AdaboostMixture(SimpleMixture):
         assert (labels == labels[0]).all()
         labels = labels[0]
         assert set(np.unique(labels)) == set([-1, 1])
-        
+
         split_mask = np.array([_r['is_test'] for _r in results]).astype(int)
         assert (split_mask == split_mask[0]).all()
         split_mask = split_mask[0]
@@ -94,7 +99,7 @@ class AdaboostMixture(SimpleMixture):
         decisions = self.fetch_decisions()
         return self.predictions_from_decisions(decisions)
 
-    def mix_inds(self, A, test_mask=False):
+    def mix_inds(self, A):
         """Identify `A` trials to use in boosted ensemble
 
         Return (list of positions in self.trials), (list of weights).
@@ -106,7 +111,8 @@ class AdaboostMixture(SimpleMixture):
         L = len(labels)
         predictions = self.fetch_predictions()
         assert predictions.shape[2] == L, '%d != %d' % (predictions.shape[2], L)
-        assert predictions.shape[1:] == split_mask.shape, '%d,%d != %d,%d' % (predictions.shape[1:], split_mask.shape)
+        assert predictions.shape[1:] == split_mask.shape, '%d,%d != %d,%d' % (
+                predictions.shape[1:], split_mask.shape)
         # -- compute a 3D array errors on all trials, splits, examples.
         errors = (predictions != labels).astype(np.int)
         selected_inds = []
@@ -118,7 +124,7 @@ class AdaboostMixture(SimpleMixture):
                 weights *= np.exp(-alpha[:, np.newaxis] * labels * prediction)
             else:
                 weights = np.ones(predictions.shape[1:])
-                if test_mask:
+                if self.test_mask:
                     weights *= split_mask
             weights /= weights.sum(1)[:, np.newaxis]
 
@@ -131,6 +137,7 @@ class AdaboostMixture(SimpleMixture):
             selected_inds.append(ind)
 
             # -- determine the weight of the new ensemble member
+            #    (within in eatch split... alpha is vector here)
             ep = ep_array[ind]
             alpha = 0.5 * np.log((1 - ep) / ep)
             alphas.append(alpha)
@@ -184,13 +191,55 @@ def filter_oks(specs, results, miscs):
     return specs, results, miscs
 
 
+def filter_ok_trials(trials):
+    return filter_oks(trials.specs, trials.results, trials.miscs)
+
+
 class BoostingAlgoBase(hyperopt.BanditAlgo):
-    def idxs_continuing(self, miscs, tid):
+
+    # -- keep these methods static to avoid temptation to put info into self
+    # without reason. It's important that a new instance be able to function
+    # as stateless-ly as possible so that it can work on new trials objects.
+
+    @staticmethod
+    def idxs_continuing(miscs, tid):
         """Return the positions in the trials object of
         all trials that continue trial tid.
         """
         rval = [idx for idx, misc in enumerate(miscs)
                 if misc['boosting']['continues'] == tid]
+        return rval
+
+    @staticmethod
+    def boosting_best_by_round(trials, bandit):
+        specs, results, miscs = filter_ok_trials(trials)
+        losses = np.array(map(bandit.loss, results, specs))
+        rounds = np.array([m['boosting']['round'] for m in miscs])
+        urounds = np.unique(rounds)
+        urounds.sort()
+        assert urounds.tolist() == range(urounds.max() + 1)
+        rval = []
+        for u in urounds:
+            _inds = (rounds == u).nonzero()[0]
+            min_ind = losses[_inds].argmin()
+            rval.append(trials[_inds[min_ind]])
+        return rval
+
+    @staticmethod
+    def ensemble_member_tids(trials, bandit):
+        """
+        Return the list of tids of members selected by the boosting algorithm.
+        """
+        specs, results, miscs = filter_ok_trials(trials)
+        losses = np.array(map(bandit.loss, results, specs))
+        assert None not in losses
+        cur_idx = np.argmin(losses)
+        reversed_members_idxs = [cur_idx]
+        while miscs[cur_idx]['boosting']['continues'] != None:
+            cur_idx = [m['tid'] for m in miscs].index(
+                    miscs[cur_idx]['boosting']['continues'])
+            reversed_members_idxs.append(cur_idx)
+        rval = [miscs[ii]['tid'] for ii in reversed(reversed_members_idxs)]
         return rval
 
 
