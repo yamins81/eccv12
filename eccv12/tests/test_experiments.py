@@ -122,7 +122,7 @@ def assert_boosting_loss_decreases(cls):
         round_ii += 1
         exp.run(round_len)
         assert len(trials) == round_ii * round_len
-        best_trials = cls.boosting_best_by_round(list(trials), bandit)
+        best_trials = cls.boosting_best_by_round(trials, bandit)
         assert len(best_trials) == round_ii
         train_errs, test_errs = bandit.score_mixture_partial_svm(best_trials)
         print test_errs # train_errs, test_errs
@@ -136,12 +136,12 @@ def test_boosting_loss_decreases_sync():
 
 
 @attr('slow')
-def test_boosting_loss_decreases_asyncA(self):
+def test_boosting_loss_decreases_asyncA():
     assert_boosting_loss_decreases(experiments.AsyncBoostingAlgoA)
 
 
 @attr('slow')
-def test_boosting_loss_decreases_asyncB(self):
+def test_boosting_loss_decreases_asyncB():
     assert_boosting_loss_decreases(experiments.AsyncBoostingAlgoB)
 
 
@@ -483,7 +483,7 @@ def assert_boosted_ensembles_for_regression(boosting_algo_class):
             boosting_algo,
             async=False)
     exp.run(NUM_ROUNDS * ROUND_LEN)
-    selected_specs = boosting_algo.boosting_best_by_round(list(trials))
+    selected_specs = boosting_algo.boosting_best_by_round(trials, bandit)
     er_partial = bandit.score_mixture_partial_svm(selected_specs)
     er_full = bandit.score_mixture_full_svm(selected_specs)
     errors = {'boosted_partial': er_partial,
