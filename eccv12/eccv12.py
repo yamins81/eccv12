@@ -188,7 +188,9 @@ class MetaExp(SearchExp):
 
 class NestedExperiment(object):
     """
-    Basic class for nested experiments, right now just providing a run_all method
+    Basic class for nested experiments.  The purpose of this class is to make 
+    it possible to run nested-style experiments in whatever order one wants
+    and to obtain information about them easily.
     """
     def __init__(self, ntrials, save, *args, **kwargs):
         self.experiments = OrderedDict([])
@@ -198,7 +200,7 @@ class NestedExperiment(object):
         
     def get_experiment(self, name):
         if len(name) == 0:
-            return self.experiments
+            return self
         else:
             e = self.experiments[name[0]]
             if isinstance(e, NestedExperiment):
@@ -206,40 +208,55 @@ class NestedExperiment(object):
             else:
                 return e
 
-    def run(self, name):
+    def run(self, name=()):
         exp = self.get_experiment(name)
         if isinstance(exp, NestedExperiment):
-            exp.run_all()
+            for exp0_name in exp.experiments:
+                exp0 = exp.experiments[exp0_name]
+                if isinstance(exp0, NestedExperiment):
+                    exp0.run()
+                else:
+                    exp0.run(self.ntrials);
+                    if self.save:
+                        exp0.save()
         else:
             exp.run(self.ntrials)
             if self.save:
                 exp.save()
-        
-    def run_all(self):
-        for exp_name in self.experiments:
-            exp = self.experiments[exp_name]
-            if isinstance(exp, NestedExperiment):
-                exp.run_all()
-            else:
-                exp.run(self.ntrials)
-                if self.save:
-                    exp.save()
-    
-    def delete(self, name):
+            
+    def delete_all(self, name=()):
         exp = self.get_experiment(name)
         if isinstance(exp, NestedExperiment):
-            exp.delete_all()
+            for exp0_name in exp.experiments:
+                exp0 = exp.experiments[exp0_name]
+                if isinstance(exp0, NestedExperiment):
+                    exp0.delete_all()
+                else:
+                    exp0.trials.delete_all()
         else:
             exp.trials.delete_all()
             
-    def delete_all(self):
-        for exp_name in self.experiments:
-            exp = self.experiments[exp_name]
-            if isinstance(exp, NestedExperiment):
-                exp.delete_all()
-            else:
-                exp.trials.delete_all()
-                           
+    def save(self, name=()):
+        exp = self.get_experiment(name)
+        if isinstance(exp, NestedExperiment):
+            for exp0_name in exp.experiments:
+                exp0 = exp.experiments[exp0_name]
+                exp0.save()
+        else:
+            exp.save()
+
+    def get_result(self, name=()):
+        exp = self.get_experiment(name)
+        if isinstance(exp, NestedExperiment):
+            res = {}
+            for exp0_name in exp.experiments:
+                exp0 = exp.experiments[exp0_name]
+                res[exp0_name] = exp0.get_result()
+            return res
+        else:
+            return exp.get_result()
+
+                                           
     #####plotting code goes here also
 
 

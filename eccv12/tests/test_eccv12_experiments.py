@@ -162,5 +162,6 @@ def test_budget_experiment():
                        mongo_opts='localhost:22334/test_hyperopt',
                        look_back=1,
                        run_parallel=False)
-    return S
+    S.delete_all()
+    S.run()
                       
