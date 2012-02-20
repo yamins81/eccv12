@@ -93,7 +93,7 @@ class DummyDecisionsBandit(BaseBandit):
                 is_test=is_test.tolist())
         return result
 
-
+@attr('mongo')
 @attr('medium')
 def test_search_dummy():
     S = exps.SearchExp(10,
@@ -109,7 +109,8 @@ def test_search_dummy():
     S.run(20)
     assert all([t == s for t, s in zip(T, S.trials.results[:10])])
     
-    
+
+@attr('mongo')    
 @attr('medium')
 def test_mix_dummy():
     S = exps.MixtureExp(experiments.AdaboostMixture,
@@ -125,7 +126,7 @@ def test_mix_dummy():
     assert len(res['mixture_inds']) == 5
     assert res['mixture_weights'].shape == (5, 1)
     
-    
+@attr('mongo')    
 @attr('medium')
 def test_meta_dummy():
     #THIS TEST IS NOT YET COMPLETE:  most of the time it works
@@ -154,17 +155,35 @@ def test_meta_dummy():
     
 
 @attr('slow')
+@attr('mongo')
 def test_budget_experiment():
-    S = exps.BudgetExperiment(ntrials=10, 
+    S = exps.BudgetExperiment(ntrials=4, 
                        save=False,
                        num_features=10,
-                       ensemble_sizes=[2, 5],
+                       ensemble_sizes=[2],
                        bandit_func=DummyDecisionsBandit,
                        bandit_algo_class=hyperopt.Random,
                        exp_prefix='test_stuff',
                        mongo_opts='localhost:22334/test_hyperopt',
                        look_back=1,
                        run_parallel=False)
+                       
+    assert S.get_info() == {'control': OrderedDict([('bandit', 'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 10), ('bandit_algo', 'hyperopt.base.Random')]),
+ 'fixed_features_2': {'ada_mix': OrderedDict([('bandit', 'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 5), ('bandit_algo', 'hyperopt.base.Random'), ('mixture', 'eccv12.experiments.AdaboostMixture'), ('ensemble_size', 2)]),
+  'asyncboost': OrderedDict([('bandit', 'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 5), ('meta_algo', 'eccv12.experiments.AsyncBoostingAlgo'), ('bandit_algo', 'hyperopt.base.Random'), ('meta_kwargs', {'look_back': 1, 'round_len': 4})]),
+  'basic': OrderedDict([('bandit', 'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 5), ('bandit_algo', 'hyperopt.base.Random')]),
+  'simple_mix': OrderedDict([('bandit', 'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 5), ('bandit_algo', 'hyperopt.base.Random'), ('mixture', 'eccv12.experiments.SimpleMixture'), ('ensemble_size', 2)]),
+  'syncboost': OrderedDict([('bandit', 'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 5), ('meta_algo', 'eccv12.experiments.SyncBoostingAlgo'), ('bandit_algo', 'hyperopt.base.Random'), ('meta_kwargs', {'round_len': 4})])},
+ 'fixed_trials_2': {'ada_mix': OrderedDict([('bandit', 'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 10), ('bandit_algo', 'hyperopt.base.Random'), ('mixture', 'eccv12.experiments.AdaboostMixture'), ('ensemble_size', 2)]),
+  'asyncboost': OrderedDict([('bandit', 'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 10), ('meta_algo', 'eccv12.experiments.AsyncBoostingAlgo'), ('bandit_algo', 'hyperopt.base.Random'), ('meta_kwargs', {'look_back': 1, 'round_len': 2})]),
+  'basic': OrderedDict([('bandit', 'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 10), ('bandit_algo', 'hyperopt.base.Random')]),
+  'simple_mix': OrderedDict([('bandit', 'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 10), ('bandit_algo', 'hyperopt.base.Random'), ('mixture', 'eccv12.experiments.SimpleMixture'), ('ensemble_size', 2)]),
+  'syncboost': OrderedDict([('bandit', 'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 10), ('meta_algo', 'eccv12.experiments.SyncBoostingAlgo'), ('bandit_algo', 'hyperopt.base.Random'), ('meta_kwargs', {'round_len': 2})])}}
     S.delete_all()
     S.run()
-                      
+    res = S.get_result()
+    assert res.keys() == ['control', 'fixed_trials_2', 'fixed_features_2']
+    assert res['control'].keys() == ['bandit', 'num_features', 'bandit_algo', 'trials']
+    assert len(res['control']['trials']) == 4
+    assert len(res['control']['fixed_trials_2']['basic']) == 4
+    assert len(res['control']['fixed_features_2']['basic']) == 8

@@ -66,13 +66,15 @@ class SearchExp(object):
         self.mongo_opts = mongo_opts 
         self.init_bandit_algo()
         self.exp_prefix = exp_prefix
-        self.exp_key = self.get_exp_key()
+        
         if trials is None:
             trials = MongoTrials(as_mongo_str(self.mongo_opts) + '/jobs',
-                                      exp_key=self.exp_key)
+                                      exp_key=self.get_exp_key())
             #trials = Trials()
-        self.trials = trials
-                
+
+        self.trials = trials 
+        self.exp_key = self.trials._exp_key
+        
     def init_bandit_algo(self):
         self.bandit_algo = self.bandit_algo_class(self.bandit)
         
@@ -120,6 +122,7 @@ class SearchExp(object):
                 cmd=('driver_attachment', 'bandit_data'))
                 
         ##count results differently/better
+        self.trials.refresh()
         num_done = len([_x for _x in self.trials.results 
                                         if _x['status'] == hyperopt.STATUS_OK])
         num_left = n_trials - num_done
@@ -210,6 +213,7 @@ class NestedExperiment(object):
 
     def run(self, name=()):
         exp = self.get_experiment(name)
+        encl_exp = self.get_experiment(name[:-1])
         if isinstance(exp, NestedExperiment):
             for exp0_name in exp.experiments:
                 exp0 = exp.experiments[exp0_name]
@@ -220,7 +224,7 @@ class NestedExperiment(object):
                     if self.save:
                         exp0.save()
         else:
-            exp.run(self.ntrials)
+            exp.run(encl_exp.ntrials)
             if self.save:
                 exp.save()
             
@@ -244,6 +248,17 @@ class NestedExperiment(object):
                 exp0.save()
         else:
             exp.save()
+
+    def get_info(self, name=()):
+        exp = self.get_experiment(name)
+        if isinstance(exp, NestedExperiment):
+            res = {}
+            for exp0_name in exp.experiments:
+                exp0 = exp.experiments[exp0_name]
+                res[exp0_name] = exp0.get_info()
+            return res
+        else:
+            return exp.get_info()
 
     def get_result(self, name=()):
         exp = self.get_experiment(name)
