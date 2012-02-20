@@ -24,7 +24,7 @@ def test_mixture_initializes():
     S = exps.MixtureExp(experiments.AdaboostMixture,
                         5,
                         10,
-                        exps.num_features_lfw,
+                        exps.LFWBandit,
                         hyperopt.Random,
                         "localhost:22334/test_hyperopt",
                         "test_stuff")
@@ -42,7 +42,7 @@ def test_meta_initializes():
     S = exps.MetaExp(experiments.AsyncBoostingAlgo,
                     {"round_len":5, "look_back":1},
                     10,
-                    exps.num_features_lfw,
+                    exps.LFWBandit,
                     hyperopt.Random,
                     "localhost:22334/test_hyperopt",
                     "test_stuff")
@@ -56,7 +56,7 @@ def test_meta_initializes():
                     
 def test_search_initializes():
     S = exps.SearchExp(10,
-                       exps.num_features_lfw,
+                       exps.LFWBandit,
                        hyperopt.Random,
                        "localhost:22334/test_hyperopt",
                        "test_stuff")

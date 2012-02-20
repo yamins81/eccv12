@@ -300,7 +300,7 @@ def test_digits_random_ensembles():
     return exp, errors, selected_specs
 
 
-@attr(speed='slow')
+@attr('slow')
 def test_digits_mixture_ensembles():
     """test_digits_mixture_ensembles 
     """
