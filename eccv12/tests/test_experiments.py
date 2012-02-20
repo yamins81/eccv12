@@ -1,8 +1,9 @@
 """
 Testing experiment classes
 """
+import unittest
+import nose
 
-import functools
 import numpy as np
 import hyperopt
 import pyll
@@ -11,9 +12,32 @@ from eccv12.toyproblem import BoostableDigits
 from eccv12.bandits import BaseBandit
 
 
-class FastBoostableDigits(BoostableDigits):
-    param_gen = dict(BoostableDigits.param_gen)
-    param_gen['svm_max_observations'] = 5000 # -- smaller value for speed
+NUM_ROUNDS = 5
+BASE_NUM_FEATURES = 50
+ROUND_LEN = 5
+
+
+def boosting_best_by_round(trials, bandit):
+    results = [t['result'] for t in trials]
+    specs = [t['spec'] for t in trials]
+    miscs = [t['misc'] for t in trials]
+    losses = np.array(map(bandit.loss, results, specs))
+    rounds = np.array([m['boosting']['round'] for m in miscs])
+    urounds = np.unique(rounds)
+    urounds.sort()
+    assert urounds.tolist() == range(urounds.max() + 1)
+    rval = []
+    for u in urounds:
+        _inds = (rounds == u).nonzero()[0]
+        min_ind = losses[_inds].argmin()
+        rval.append(trials[_inds[min_ind]])
+    return rval
+
+
+def Experiment(*args, **kwargs):
+    rval = hyperopt.Experiment(*args, **kwargs)
+    rval.catch_bandit_exceptions = False
+    return rval
 
 
 class DummyDecisionsBandit(BaseBandit):
@@ -21,86 +45,173 @@ class DummyDecisionsBandit(BaseBandit):
             seed=pyll.scope.randint(1000),
             decisions=None)
 
+    def __init__(self, n_train, n_test, n_splits, *args, **kwargs):
+        BaseBandit.__init__(self, *args, **kwargs)
+        self.n_train = n_train
+        self.n_test = n_test
+        self.n_splits = n_splits
+
     def performance_func(self, config, ctrl):
-        r34 = np.random.RandomState(34)
-        y = np.sign(r34.randn(100))
+        n_train = self.n_train
+        n_test = self.n_test
+        n_splits = self.n_splits
+        n_examples = n_train + n_test
+
+        r34 = np.random.RandomState(10000)
+        y = np.sign(r34.randn(n_examples))
         rs = np.random.RandomState(config['seed'])
-        yhat = rs.randn(100)
+        yhat = rs.randn(n_examples)
         decisions = config['decisions']
         if decisions is None:
-            decisions = np.zeros(100)
+            decisions = np.zeros((n_splits, n_examples))
         new_dec = yhat + decisions
+        loss = np.mean(y[:n_test] != np.sign(new_dec[:, :n_test]))
+        #print 'PRED', np.sign(new_dec)
+        #print 'Y    ', y
+        #print 'LOSS', loss
         result = dict(
                 status=hyperopt.STATUS_OK,
-                loss=np.mean(y != np.sign(new_dec)),
+                loss=loss,
                 labels=y,
+                is_test=[[1] * n_test + [0] * n_train],
                 decisions=new_dec)
         return result
 
 
-def test_boosting_algo():
+class FastBoostableDigits(BoostableDigits):
+    param_gen = dict(BoostableDigits.param_gen)
+    param_gen['svm_max_observations'] = 1000 # -- smaller value for speed
+
+
+class LargerBoostableDigits(FastBoostableDigits):
+    param_gen = dict(FastBoostableDigits.param_gen)
+    param_gen['feat_spec']['n_features'] = BASE_NUM_FEATURES
+
+
+class NormalBoostableDigits(FastBoostableDigits):
+    param_gen = dict(FastBoostableDigits.param_gen)
+    param_gen['feat_spec']['n_features'] = BASE_NUM_FEATURES / ROUND_LEN
+
+
+class ForAllBoostinAlgos(object):
+    """Mixin tests that call self.work(<BoostingAlgoCls>)
+    """
+
+    def test_sync(self):
+        self.work(experiments.SyncBoostingAlgo)
+
+    def test_asyncA(self):
+        self.work(experiments.AsyncBoostingAlgoA)
+
+    def test_asyncB(self):
+        self.work(experiments.AsyncBoostingAlgoB)
+
+
+# XXX: THIS TEST TAKES 2 MINS ON FAST COMP - SPEED IT UP?
+class TestBoostingLossDecreases(unittest.TestCase, ForAllBoostinAlgos):
+    """Test that boosting decreases generalization loss in a not-so-fast-to-run
+    actual learning setting.
+    """
+    def work(self, cls):
+        n_trials = 12
+        round_len = 3
+        trials = hyperopt.Trials()
+        bandit = FastBoostableDigits()
+        algo = hyperopt.Random(bandit)
+        boosting_algo = experiments.SyncBoostingAlgo(algo,
+                    round_len=round_len)
+        exp = Experiment(trials, boosting_algo)
+
+        last_mixture_score = float('inf')
+
+        round_ii = 0
+        while len(trials) < n_trials:
+            round_ii += 1
+            exp.run(round_len)
+            assert len(trials) == round_ii * round_len
+            best_trials = boosting_best_by_round(list(trials), bandit)
+            assert len(best_trials) == round_ii
+            train_errs, test_errs = bandit.score_mixture_partial_svm(best_trials)
+            print test_errs # train_errs, test_errs
+            assert test_errs[-1] < last_mixture_score
+            last_mixture_score = test_errs[-1]
+
+
+class TestBoostingSubAlgoArgs(unittest.TestCase, ForAllBoostinAlgos):
+    """
+    Test that in a synchronous experiment, the various Boosting algorithms
+    pass the Sub-Algorithm (here Random search) a plausible number of trials
+    on every iteration.
+    """
     n_trials = 12
-    round_len = 3
+    round_len = 4
+    def work(self, boosting_cls):
+        trials = hyperopt.Trials()
+        n_sub_trials = []
+        bandit = DummyDecisionsBandit(n_train=3, n_test=2, n_splits=1)
+        class FakeAlgo(hyperopt.Random):
+            def suggest(_self, ids, specs, results, miscs):
+                n_sub_trials.append(len(specs))
+                if boosting_cls != experiments.AsyncBoostingAlgoB:
+                    assert len(specs) <= self.round_len
+                return hyperopt.Random.suggest(_self,
+                        ids, specs, results, miscs)
+        algo = FakeAlgo(bandit)
+        boosting_algo = boosting_cls(algo,
+                    round_len=self.round_len)
+        exp = Experiment(trials, boosting_algo, async=False)
+        round_ii = 0
+        while len(trials) < self.n_trials:
+            round_ii += 1
+            exp.run(self.round_len)
+            assert len(trials) == round_ii * self.round_len
+            assert len(n_sub_trials) == round_ii * self.round_len
+        # The FakeAlgo should be passed an increasing number of trials
+        # during each round of boosting.
 
-    trials = hyperopt.Trials()
-    calls = [0]
-    bandit = FastBoostableDigits()
-    class FakeAlgo(hyperopt.Random):
-        def suggest(self, ids, specs, results, miscs):
-            calls[0] += 1
-            assert len(specs) <= round_len
-            return hyperopt.Random.suggest(self,
-                    ids, specs, results, miscs)
-    algo = FakeAlgo(bandit)
-    boosting_algo = experiments.SyncBoostingAlgo(algo,
-                round_len=round_len)
-    exp = hyperopt.Experiment(
-            trials,
-            boosting_algo,
-            async=False)
-
-    last_mixture_score = float('inf')
-
-    round_ii = 0
-    while len(trials) < n_trials:
-        round_ii += 1
-        exp.run(round_len)
-        assert len(trials) == round_ii * round_len
-        assert calls[0] == round_ii * round_len
-        best_trials = boosting_algo.best_by_round(list(trials))
-        assert len(best_trials) == round_ii
-        train_errs, test_errs = bandit.score_mixture_partial_svm(best_trials)
-        print test_errs # train_errs, test_errs
-        assert test_errs[-1] < last_mixture_score
-        last_mixture_score = test_errs[-1]
+        print n_sub_trials
+        if boosting_cls is experiments.SyncBoostingAlgo:
+            assert n_sub_trials == range(self.round_len) * (self.n_trials // self.round_len)
+        elif boosting_cls is experiments.AsyncBoostingAlgoA:
+            assert n_sub_trials == range(self.round_len) * (self.n_trials // self.round_len)
+        elif boosting_cls is experiments.AsyncBoostingAlgoB:
+            assert n_sub_trials[-1] > self.round_len
+        else:
+            raise NotImplementedError(boosting_cls)
 
 
-def test_syncboost_idxs_continuing():
-    n_trials = 20
-    round_len = 3
+class TestIdxsContinuing(unittest.TestCase, ForAllBoostinAlgos):
+    """
+    Test that all the trials that extend a particular trial have a round
+    number that is one greater than the trial being extended.
+    """
+    def work(self, cls):
+        if 'Boosting' not in cls.__name__:
+            return
+        n_trials = 20
+        round_len = 3
 
-    trials = hyperopt.Trials()
-    algo = hyperopt.Random(DummyDecisionsBandit())
-    boosting_algo = experiments.AsyncBoostingAlgo(algo,
-                round_len=round_len,
-                look_back=1)
-    exp = hyperopt.Experiment(trials, boosting_algo)
-    exp.run(n_trials)
-    for misc in trials.miscs:
-        idxs = boosting_algo.idxs_continuing(trials.miscs, misc['tid'])
-        myrounds = [miscs[idx]['boosting']['round']
-                for idxs in idxs]
-        assert len(set(myrounds)) in (0, 1)
-
+        algo = hyperopt.Random(DummyDecisionsBandit(3, 2, 1))
+        trials = hyperopt.Trials()
+        boosting_algo = cls(algo, round_len=round_len)
+        exp = hyperopt.Experiment(trials, boosting_algo)
+        exp.run(n_trials)
+        for misc in trials.miscs:
+            idxs = boosting_algo.idxs_continuing(trials.miscs, misc['tid'])
+            continued_in_rounds = [trials.miscs[idx]['boosting']['round']
+                    for idx in idxs]
+            #for s, m in zip(trials.specs, trials.miscs):
+                #print m['tid'], m['boosting'], s['decisions']
+            assert all(r > misc['boosting']['round'] for r in continued_in_rounds)
 
 
 def test_mixtures():
     # -- run random search of M trials
     M = 5
-    bandit = BoostableDigits()
+    bandit = DummyDecisionsBandit(n_train=80, n_test=20, n_splits=1)
     bandit_algo = hyperopt.Random(bandit)
     trials = hyperopt.Trials()
-    exp = hyperopt.Experiment(trials, bandit_algo)
+    exp = Experiment(trials, bandit_algo)
     exp.run(M)
 
     N = 3
@@ -110,66 +221,55 @@ def test_mixtures():
     results = trials.results
     specs = trials.specs
     losses = np.array(map(bandit.loss, results, specs))
-    
+
     s = losses.argsort()
     assert list(inds) == s[:N].tolist()
 
     ada = experiments.AdaboostMixture(trials, bandit)
     ada_inds, ada_weights = ada.mix_inds(N)
-    assert (ada_weights[:-1] >= ada_weights[1:]).all()
+    # -- assert that adaboost adds weights in decreasing magnitude
+    assert (abs(ada_weights[:-1]) >= abs(ada_weights[1:])).all()
 
     #TODO: tests that shows that ensemble performance is increasing with
     #number of components
-    
+
 
 def test_parallel_algo():
     num_procs = 5
-    
+    num_sets = 3
+
     trials = hyperopt.Trials()
-    calls = [0]
-    bandit = FastBoostableDigits()
-    class FakeAlgo(hyperopt.Random):
+    bandit = DummyDecisionsBandit(n_train=50, n_test=10, n_splits=2)
+
+    n_specs_list = []
+
+    class FakeRandom(hyperopt.Random):
         def suggest(self, ids, specs, results, miscs):
-            calls[0] += 1
-            return hyperopt.Random.suggest(self,
-                    ids, specs, results, miscs)
-    algo = FakeAlgo(bandit)
+            if miscs:
+                # -- test that the SubAlgo always sees only jobs from one of
+                #     the 'procs'
+                my_proc_num = miscs[0]['proc_num']
+                assert all((my_proc_num == m['proc_num']) for m in miscs)
+            n_specs_list.append(len(specs))
+            return hyperopt.Random.suggest(self, ids, specs, results, miscs)
+
+    algo = FakeRandom(bandit)
     parallel_algo = experiments.ParallelAlgo(algo, num_procs)
-    exp = hyperopt.Experiment(
-            trials,
-            parallel_algo,
-            async=False)
-    exp.run(7)
-    assert [m['proc_num'] for m in exp.trials.miscs] == [0, 1, 2, 3, 4, 0, 1]
-    
-    #TODO:  do we really need to test for independence of the various runs here?  
-    #what's a good way to do that, even if we wanted to?
+    exp = hyperopt.Experiment(trials, parallel_algo)
+    exp.run(num_procs * num_sets)
+    proc_nums = [m['proc_num'] for m in exp.trials.miscs]
+    assert proc_nums == range(num_procs) * num_sets
+    assert n_specs_list == [0] * num_procs + [1] * num_procs + [2] * num_procs
 
 
-###########Experiment Sketch
 
-NUM_ROUNDS = 5
-BASE_NUM_FEATURES = 50
-ROUND_LEN = 5
-
-class LargerBoostableDigits(FastBoostableDigits):
-    param_gen = dict(FastBoostableDigits.param_gen)
-    param_gen['feat_spec']['n_features'] = BASE_NUM_FEATURES
-    
-
-class NormalBoostableDigits(FastBoostableDigits):
-    param_gen = dict(FastBoostableDigits.param_gen)
-    param_gen['feat_spec']['n_features'] = BASE_NUM_FEATURES / ROUND_LEN
-    
-    
+# XXX: It's not clear what this is testing
 def test_random_ensembles():
+    raise nose.SkipTest()
     bandit = LargerBoostableDigits()
     bandit_algo = hyperopt.Random(bandit)
     trials = hyperopt.Trials()
-    exp = hyperopt.Experiment(
-            trials,
-            bandit_algo,
-            async=False)
+    exp = hyperopt.Experiment(trials, bandit_algo)
     exp.run(NUM_ROUNDS)
     results = trials.results
     specs = trials.specs
@@ -178,15 +278,16 @@ def test_random_ensembles():
     selected_specs = [list(trials)[s[0]]]
     er_partial = bandit.score_mixture_partial_svm(selected_specs)
     er_full = bandit.score_mixture_full_svm(selected_specs)
-    errors = {'random_partial': er_partial, 
+    errors = {'random_partial': er_partial,
               'random_full': er_full}
     selected_specs = {'random': selected_specs}
-    
+
     assert np.abs(errors['random_full'][0] - .274) < 1e-2
     return exp, errors, selected_specs
 
 
 def test_mixture_ensembles():
+    raise nose.SkipTest()
     bandit = NormalBoostableDigits()
     bandit_algo = hyperopt.Random(bandit)
     trials = hyperopt.Trials()
@@ -238,21 +339,23 @@ def test_mixture_ensembles():
     assert np.abs(errors['ada_test_full'][0] - .1672) < 1e-2
     
     return exp, errors, selected_specs
-    
+
+
 def test_boosted_ensembles_async():
+    raise nose.SkipTest()
     """
     this test must be run via 
     """
     return boosted_ensembles_base(
-            functools.partial(
-                experiments.AsyncBoostingAlgo,
-                look_back=1))
+            experiments.AsyncBoostingAlgoA)
 
 
 def test_boosted_ensembles_sync():
+    raise nose.SkipTest()
     return boosted_ensembles_base(experiments.SyncBoostingAlgo)
-    
 
+
+@nose.SkipTest
 def boosted_ensembles_base(boosting_algo_class):
     bandit = NormalBoostableDigits()
     bandit_algo = hyperopt.Random(bandit)    
@@ -264,7 +367,7 @@ def boosted_ensembles_base(boosting_algo_class):
             boosting_algo,
             async=False)
     exp.run(NUM_ROUNDS * ROUND_LEN)
-    selected_specs = boosting_algo.best_by_round(list(trials))
+    selected_specs = boosting_best_by_round(list(trials))
     er_partial = bandit.score_mixture_partial_svm(selected_specs)
     er_full = bandit.score_mixture_full_svm(selected_specs)
     errors = {'boosted_partial': er_partial, 
@@ -275,3 +378,9 @@ def boosted_ensembles_base(boosting_algo_class):
     assert np.abs(np.mean(errors['boosted_partial'][0]) - 0.21968) < 1e-2
     
     return exp, errors, selected_specs
+
+
+# XXX TEST WITH SPORADIC FAILURES
+
+# XXX TEST WITH ASYNC EXECUTION
+
