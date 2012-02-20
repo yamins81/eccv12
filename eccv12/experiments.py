@@ -222,7 +222,7 @@ class BoostingAlgoBase(hyperopt.BanditAlgo):
         for u in urounds:
             _inds = (rounds == u).nonzero()[0]
             min_ind = losses[_inds].argmin()
-            rval.append(trials[_inds[min_ind]])
+            rval.append(specs[_inds[min_ind]])
         return rval
 
     @staticmethod
