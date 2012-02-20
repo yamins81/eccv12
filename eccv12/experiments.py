@@ -185,22 +185,6 @@ def filter_oks(specs, results, miscs):
 
 
 class BoostingAlgoBase(hyperopt.BanditAlgo):
-    def best_by_round(self, trials):
-        results = [t['result'] for t in trials]
-        specs = [t['spec'] for t in trials]
-        miscs = [t['misc'] for t in trials]
-        losses = np.array(map(self.bandit.loss, results, specs))
-        rounds = np.array([m['boosting']['round'] for m in miscs])
-        urounds = np.unique(rounds)
-        urounds.sort()
-        assert urounds.tolist() == range(urounds.max() + 1)
-        rval = []
-        for u in urounds:
-            _inds = (rounds == u).nonzero()[0]
-            min_ind = losses[_inds].argmin()
-            rval.append(trials[_inds[min_ind]])
-        return rval
-
     def idxs_continuing(self, miscs, tid):
         """Return the positions in the trials object of
         all trials that continue trial tid.
