@@ -258,8 +258,9 @@ class AsyncBoostingAlgo(BoostingAlgoBase):
             horizon = my_round - look_back
             consider_continuing = [idx
                     for idx, misc in enumerate(miscs)
-                    if (horizon <= misc['boosting']['round'] < my_round
-                        and results[idx]['status'] == hyperopt.STATUS_OK)]
+                    if horizon <= misc['boosting']['round'] < my_round]
+
+            #print 'losses', np.array(map(self.bandit.loss, results, specs))
 
             if consider_continuing:
                 cc_specs = [specs[idx] for idx in consider_continuing]
