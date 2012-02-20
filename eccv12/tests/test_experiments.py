@@ -165,14 +165,10 @@ class TestBoostingSubAlgoArgs(unittest.TestCase, ForAllBoostinAlgos):
         elif boosting_cls is experiments.AsyncBoostingAlgoA:
             assert n_sub_trials == range(self.round_len) * (self.n_trials // self.round_len)
         elif boosting_cls is experiments.AsyncBoostingAlgoB:
-            assert n_sub_trials[-1] > round_len
+            assert n_sub_trials[-1] > self.round_len
         else:
             raise NotImplementedError(boosting_cls)
 
-
-class TestBoostingSubAlgoArgs2(TestBoostingSubAlgoArgs):
-    n_trials = 2
-    round_len = 2
 
 
 class TestIdxsContinuing(unittest.TestCase, ForAllBoostinAlgos):
@@ -201,7 +197,7 @@ class TestIdxsContinuing(unittest.TestCase, ForAllBoostinAlgos):
 def test_mixtures():
     # -- run random search of M trials
     M = 5
-    bandit = DummyDecisionsBandit()
+    bandit = DummyDecisionsBandit(n_train=80, n_test=20, n_splits=1)
     bandit_algo = hyperopt.Random(bandit)
     trials = hyperopt.Trials()
     exp = Experiment(trials, bandit_algo)
@@ -232,7 +228,7 @@ def test_parallel_algo():
     num_sets = 3
 
     trials = hyperopt.Trials()
-    bandit = DummyDecisionsBandit()
+    bandit = DummyDecisionsBandit(n_train=50, n_test=10, n_splits=2)
 
     n_specs_list = []
 
