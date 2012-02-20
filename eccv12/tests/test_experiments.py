@@ -11,6 +11,12 @@ import eccv12.experiments as experiments
 from eccv12.toyproblem import BoostableDigits
 from eccv12.bandits import BaseBandit
 
+
+NUM_ROUNDS = 5
+BASE_NUM_FEATURES = 50
+ROUND_LEN = 5
+
+
 def boosting_best_by_round(trials, bandit):
     results = [t['result'] for t in trials]
     specs = [t['spec'] for t in trials]
@@ -28,16 +34,11 @@ def boosting_best_by_round(trials, bandit):
     return rval
 
 
-
-###########Experiment Sketch
 def Experiment(*args, **kwargs):
     rval = hyperopt.Experiment(*args, **kwargs)
     rval.catch_bandit_exceptions = False
     return rval
 
-NUM_ROUNDS = 5
-BASE_NUM_FEATURES = 50
-ROUND_LEN = 5
 
 class DummyDecisionsBandit(BaseBandit):
     param_gen = dict(
@@ -79,7 +80,7 @@ class DummyDecisionsBandit(BaseBandit):
 
 class FastBoostableDigits(BoostableDigits):
     param_gen = dict(BoostableDigits.param_gen)
-    param_gen['svm_max_observations'] = 5000 # -- smaller value for speed
+    param_gen['svm_max_observations'] = 1000 # -- smaller value for speed
 
 
 class LargerBoostableDigits(FastBoostableDigits):
@@ -106,6 +107,7 @@ class ForAllBoostinAlgos(object):
         self.work(experiments.AsyncBoostingAlgoB)
 
 
+# XXX: THIS TEST TAKES 2 MINS ON FAST COMP - SPEED IT UP?
 class TestBoostingLossDecreases(unittest.TestCase, ForAllBoostinAlgos):
     """Test that boosting decreases generalization loss in a not-so-fast-to-run
     actual learning setting.
