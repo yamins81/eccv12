@@ -272,10 +272,12 @@ class AsyncBoostingAlgo(BoostingAlgoBase):
 
                 cont_decisions = cc_results[cont_idx]['decisions']
                 cont_tid = cc_miscs[cont_idx]['tid']
+                assert cont_tid != None
                 others = self.idxs_continuing(miscs, cont_tid)
+            else:
+                others = self.idxs_continuing(miscs, None)
 
-        print "OTHERS", others
-
+        #print "OTHERS", others
         new_specs, new_results, new_miscs = self.sub_algo.suggest(new_ids,
                 [results[idx] for idx in others],
                 [specs[idx] for idx in others],
