@@ -301,7 +301,7 @@ class BoostableDigits(BaseBandit):
             n_examples_test=500,
             n_folds=5,
             feat_spec=dict(
-                seed=scope.one_of(1, 2, 3, 4, 5),
+                seed=scope.one_of(*range(100)),
                 n_features=scope.one_of(2, 5, 10),
                 scale=scope.uniform(0, 5)
                 ),
@@ -324,12 +324,12 @@ class BoostableDigits(BaseBandit):
         partial_svm means fit an svm to each feature set as opposed to one
         joint training of svm.
         """
-        n_examples_train = 1250
-        n_examples_test = 500
+        n_examples_train = self.param_gen['n_examples_train']
+        n_examples_test = self.param_gen['n_examples_test']
         # -- load up the old training data
         Xy_train = digits_xy(begin=0, N=n_examples_train)
         # -- this data is really held-out, not used for model selection
-        Xy_test = digits_xy(begin=n_examples_train, N=500)
+        Xy_test = digits_xy(begin=n_examples_train, N=n_examples_test)
         decisions_train = np.zeros(n_examples_train)
         decisions_test = np.zeros(n_examples_test)
         test_err_rates = []
@@ -371,12 +371,12 @@ class BoostableDigits(BaseBandit):
         joint training of svm.
         Returns (train_error, test_error)
         """
-        n_examples_train = 1250
-        n_examples_test = 500
+        n_examples_train = self.param_gen['n_examples_train']
+        n_examples_test = self.param_gen['n_examples_test']
         # -- load up the old training data
         Xy_train = digits_xy(begin=0, N=n_examples_train)
         # -- this data is really held-out, not used for model selection
-        Xy_test = digits_xy(begin=n_examples_train, N=500)
+        Xy_test = digits_xy(begin=n_examples_train, N=n_examples_test)
         decisions_train = np.zeros(n_examples_train)
         decisions_test = np.zeros(n_examples_test)
         train_Xs = []
