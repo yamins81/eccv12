@@ -147,15 +147,18 @@ class MixtureExp(SearchExp):
     Mixture version of the class.  (just basically adds mixture info to 
     the identifying information)
     """
-    def __init__(self, mixture_class, ensemble_size, *args, **kwargs):
+    def __init__(self, mixture_class, mixture_kwargs, ensemble_size, *args, **kwargs):
         self.mixture_class = mixture_class
+        self.mixture_kwargs = mixture_kwargs
         self.ensemble_size = ensemble_size
         SearchExp.__init__(self, *args, **kwargs)
-        self.mixture = self.mixture_class(self.trials, self.bandit)
+        self.mixture = self.mixture_class(self.trials, self.bandit,
+                                          **mixture_kwargs)
 
     def get_info(self):
         info = SearchExp.get_info(self)
-        info['mixture'] = cname(self.mixture_class(None, None))
+        info['mixture'] = cname(self.mixture_class(None, None, **self.mixture_kwargs))
+        info['mixture_kwargs'] = self.mixture_kwargs
         info['ensemble_size'] = self.ensemble_size
         return info
             
@@ -305,7 +308,8 @@ class BudgetExperiment(NestedExperiment):
                                mongo_opts=mongo_opts,
                                exp_prefix=exp_prefix,
                                run_parallel=run_parallel,
-                               look_back=look_back)
+                               look_back=look_back,
+                               adamix_kwargs={'test_mask':True})
             self.add_exp(_C, 'fixed_features_%d' % es)
             
             #trade off ensemble size for more features, fixed number of trials
@@ -319,7 +323,8 @@ class BudgetExperiment(NestedExperiment):
                                mongo_opts=mongo_opts,
                                exp_prefix=exp_prefix,
                                run_parallel=run_parallel,
-                               look_back=look_back)
+                               look_back=look_back,
+                               adamix_kwargs={'test_mask':True})
             self.add_exp(_C, 'fixed_trials_%d' % es)
    
         
@@ -328,7 +333,7 @@ class ComparisonExperiment(NestedExperiment):
     """
     def init_experiments(self, num_features, round_len, ensemble_size, 
                  bandit_func, bandit_algo_class, mongo_opts, exp_prefix,
-                 run_parallel, look_back):
+                 run_parallel, look_back, adamix_kwargs):
 
         basic_exp = SearchExp(num_features=num_features,
                       bandit_func=bandit_func,
@@ -338,6 +343,7 @@ class ComparisonExperiment(NestedExperiment):
         self.add_exp(basic_exp, 'basic')
 
         simple_mix = MixtureExp(mixture_class=SimpleMixture,
+                            mixture_kwargs={},
                             ensemble_size=ensemble_size,
                             num_features=num_features,
                             bandit_func=bandit_func,
@@ -349,6 +355,7 @@ class ComparisonExperiment(NestedExperiment):
 
         
         ada_mix = MixtureExp(mixture_class=AdaboostMixture,
+                            mixture_kwargs=adamix_kwargs,
                             ensemble_size=ensemble_size,
                             num_features=num_features,
                             bandit_func=bandit_func,
@@ -388,7 +395,10 @@ class ComparisonExperiment(NestedExperiment):
             self.add_exp(parallel_exp, 'parallel')
         
         
-def run_random_experiment():    
+def run_random_experiment():
+    """
+    THIS IS JUST ILLUSTRATIVE of how it WOULD be called
+    """
     B = BudgetExperiment(num_features=128,
                        num_trials=100, 
                        ensemble_sizes=[2, 5],
