@@ -200,6 +200,8 @@ class NestedExperiment(object):
     Basic class for nested experiments.  The purpose of this class is to make 
     it possible to run nested-style experiments in whatever order one wants
     and to obtain information about them easily.
+    
+    Derived classes must implement init_experiments method. 
     """
     def __init__(self, ntrials, save, *args, **kwargs):
         self.experiments = OrderedDict([])

@@ -38,6 +38,15 @@ def test_mixture_initializes():
                             ('ensemble_size', 5)])
     
     assert S.get_exp_key() == "test_stuffbandit:eccv12.eccv12.LFWBandit_num_features:10_bandit_algo:hyperopt.base.Random_mixture:eccv12.experiments.AdaboostMixture_mixture_kwargs:{'test_mask': True}_ensemble_size:5"
+
+    S = exps.MixtureExp(experiments.SimpleMixture,
+                        {},
+                        5,
+                        10,
+                        exps.LFWBandit,
+                        hyperopt.Random,
+                        "localhost:22334/test_hyperopt",
+                        "test_stuff")
     
     
 def test_meta_initializes():
