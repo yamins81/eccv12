@@ -71,7 +71,7 @@ class FastBoostableDigits(BoostableDigits):
     ROUND_LEN = 5
 
     param_gen = dict(BoostableDigits.param_gen)
-    # param_gen['svm_max_observations'] = 1000
+    #param_gen['svm_max_observations'] = 1000
 
 
 class NormalBoostableDigits(FastBoostableDigits):
@@ -391,6 +391,32 @@ def test_random_ensembles():
     assert np.allclose(errors['random_full'][0], .144, atol=1e-3)
     assert np.allclose(errors['random_full'][1], .142, atol=1e-3)
     return exp, errors, {'random': [selected_spec]}
+
+
+@attr('slow')
+def test_digits_random_ensembles():
+    """test_digits_random_ensembles
+    """
+    bandit = LargerBoostableDigits()
+    bandit_algo = hyperopt.Random(bandit)
+    trials = hyperopt.Trials()
+    exp = hyperopt.Experiment(trials, bandit_algo)
+    exp.run(FastBoostableDigits.NUM_ROUNDS)
+    results = trials.results
+    specs = trials.specs
+    losses = np.array(map(bandit.loss, results, specs))
+    print losses
+    #[ 0.78281302  0.74598096  0.8264129   0.76735577  0.77177276]
+    s = losses.argmin()
+    selected_specs = [trials.specs[s]]
+    er_partial = bandit.score_mixture_partial_svm(selected_specs)
+    er_full = bandit.score_mixture_full_svm(selected_specs)
+    errors = {'random_partial': er_partial,
+              'random_full': er_full}
+    selected_specs = {'random': selected_specs}
+
+    assert np.abs(errors['random_full'][0] - .274) < 1e-2
+    return exp, errors, selected_specs
 
 
 @attr('slow')
