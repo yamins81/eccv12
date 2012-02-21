@@ -205,7 +205,8 @@ class NestedExperiment(object):
         self.init_experiments(*args, **kwargs)
         
     def add_exp(self, exp, tag):
-        exp.ntrials = self.ntrials
+        if not hasattr(exp, 'ntrials'):
+            exp.ntrials = self.ntrials
         self.experiments[tag] = exp
         
     def get_experiment(self, name):
@@ -305,7 +306,7 @@ class BudgetExperiment(NestedExperiment):
                                exp_prefix=exp_prefix,
                                run_parallel=run_parallel,
                                look_back=look_back)
-            self.experiments['fixed_features_%d' % es] = _C
+            self.add_exp(_C, 'fixed_features_%d' % es)
             
             #trade off ensemble size for more features, fixed number of trials
             _C = ComparisonExperiment(ntrials=ntrials, 
@@ -319,7 +320,7 @@ class BudgetExperiment(NestedExperiment):
                                exp_prefix=exp_prefix,
                                run_parallel=run_parallel,
                                look_back=look_back)
-            self.experiments['fixed_trials_%d' % es] = _C
+            self.add_exp(_C, 'fixed_trials_%d' % es)
    
         
 class ComparisonExperiment(NestedExperiment):

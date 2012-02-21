@@ -185,5 +185,6 @@ def test_budget_experiment():
     assert res.keys() == ['control', 'fixed_trials_2', 'fixed_features_2']
     assert res['control'].keys() == ['bandit', 'num_features', 'bandit_algo', 'trials']
     assert len(res['control']['trials']) == 4
-    assert len(res['fixed_trials_2']['basic']) == 4
-    assert len(res['fixed_features_2']['basic']) == 8
+    assert len(res['fixed_trials_2']['basic']['trials']) == 4
+    assert len(res['fixed_features_2']['basic']['trials']) == 8
+    
