@@ -5,33 +5,18 @@ The "test_digits" tests show validate that the four
 basic algorithms for ensemble selection produce loss results in the 
 right ordering, e.g. random ensembles > Top-A mixture > Adaboost > HTBoost
 """
-import unittest
-import nose
 import copy
-from nose.plugins.attrib import attr
+import unittest
 
+import nose
+from nose.plugins.attrib import attr
 import numpy as np
+
 import hyperopt
 import pyll
 import eccv12.experiments as experiments
 from eccv12.toyproblem import BoostableDigits
 from eccv12.bandits import BaseBandit
-
-def boosting_best_by_round(trials, bandit):
-    results = [t['result'] for t in trials]
-    specs = [t['spec'] for t in trials]
-    miscs = [t['misc'] for t in trials]
-    losses = np.array(map(bandit.loss, results, specs))
-    rounds = np.array([m['boosting']['round'] for m in miscs])
-    urounds = np.unique(rounds)
-    urounds.sort()
-    assert urounds.tolist() == range(urounds.max() + 1)
-    rval = []
-    for u in urounds:
-        _inds = (rounds == u).nonzero()[0]
-        min_ind = losses[_inds].argmin()
-        rval.append(trials[_inds[min_ind]])
-    return rval
 
 
 def Experiment(*args, **kwargs):
@@ -60,11 +45,19 @@ class DummyDecisionsBandit(BaseBandit):
         r34 = np.random.RandomState(10000)
         y = np.sign(r34.randn(n_examples))
         rs = np.random.RandomState(config['seed'])
-        yhat = rs.randn(n_examples)
+        yhat = rs.randn(n_splits, n_examples)
+        yhat_test = yhat[:, :n_test]
+        # normalizing predictions to have unit length *helps* to ensure
+        # that adaboost weights do not increase with increasing round.
+        # Since the errors can flip from 0 to 1 with arbitrarily small changes
+        # to the combined decision vector though, it's not clear that this
+        # ensures non-increasing weights.
+        yhat_test /= np.sqrt((yhat_test ** 2).sum(axis=1))[:, np.newaxis]
         decisions = config['decisions']
         if decisions is None:
             decisions = np.zeros((n_splits, n_examples))
         new_dec = yhat + decisions
+        is_test = decisions * 0 + [[1] * n_test + [0] * n_train]
         loss = np.mean(y[:n_test] != np.sign(new_dec[:, :n_test]))
         #print 'PRED', np.sign(new_dec)
         #print 'Y    ', y
@@ -73,12 +66,18 @@ class DummyDecisionsBandit(BaseBandit):
                 status=hyperopt.STATUS_OK,
                 loss=loss,
                 labels=y,
-                is_test=[[1] * n_test + [0] * n_train],
+                is_test=is_test,
                 decisions=new_dec)
         return result
 
 
-class ForAllBoostinAlgos(object):
+class FastBoostableDigits(BoostableDigits):
+    param_gen = dict(BoostableDigits.param_gen)
+    param_gen['svm_max_observations'] = 1000
+
+
+class ForAllBoostingAlgos(object):
+
     """Mixin tests that call self.work(<BoostingAlgoCls>)
     """
 
@@ -92,7 +91,50 @@ class ForAllBoostinAlgos(object):
         self.work(experiments.AsyncBoostingAlgoB)
 
 
-class TestBoostingSubAlgoArgs(unittest.TestCase, ForAllBoostinAlgos):
+def assert_boosting_loss_decreases(cls):
+    """Test that boosting decreases generalization loss in a not-so-fast-to-run
+    actual learning setting.
+    """
+    n_trials = 12
+    round_len = 3
+    trials = hyperopt.Trials()
+    bandit = FastBoostableDigits()
+    algo = hyperopt.Random(bandit)
+    boosting_algo = experiments.SyncBoostingAlgo(algo,
+                round_len=round_len)
+    exp = Experiment(trials, boosting_algo)
+
+    last_mixture_score = float('inf')
+
+    round_ii = 0
+    while len(trials) < n_trials:
+        round_ii += 1
+        exp.run(round_len)
+        assert len(trials) == round_ii * round_len
+        best_trials = cls.boosting_best_by_round(trials, bandit)
+        assert len(best_trials) == round_ii
+        train_errs, test_errs = bandit.score_mixture_partial_svm(best_trials)
+        print test_errs # train_errs, test_errs
+        assert test_errs[-1] < last_mixture_score
+        last_mixture_score = test_errs[-1]
+
+
+@attr('slow')
+def test_boosting_loss_decreases_sync():
+    assert_boosting_loss_decreases(experiments.SyncBoostingAlgo)
+
+
+@attr('slow')
+def test_boosting_loss_decreases_asyncA():
+    assert_boosting_loss_decreases(experiments.AsyncBoostingAlgoA)
+
+
+@attr('slow')
+def test_boosting_loss_decreases_asyncB():
+    assert_boosting_loss_decreases(experiments.AsyncBoostingAlgoB)
+
+
+class TestBoostingSubAlgoArgs(unittest.TestCase, ForAllBoostingAlgos):
     """
     Test that in a synchronous experiment, the various Boosting algorithms
     pass the Sub-Algorithm (here Random search) a plausible number of trials
@@ -135,7 +177,7 @@ class TestBoostingSubAlgoArgs(unittest.TestCase, ForAllBoostinAlgos):
             raise NotImplementedError(boosting_cls)
 
 
-class TestIdxsContinuing(unittest.TestCase, ForAllBoostinAlgos):
+class TestIdxsContinuing(unittest.TestCase, ForAllBoostingAlgos):
     """
     Test that all the trials that extend a particular trial have a round
     number that is one greater than the trial being extended.
@@ -180,9 +222,13 @@ def test_mixtures():
     s = losses.argsort()
     assert list(inds) == s[:N].tolist()
 
-    ada = experiments.AdaboostMixture(trials, bandit)
+    # -- test_mask has to be True for weights to be guaranteed to be decrease
+    #    because of the way DummyDecisionsBandit is normalizing the
+    #    predictions
+    ada = experiments.AdaboostMixture(trials, bandit, test_mask=True)
     ada_inds, ada_weights = ada.mix_inds(N)
-    # -- assert that adaboost adds weights in decreasing magnitude
+    # -- assert that adaboost adds weights in decreasing magnitude (see
+    # comment in DummyDecisionsBandit)
     assert (abs(ada_weights[:-1]) >= abs(ada_weights[1:])).all()
 
     #TODO: tests that shows that ensemble performance is increasing with
@@ -217,181 +263,313 @@ def test_parallel_algo():
     assert n_specs_list == [0] * num_procs + [1] * num_procs + [2] * num_procs
 
 
-# XXX TEST WITH SPORADIC FAILURES
+def end_to_end_regression_helper(bandit, bandit_algo, best_target, atol,
+        n_trials):
 
-# XXX TEST WITH ASYNC EXECUTION
+        trials = hyperopt.Trials()
+        exp = Experiment(trials, bandit_algo)
+        exp.run(n_trials)
+        results = trials.results
+        specs = trials.specs
+        losses = np.array(map(bandit.loss, results, specs))
+        assert None not in losses
+        assert len(losses) == n_trials
+        best = losses.min()
+        print best
+        if best_target is not None:
+            assert np.allclose(best, best_target, atol=atol)
+        return trials
 
 
-################
-####slow tests##
-################
-
-NUM_ROUNDS = 5
-BASE_NUM_FEATURES = 50
-ROUND_LEN = 5
+def test_end_to_end_random():
+    bandit = DummyDecisionsBandit(10, 20, 2)
+    bandit_algo = hyperopt.Random(bandit)
+    trials = end_to_end_regression_helper(bandit, bandit_algo, 0.3, 0.01, 35)
 
 
-class FastBoostableDigits(BoostableDigits):
-    param_gen = copy.deepcopy(dict(BoostableDigits.param_gen))
-    param_gen['svm_max_observations'] = 1000 # -- smaller value for speed
+def test_end_to_end_simple_mixture():
+    bandit = DummyDecisionsBandit(n_train=10, n_test=100, n_splits=1)
+    bandit_algo = hyperopt.Random(bandit)
+    trials = end_to_end_regression_helper(bandit, bandit_algo, 0.34, 0.01, 35)
+    simple = experiments.SimpleMixture(trials, bandit)
+    idxs, weights = simple.mix_inds(7) # rounds of len 5
+    print list(idxs), weights
+    # catch regressions due to e.g. sampler changes
+    assert list(idxs) == [ 8, 28, 20, 31,  5, 18, 12]
+    assert np.allclose(weights, 1.0 / 7)
 
 
-class LargerBoostableDigits(FastBoostableDigits):
-    param_gen = copy.deepcopy(dict(FastBoostableDigits.param_gen))
+def test_end_to_end_ada_mixture():
+    bandit = DummyDecisionsBandit(n_train=10, n_test=100, n_splits=1)
+    bandit_algo = hyperopt.Random(bandit)
+    trials = end_to_end_regression_helper(bandit, bandit_algo, 0.34, 0.01, 35)
+    ada = experiments.AdaboostMixture(trials, bandit, test_mask=True)
+    idxs, weights = ada.mix_inds(7)
+    assert weights.shape == (7, 1)
+    print list(idxs), weights
+    assert (abs(weights[:-1]) >= abs(weights[1:])).all()
+    # -- N.B. first selected idx is same as first selected in simple mixture
+    assert list(idxs) == [ 8, 24, 25,  7, 14, 29, 10]
+    assert np.allclose(weights[0], 0.3316, atol=0.001)
+    assert np.allclose(weights[6], -0.13519, atol=0.001)
+
+
+def test_end_to_end_boost_sync():
+    bandit = DummyDecisionsBandit(n_train=10, n_test=100, n_splits=1)
+    sub_algo = hyperopt.Random(bandit)
+    boosting_algo = experiments.SyncBoostingAlgo(sub_algo, round_len=5)
+    trials = end_to_end_regression_helper(bandit, boosting_algo, 0.4, 0.01, 35)
+    selected = boosting_algo.ensemble_member_tids(trials, bandit)
+    print 'SEL', selected
+    assert selected == [0, 6, 12, 15, 20, 28, 34]
+
+
+def test_end_to_end_boost_asyncA():
+    bandit = DummyDecisionsBandit(n_train=10, n_test=100, n_splits=1)
+    sub_algo = hyperopt.Random(bandit)
+    boosting_algo = experiments.AsyncBoostingAlgoA(sub_algo, round_len=5)
+    trials = end_to_end_regression_helper(bandit, boosting_algo, 0.4, 0.01, 35)
+    selected = boosting_algo.ensemble_member_tids(trials, bandit)
+    print 'SEL', selected
+    # This performs same as sync boosting -- how are they different again?
+    assert selected == [0, 6, 12, 15, 20, 28, 34]
+
+
+def test_end_to_end_boost_asyncB():
+    bandit = DummyDecisionsBandit(n_train=10, n_test=100, n_splits=1)
+    sub_algo = hyperopt.Random(bandit)
+    boosting_algo = experiments.AsyncBoostingAlgoB(sub_algo, round_len=5)
+    # This should score better than boost_sync but worse than AdaBoost mixture
+    # because this bandit doesn't even use the decisions.
+    # Consequently, AdaBoost is free to choose the ensemble at the end,
+    # whereas asyncB, despite the lookback, is forced to make additions to the
+    # ensemble as the trials come in. Consequently, the selected members will
+    # necessarily have increasing IDs, unlike AdaBoostMixture.
+    trials = end_to_end_regression_helper(bandit, boosting_algo, 0.38, 0.01, 35)
+    selected = boosting_algo.ensemble_member_tids(trials, bandit)
+    print 'SEL', selected
+    # This performs same as sync boosting -- how are they different again?
+    assert selected == [0, 6, 28, 34]
+
+
+##
+##
+## Slow tests actually doing scientifically relevant tests on the
+## BoostableDigits toy problem.
+##
+##
+
+BASE_NUM_FEATURES = 16   # -- construct ensembles with this many features
+NUM_ROUNDS = 4           # -- use this many rounds to do it
+ROUND_LEN = 3            # -- try this many guesses in each round
+
+
+class NormalBoostableDigits(BoostableDigits):
+    """
+    This class is for searching the full ensemble space in NUM_ROUNDS
+    iterations of ensemble construction.
+    """
+
+    param_gen = copy.deepcopy(FastBoostableDigits.param_gen)
+    param_gen['feat_spec']['n_features'] = BASE_NUM_FEATURES / NUM_ROUNDS
+
+
+class LargerBoostableDigits(BoostableDigits):
+    """
+    This class is for searching the full ensemble space all at once
+    """
+    param_gen = copy.deepcopy(FastBoostableDigits.param_gen)
     param_gen['feat_spec']['n_features'] = BASE_NUM_FEATURES
 
 
-class NormalBoostableDigits(FastBoostableDigits):
-    param_gen = copy.deepcopy(dict(FastBoostableDigits.param_gen))
-    param_gen['feat_spec']['n_features'] = BASE_NUM_FEATURES / NUM_ROUNDS
-    
-
 @attr('slow')
-class TestBoostingLossDecreases(unittest.TestCase, ForAllBoostinAlgos):
-    """Test that boosting decreases generalization loss in a not-so-fast-to-run
-    actual learning setting.
+def test_random_ensembles():
     """
-    def work(self, cls):
-        n_trials = 12
-        round_len = 3
-        trials = hyperopt.Trials()
-        bandit = FastBoostableDigits()
-        algo = hyperopt.Random(bandit)
-        boosting_algo = experiments.SyncBoostingAlgo(algo,
-                    round_len=round_len)
-        exp = Experiment(trials, boosting_algo)
-
-        last_mixture_score = float('inf')
-
-        round_ii = 0
-        while len(trials) < n_trials:
-            round_ii += 1
-            exp.run(round_len)
-            assert len(trials) == round_ii * round_len
-            best_trials = boosting_best_by_round(list(trials), bandit)
-            assert len(best_trials) == round_ii
-            train_errs, test_errs = bandit.score_mixture_partial_svm(best_trials)
-            print test_errs # train_errs, test_errs
-            assert test_errs[-1] < last_mixture_score
-            last_mixture_score = test_errs[-1]
-
-
-
-@attr('slow')
-def test_digits_random_ensembles():
-    """test_digits_random_ensembles
+    It runs experiments on "LargerBoostableDigits" and asserts that the
+    results come out consistently with our expectation regarding order.
     """
     bandit = LargerBoostableDigits()
     bandit_algo = hyperopt.Random(bandit)
     trials = hyperopt.Trials()
-    exp = hyperopt.Experiment(trials, bandit_algo)
-    exp.run(NUM_ROUNDS)
+    exp = Experiment(trials, bandit_algo)
+    exp.run(ROUND_LEN)
     results = trials.results
     specs = trials.specs
     losses = np.array(map(bandit.loss, results, specs))
+    # these are pretty consistent:
+    # [ 0.53227277  0.49521992  0.51694432  0.51861616  0.51243517]
     print losses
-    #[ 0.78281302  0.74598096  0.8264129   0.76735577  0.77177276]
-    s = losses.argmin()
-    selected_specs = [list(trials)[s]]
-    er_partial = bandit.score_mixture_partial_svm(selected_specs)
-    er_full = bandit.score_mixture_full_svm(selected_specs)
+    selected_spec = trials.specs[np.argmin(losses)]
+    er_partial = bandit.score_mixture_partial_svm([selected_spec])
+    er_full = bandit.score_mixture_full_svm([selected_spec])
     errors = {'random_partial': er_partial,
               'random_full': er_full}
-    selected_specs = {'random': selected_specs}
 
-    #THIS TEST FAILS -- I've stopped updating the numbers here because I don't know what's stable anymore
-    assert np.abs(errors['random_full'][0] - .274) < 1e-2
-    return exp, errors, selected_specs
+    assert np.allclose(errors['random_full'][0], 0.3656, atol=1e-3)
+    assert np.allclose(errors['random_full'][1], 0.354, atol=1e-3)
+
+    return exp, errors, {'random': [selected_spec]}
 
 
 @attr('slow')
-def test_digits_mixture_ensembles():
-    """test_digits_mixture_ensembles 
+def test_mixture_ensembles():
     """
+    It runs experiments on "LargerBoostableDigits" and asserts that the
+    results come out consistently with our expectation regarding order.
+    """
+
     bandit = NormalBoostableDigits()
     bandit_algo = hyperopt.Random(bandit)
     trials = hyperopt.Trials()
-    exp = hyperopt.Experiment(
-            trials,
-            bandit_algo,
-            async=False)
+    exp = Experiment(trials, bandit_algo)
     exp.run(NUM_ROUNDS * ROUND_LEN)
 
     results = trials.results
     specs = trials.specs
-    
+
     simple = experiments.SimpleMixture(trials, bandit)
     simple_specs, simple_weights = simple.mix_models(NUM_ROUNDS)
-    simple_specs = [{'spec': spec} for spec in simple_specs]
     simple_er_partial = bandit.score_mixture_partial_svm(simple_specs)
     simple_er_full = bandit.score_mixture_full_svm(simple_specs)
 
-    ada = experiments.AdaboostMixture(trials, bandit)
-    ada_specs, ada_weights = ada.mix_models(NUM_ROUNDS)
-    ada_specs = [{'spec': spec} for spec in ada_specs]
-    ada_er_partial = bandit.score_mixture_partial_svm(ada_specs)
-    ada_er_full = bandit.score_mixture_full_svm(ada_specs)    
-    ada_specs_test, ada_weights_test = ada.mix_models(NUM_ROUNDS, test_mask=True)
-    ada_specs_test = [{'spec': spec} for spec in ada_specs_test]
-    ada_er_test_partial = bandit.score_mixture_partial_svm(ada_specs_test)
-    ada_er_test_full = bandit.score_mixture_full_svm(ada_specs_test)     
+    ada_nomask = experiments.AdaboostMixture(trials, bandit, test_mask=False)
+    ada_nomask_specs, ada_nomask_weights = ada_nomask.mix_models(NUM_ROUNDS)
+    ada_nomask_er_partial = bandit.score_mixture_partial_svm(ada_nomask_specs)
+    ada_nomask_er_full = bandit.score_mixture_full_svm(ada_nomask_specs)
 
-    errors = {'simple_partial': simple_er_partial, 
+    ada_mask = experiments.AdaboostMixture(trials, bandit, test_mask=True)
+    ada_mask_specs, ada_mask_weights= ada_mask.mix_models(NUM_ROUNDS)
+    ada_mask_er_partial = bandit.score_mixture_partial_svm(ada_mask_specs)
+    ada_mask_er_full = bandit.score_mixture_full_svm(ada_mask_specs)
+
+    errors = {'simple_partial': simple_er_partial,
               'simple_full': simple_er_full,
-              'ada_partial': ada_er_partial,
-              'ada_full': ada_er_full,
-              'ada_test_partial': ada_er_test_partial,
-              'ada_test_full': ada_er_test_full}
-    
+              'ada_nomask_partial': ada_nomask_er_partial,
+              'ada_nomask_full': ada_nomask_er_full,
+              'ada_mask_partial': ada_mask_er_partial,
+              'ada_mask_full': ada_mask_er_full}
+
+
+    ##
+    ## SimpleMixture tests
+    ##
+    ##   -  errors[...][0] is training error
+    ##   -  errors[...][1] is test error
+
+    ##
+    ## AdaBoostMixture tests
+    ##
+    ##   -  errors[...][0] is training error
+    ##   -  errors[...][1] is test error
+
+    print errors
+    print '-' * 80
+    print """
+    CUT AND PASTE THIS IN TO UPDATE TESTS:
+
+    assert np.allclose(errors['simple_full'][0], %.5f, atol=1e-3)
+    assert np.allclose(errors['simple_full'][1], %.5f, atol=1e-3)
+
+    assert np.allclose(errors['ada_nomask_full'][0], %.5f, atol=1e-3)
+    assert np.allclose(errors['ada_nomask_full'][1], %.5f, atol=1e-3)
+
+    assert np.allclose(errors['ada_mask_full'][0], %.5f, atol=1e-3)
+    assert np.allclose(errors['ada_mask_full'][1],  %.5f, atol=1e-3)
+
+    """ % (errors['simple_full']
+            + errors['ada_nomask_full']
+            + errors['ada_mask_full'])
+    print '-' * 80
+
+    assert np.allclose(errors['simple_full'][0], 0.27840, atol=1e-3)
+    assert np.allclose(errors['simple_full'][1], 0.28000, atol=1e-3)
+
+    assert np.allclose(errors['ada_nomask_full'][0], 0.25760, atol=1e-3)
+    assert np.allclose(errors['ada_nomask_full'][1], 0.28000, atol=1e-3)
+
+    assert np.allclose(errors['ada_mask_full'][0], 0.27280, atol=1e-3)
+    assert np.allclose(errors['ada_mask_full'][1], 0.27800, atol=1e-3)
+
+
     selected_specs = {'simple': simple_specs,
-                      'ada': ada_specs}
-    
-    assert np.abs(errors['simple_full'][0] - .234) < 1e-2
-    ptl = np.array([0.2744,
-                    0.2304,
-                    0.236,
-                    0.2256,
-                    0.2232])
-    assert np.abs(errors['simple_partial'][0] - ptl).max() < 1e-2
-    assert np.abs(errors['ada_full'][0] - .1696) < 1e-2
-    ptl = np.array([0.2744, 0.2336, 0.1968, 0.1832, 0.1688])
-    assert np.abs(errors['ada_partial'][0] - ptl).max() < 1e-2
-    assert np.abs(errors['ada_test_full'][0] - .1672) < 1e-2
-    
+                      'ada_nomask': ada_nomask_specs,
+                      'ada_mask': ada_mask_specs,
+                      }
+
     return exp, errors, selected_specs
 
-@attr('slow')
-def test_digits_boosted_ensembles_async():
-    """test_digits_boosted_ensembles_async
+
+def boosted_ensembles_helper(boosting_algo_class, full_0, full_1, atol=1e-3):
     """
-    return boosted_ensembles_base(
-            experiments.AsyncBoostingAlgoA)
+    It runs experiments on "LargerBoostableDigits" and asserts that the
+    results come out consistently with our expectation regarding order.
+    """
+    bandit = NormalBoostableDigits()
+    bandit_algo = hyperopt.Random(bandit)
+    boosting_algo = boosting_algo_class(bandit_algo, round_len=ROUND_LEN)
+    trials = hyperopt.Trials()
+    exp = Experiment(trials, boosting_algo)
+    exp.run(NUM_ROUNDS * ROUND_LEN)
+    selected_specs = boosting_algo.boosting_best_by_round(trials, bandit)
+    selected_tids = boosting_algo.ensemble_member_tids(trials, bandit)
+    er_partial = bandit.score_mixture_partial_svm(selected_specs)
+    er_full = bandit.score_mixture_full_svm(selected_specs)
+    errors = {'boosted_partial': er_partial, 'boosted_full': er_full}
+    selected_specs = {'boosted': selected_specs}
+
+    print boosting_algo_class
+    print 'TIDs=', selected_tids
+    print '-' * 80
+    print """
+    CUT AND PASTE THIS IN TO UPDATE TESTS:
+
+    full_0=%.5f,
+    full_1=%.5f,
+
+    """ % (errors['boosted_full'])
+    print '-' * 80
+
+    assert np.allclose(errors['boosted_full'][0], 0.27360, atol=1e-3)
+    assert np.allclose(errors['boosted_full'][1], 0.27400, atol=1e-3)
+
+
+    return exp, errors, selected_specs
+
+
+@attr('slow')
+def test_boosted_ensembles_asyncA():
+    return boosted_ensembles_helper(
+            experiments.AsyncBoostingAlgoA,
+            full_0=0.2736,
+            full_1=0.274,
+            )
+
+
+@attr('slow')
+def test_boosted_ensembles_asyncB():
+    # -- this behaves identically to asyncA
+    #    It's plausible that this is correct.
+    #    Other unit-tests show that the implementations differ when they're
+    #    supposed to.
+    return boosted_ensembles_helper(
+            experiments.AsyncBoostingAlgoB,
+            full_0=0.2736,
+            full_1=0.274,
+            )
 
 
 @attr('slow')
 def test_boosted_ensembles_sync():
-    return boosted_ensembles_base(experiments.SyncBoostingAlgo)
+    return boosted_ensembles_helper(
+            experiments.SyncBoostingAlgo,
+            #TIDs=[1, 5, 10], -- not currently tested
+            full_0=0.2736,
+            full_1=0.274,
+            )
 
 
-def boosted_ensembles_base(boosting_algo_class):
-    bandit = NormalBoostableDigits()
-    bandit_algo = hyperopt.Random(bandit)    
-    boosting_algo = boosting_algo_class(bandit_algo,
-                                        round_len=ROUND_LEN)
-    trials = hyperopt.Trials()                                             
-    exp = hyperopt.Experiment(
-            trials,
-            boosting_algo,
-            async=False)
-    exp.run(NUM_ROUNDS * ROUND_LEN)
-    selected_specs = boosting_best_by_round(list(trials))
-    er_partial = bandit.score_mixture_partial_svm(selected_specs)
-    er_full = bandit.score_mixture_full_svm(selected_specs)
-    errors = {'boosted_partial': er_partial, 
-              'boosted_full': er_full}
-    selected_specs = {'boosted': selected_specs}
-     
-    assert np.abs(errors['boosted_full'][0] - .1528) < 1e-2
-    assert np.abs(np.mean(errors['boosted_partial'][0]) - 0.21968) < 1e-2
-    
-    return exp, errors, selected_specs
+
+# XXX TEST WITH SPORADIC FAILURES
+
+# XXX TEST WITH ASYNC EXECUTION
+

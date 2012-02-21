@@ -13,3 +13,6 @@
 [submodule "scikit-data"]
 	path = scikit-data
 	url = git@github.com:jaberg/scikit-data.git
+[submodule "thoreano"]
+	path = thoreano
+	url = git@github.com:jaberg/thoreano.git

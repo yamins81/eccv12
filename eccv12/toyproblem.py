@@ -301,55 +301,54 @@ class BoostableDigits(BaseBandit):
             n_examples_test=500,
             n_folds=5,
             feat_spec=dict(
-                seed=scope.one_of(1, 2, 3, 4, 5),
+                seed=scope.one_of(*range(100)),
                 n_features=scope.one_of(2, 5, 10),
                 scale=scope.uniform(0, 5)
                 ),
             svm_l2_regularization=1e-3,
             decisions=None,
-            svm_max_observations=20000,
+            svm_max_observations=1e5,
+            save_svms=False,
             )
 
     # XXX: add the loss_variance to result dict
     def evaluate(self, config, ctrl):
-        if 'split_decisions' in ctrl.attachments:
-            config['split_decisions'] = ctrl.attachments['split_decisions']
-        prog = screening_prog(save_svms=False, ctrl=ctrl, **config)
-        rval = pyll.rec_eval(prog)
+        prog = screening_prog(ctrl=ctrl, **config)
+        rval = pyll.rec_eval(prog, deepcopy_inputs=False)
         return rval
 
 
-    def score_mixture_partial_svm(self, trials):
+    def score_mixture_partial_svm(self, specs):
         """
         partial_svm means fit an svm to each feature set as opposed to one
         joint training of svm.
         """
-        n_examples_train = 1250
-        n_examples_test = 500
+        n_examples_train = self.param_gen['n_examples_train']
+        n_examples_test = self.param_gen['n_examples_test']
         # -- load up the old training data
         Xy_train = digits_xy(begin=0, N=n_examples_train)
         # -- this data is really held-out, not used for model selection
-        Xy_test = digits_xy(begin=n_examples_train, N=500)
+        Xy_test = digits_xy(begin=n_examples_train, N=n_examples_test)
         decisions_train = np.zeros(n_examples_train)
         decisions_test = np.zeros(n_examples_test)
         test_err_rates = []
         train_err_rates = []
 
-        for ii, trial in enumerate(trials):
-            assert trial['spec']['n_examples_train'] == n_examples_train
+        for ii, spec in enumerate(specs):
+            assert spec['n_examples_train'] == n_examples_train
             train_Xyd_n, test_Xyd_n = normalize_Xcols(
                     (Xy_train[0], Xy_train[1], decisions_train),
                     (Xy_test[0], Xy_test[1], decisions_test))
             train_Xyd_f = features(train_Xyd_n,
-                    trial['spec']['feat_spec'])
+                    spec['feat_spec'])
             test_Xyd_f = features(test_Xyd_n,
-                    trial['spec']['feat_spec'])
+                    spec['feat_spec'])
             train_Xyd_fn, test_Xyd_fn = normalize_Xcols(
                     train_Xyd_f, test_Xyd_f)
             # XXX: match this
             svm = train_svm(train_Xyd_fn,
-                    l2_regularization=trial['spec']['svm_l2_regularization'],
-                    max_observations=trial['spec']['svm_max_observations'],
+                    l2_regularization=spec['svm_l2_regularization'],
+                    max_observations=spec['svm_max_observations'],
                     )
 
             decisions_train = svm_decisions(svm, train_Xyd_fn)
@@ -365,31 +364,32 @@ class BoostableDigits(BaseBandit):
             train_err_rates.append(train_err_ii)
         return train_err_rates, test_err_rates
 
-    def score_mixture_full_svm(self, trials):
+    def score_mixture_full_svm(self, specs):
         """
         partial_svm means fit an svm to each feature set as opposed to one
         joint training of svm.
+        Returns (train_error, test_error)
         """
-        n_examples_train = 1250
-        n_examples_test = 500
+        n_examples_train = self.param_gen['n_examples_train']
+        n_examples_test = self.param_gen['n_examples_test']
         # -- load up the old training data
         Xy_train = digits_xy(begin=0, N=n_examples_train)
         # -- this data is really held-out, not used for model selection
-        Xy_test = digits_xy(begin=n_examples_train, N=500)
+        Xy_test = digits_xy(begin=n_examples_train, N=n_examples_test)
         decisions_train = np.zeros(n_examples_train)
         decisions_test = np.zeros(n_examples_test)
         train_Xs = []
         test_Xs = []
 
-        for ii, trial in enumerate(trials):
-            assert trial['spec']['n_examples_train'] == n_examples_train
+        for ii, spec in enumerate(specs):
+            assert spec['n_examples_train'] == n_examples_train
             train_Xyd_n, test_Xyd_n = normalize_Xcols(
                     (Xy_train[0], Xy_train[1], decisions_train),
                     (Xy_test[0], Xy_test[1], decisions_test))
             train_Xyd_f = features(train_Xyd_n,
-                    trial['spec']['feat_spec'])
+                    spec['feat_spec'])
             test_Xyd_f = features(test_Xyd_n,
-                    trial['spec']['feat_spec'])
+                    spec['feat_spec'])
             train_Xyd_fn, test_Xyd_fn = normalize_Xcols(
                     train_Xyd_f, test_Xyd_f)
             train_Xs.append(train_Xyd_fn[0])
@@ -402,8 +402,8 @@ class BoostableDigits(BaseBandit):
 
         # XXX: match this
         svm = train_svm(train_XXyd_fn,
-                l2_regularization=trial['spec']['svm_l2_regularization'],
-                max_observations=trial['spec']['svm_max_observations'],
+                l2_regularization=spec['svm_l2_regularization'],
+                max_observations=spec['svm_max_observations'],
                 )
 
         decisions_train = svm_decisions(svm, train_XXyd_fn)
