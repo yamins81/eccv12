@@ -307,15 +307,14 @@ class BoostableDigits(BaseBandit):
                 ),
             svm_l2_regularization=1e-3,
             decisions=None,
-            svm_max_observations=20000,
+            svm_max_observations=1e5,
+            save_svms=False,
             )
 
     # XXX: add the loss_variance to result dict
     def evaluate(self, config, ctrl):
-        if 'split_decisions' in ctrl.attachments:
-            config['split_decisions'] = ctrl.attachments['split_decisions']
-        prog = screening_prog(save_svms=False, ctrl=ctrl, **config)
-        rval = pyll.rec_eval(prog)
+        prog = screening_prog(ctrl=ctrl, **config)
+        rval = pyll.rec_eval(prog, deepcopy_inputs=False)
         return rval
 
 
