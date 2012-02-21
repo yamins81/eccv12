@@ -455,11 +455,6 @@ def test_mixture_ensembles():
             [0.14199999999999999, 0.112, 0.114, 0.11, 0.104],
         atol=1e-3)
 
-    ### XXX: is it normal that the partial fit results get so much lower in
-    #         both train and test, than the full-fit errors?  Usually I saw
-    #         the reverse -- full fitting should certainly get lower training
-    #         error.
-
     ##
     ## AdaBoostMixture tests
     ##
