@@ -288,8 +288,10 @@ def test_digits_random_ensembles():
     results = trials.results
     specs = trials.specs
     losses = np.array(map(bandit.loss, results, specs))
-    s = losses.argsort()
-    selected_specs = [list(trials)[s[0]]]
+    print losses
+    #[ 0.78281302  0.74598096  0.8264129   0.76735577  0.77177276]
+    s = losses.argmin()
+    selected_specs = [list(trials)[s]]
     er_partial = bandit.score_mixture_partial_svm(selected_specs)
     er_full = bandit.score_mixture_full_svm(selected_specs)
     errors = {'random_partial': er_partial,
