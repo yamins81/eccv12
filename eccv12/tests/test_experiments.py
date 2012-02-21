@@ -66,26 +66,8 @@ class DummyDecisionsBandit(BaseBandit):
 
 
 class FastBoostableDigits(BoostableDigits):
-    NUM_ROUNDS = 5           # -- use this many rounds to do it
-    BASE_NUM_FEATURES = 50   # -- construct ensembles with this many features
-    ROUND_LEN = 5
-
     param_gen = dict(BoostableDigits.param_gen)
-    # param_gen['svm_max_observations'] = 1000
-
-
-class NormalBoostableDigits(FastBoostableDigits):
-    param_gen = dict(FastBoostableDigits.param_gen)
-    # usually we build en ensemble by evenly-sized incrememts
-    param_gen['feat_spec']['n_features'] = (FastBoostableDigits.BASE_NUM_FEATURES
-            / FastBoostableDigits.ROUND_LEN)
-
-
-class LargerBoostableDigits(FastBoostableDigits):
-    param_gen = dict(FastBoostableDigits.param_gen)
-    # this class is used when searching the full ensemble space using random
-    # search
-    param_gen['feat_spec']['n_features'] = FastBoostableDigits.BASE_NUM_FEATURES
+    param_gen['svm_max_observations'] = 1000
 
 
 class ForAllBoostingAlgos(object):
@@ -325,7 +307,6 @@ def test_end_to_end_ada_mixture():
     assert np.allclose(weights[6], -0.13519, atol=0.001)
 
 
-
 def test_end_to_end_boost_sync():
     bandit = DummyDecisionsBandit(n_train=10, n_test=100, n_splits=1)
     sub_algo = hyperopt.Random(bandit)
@@ -364,6 +345,35 @@ def test_end_to_end_boost_asyncB():
     assert selected == [0, 6, 28, 34]
 
 
+##
+##
+## Slow tests actually doing scientifically relevant tests on the
+## BoostableDigits toy problem.
+##
+##
+
+BASE_NUM_FEATURES = 16   # -- construct ensembles with this many features
+NUM_ROUNDS = 4           # -- use this many rounds to do it
+ROUND_LEN = 3            # -- try this many guesses in each round
+
+
+class NormalBoostableDigits(BoostableDigits):
+    """
+    This class is for searching the full ensemble space in NUM_ROUNDS
+    iterations of ensemble construction.
+    """
+
+    param_gen = dict(FastBoostableDigits.param_gen)
+    param_gen['feat_spec']['n_features'] = BASE_NUM_FEATURES / NUM_ROUNDS
+
+class LargerBoostableDigits(BoostableDigits):
+    """
+    This class is for searching the full ensemble space all at once
+    """
+    param_gen = dict(FastBoostableDigits.param_gen)
+    param_gen['feat_spec']['n_features'] = BASE_NUM_FEATURES
+
+
 @attr('slow')
 def test_random_ensembles():
     """
@@ -373,9 +383,8 @@ def test_random_ensembles():
     bandit = LargerBoostableDigits()
     bandit_algo = hyperopt.Random(bandit)
     trials = hyperopt.Trials()
-    exp = hyperopt.Experiment(trials, bandit_algo)
-    # XXX: is this right? Comment on justification.
-    exp.run(FastBoostableDigits.NUM_ROUNDS)
+    exp = Experiment(trials, bandit_algo)
+    exp.run(ROUND_LEN)
     results = trials.results
     specs = trials.specs
     losses = np.array(map(bandit.loss, results, specs))
@@ -388,8 +397,8 @@ def test_random_ensembles():
     errors = {'random_partial': er_partial,
               'random_full': er_full}
 
-    assert np.allclose(errors['random_full'][0], .144, atol=1e-3)
-    assert np.allclose(errors['random_full'][1], .142, atol=1e-3)
+    assert np.allclose(errors['random_full'][0], 0.3656, atol=1e-3)
+    assert np.allclose(errors['random_full'][1], 0.354, atol=1e-3)
     return exp, errors, {'random': [selected_spec]}
 
 
@@ -399,8 +408,6 @@ def test_mixture_ensembles():
     It runs experiments on "LargerBoostableDigits" and asserts that the
     results come out consistently with our expectation regarding order.
     """
-    NUM_ROUNDS = FastBoostableDigits.NUM_ROUNDS
-    ROUND_LEN = FastBoostableDigits.ROUND_LEN
 
     bandit = NormalBoostableDigits()
     bandit_algo = hyperopt.Random(bandit)
@@ -435,18 +442,26 @@ def test_mixture_ensembles():
 
     print errors
 
+    print 'simple_full', errors['simple_full']
+    print 'simple_partial[0]', errors['simple_partial'][0]
+    print 'simple_partial[1]', errors['simple_partial'][1]
+
+    print 'ANF', list(errors['ada_nomask_full'])
+    print 'ANP0', list(errors['ada_nomask_partial'][0])
+    print 'ANP1', list(errors['ada_nomask_partial'][1])
+    print 'AMF', list(errors['ada_mask_full'])
+    print 'AMP0', list(errors['ada_mask_partial'][0])
+    print 'AMP1', list(errors['ada_mask_partial'][1])
+
     ##
     ## SimpleMixture tests
     ##
     ##   -  errors[...][0] is training error
     ##   -  errors[...][1] is test error
 
-    print 'simple_full', errors['simple_full']
     assert np.allclose(errors['simple_full'][0], 0.068, atol=1e-3)
     assert np.allclose(errors['simple_full'][1], 0.11, atol=1e-3)
 
-    print 'simple_partial[0]', errors['simple_partial'][0]
-    print 'simple_partial[1]', errors['simple_partial'][1]
     assert np.allclose(errors['simple_partial'][0],
             [0.1336, 0.088800000000000004, 0.076799999999999993,
                 0.067199999999999996, 0.068000000000000005],
@@ -461,13 +476,6 @@ def test_mixture_ensembles():
     ##   -  errors[...][0] is training error
     ##   -  errors[...][1] is test error
 
-
-    print 'ANF', list(errors['ada_nomask_full'])
-    print 'ANP0', list(errors['ada_nomask_partial'][0])
-    print 'ANP1', list(errors['ada_nomask_partial'][1])
-    print 'AMF', list(errors['ada_mask_full'])
-    print 'AMP0', list(errors['ada_mask_partial'][0])
-    print 'AMP1', list(errors['ada_mask_partial'][1])
 
     assert np.allclose(errors['ada_nomask_full'][0], 0.056, atol=1e-3)
     assert np.allclose(errors['ada_nomask_full'][1], 0.108, atol=1e-3)
@@ -505,8 +513,6 @@ def boosted_ensembles_helper(boosting_algo_class, full_0, full_1, part_0,
     It runs experiments on "LargerBoostableDigits" and asserts that the
     results come out consistently with our expectation regarding order.
     """
-    NUM_ROUNDS = FastBoostableDigits.NUM_ROUNDS
-    ROUND_LEN = FastBoostableDigits.ROUND_LEN
 
     bandit = NormalBoostableDigits()
     bandit_algo = hyperopt.Random(bandit)
