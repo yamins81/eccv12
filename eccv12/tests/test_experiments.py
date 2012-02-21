@@ -7,6 +7,7 @@ right ordering, e.g. random ensembles > Top-A mixture > Adaboost > HTBoost
 """
 import unittest
 import nose
+import copy
 from nose.plugins.attrib import attr
 
 import numpy as np
@@ -231,17 +232,17 @@ ROUND_LEN = 5
 
 
 class FastBoostableDigits(BoostableDigits):
-    param_gen = dict(BoostableDigits.param_gen)
+    param_gen = copy.deepcopy(dict(BoostableDigits.param_gen))
     param_gen['svm_max_observations'] = 1000 # -- smaller value for speed
 
 
 class LargerBoostableDigits(FastBoostableDigits):
-    param_gen = dict(FastBoostableDigits.param_gen)
+    param_gen = copy.deepcopy(dict(FastBoostableDigits.param_gen))
     param_gen['feat_spec']['n_features'] = BASE_NUM_FEATURES
 
 
 class NormalBoostableDigits(FastBoostableDigits):
-    param_gen = dict(FastBoostableDigits.param_gen)
+    param_gen = copy.deepcopy(dict(FastBoostableDigits.param_gen))
     param_gen['feat_spec']['n_features'] = BASE_NUM_FEATURES / NUM_ROUNDS
     
 
