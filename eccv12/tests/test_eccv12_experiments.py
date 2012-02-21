@@ -116,6 +116,7 @@ def test_search_dummy():
 @attr('medium')
 def test_mix_dummy():
     S = exps.MixtureExp(experiments.AdaboostMixture,
+                        {'test_mask': True}, 
                         5,
                         10,
                        DummyDecisionsBandit,
