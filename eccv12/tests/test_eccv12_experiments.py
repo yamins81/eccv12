@@ -5,6 +5,7 @@ import hyperopt
 import eccv12.eccv12 as exps
 import eccv12.experiments as experiments
 from eccv12.bandits import BaseBandit
+from nose.plugins.attrib import attr
 
 try:
     from collections import OrderedDict
@@ -21,27 +22,29 @@ except ImportError:
 
 def test_mixture_initializes():
     S = exps.MixtureExp(experiments.AdaboostMixture,
+                        {'test_mask': True},
                         5,
                         10,
-                        exps.num_features_lfw,
+                        exps.LFWBandit,
                         hyperopt.Random,
                         "localhost:22334/test_hyperopt",
                         "test_stuff")
-
-    assert S.get_info() == OrderedDict([('bandit', 'eccv12.eccv12.LFWBandit'),
-                 ('num_features', 10),
-                 ('bandit_algo', 'hyperopt.base.Random'),
-                 ('mixture', 'eccv12.experiments.AdaboostMixture'),
-                 ('ensemble_size', 5)])
     
-    assert S.get_exp_key() == 'test_stuffbandit:eccv12.eccv12.LFWBandit_num_features:10_bandit_algo:hyperopt.base.Random_mixture:eccv12.experiments.AdaboostMixture_ensemble_size:5'
-                        
-                        
+    assert S.get_info() == OrderedDict([('bandit', 'eccv12.eccv12.LFWBandit'),
+                            ('num_features', 10),
+                            ('bandit_algo', 'hyperopt.base.Random'),
+                            ('mixture', 'eccv12.experiments.AdaboostMixture'),
+                            ('mixture_kwargs', {'test_mask': True}),
+                            ('ensemble_size', 5)])
+    
+    assert S.get_exp_key() == "test_stuffbandit:eccv12.eccv12.LFWBandit_num_features:10_bandit_algo:hyperopt.base.Random_mixture:eccv12.experiments.AdaboostMixture_mixture_kwargs:{'test_mask': True}_ensemble_size:5"
+    
+    
 def test_meta_initializes():
     S = exps.MetaExp(experiments.AsyncBoostingAlgo,
                     {"round_len":5, "look_back":1},
                     10,
-                    exps.num_features_lfw,
+                    exps.LFWBandit,
                     hyperopt.Random,
                     "localhost:22334/test_hyperopt",
                     "test_stuff")
@@ -55,7 +58,7 @@ def test_meta_initializes():
                     
 def test_search_initializes():
     S = exps.SearchExp(10,
-                       exps.num_features_lfw,
+                       exps.LFWBandit,
                        hyperopt.Random,
                        "localhost:22334/test_hyperopt",
                        "test_stuff")
@@ -92,14 +95,15 @@ class DummyDecisionsBandit(BaseBandit):
                 is_test=is_test.tolist())
         return result
 
-
+@attr('mongo')
+@attr('medium')
 def test_search_dummy():
     S = exps.SearchExp(10,
                        DummyDecisionsBandit,
                        hyperopt.Random,
                        "localhost:22334/test_hyperopt",
                        "test_stuff")
-    S.trials.delete_all()
+    S.delete_all()
     S.run(10)
     assert len(S.trials.results) == 10
     assert 1 > np.mean([x['loss'] for x in S.trials.results]) > 0
@@ -107,32 +111,34 @@ def test_search_dummy():
     S.run(20)
     assert all([t == s for t, s in zip(T, S.trials.results[:10])])
     
-    
+
+@attr('mongo')    
+@attr('medium')
 def test_mix_dummy():
     S = exps.MixtureExp(experiments.AdaboostMixture,
+                        {'test_mask': True}, 
                         5,
                         10,
                        DummyDecisionsBandit,
                        hyperopt.Random,
                        "localhost:22334/test_hyperopt",
                        "test_stuff")
-    S.trials.delete_all()
+    S.delete_all()
     S.run(20)
     res = S.get_result()
     assert len(res['mixture_inds']) == 5
     assert res['mixture_weights'].shape == (5, 1)
     
-
+@attr('mongo')    
+@attr('medium')
 def test_meta_dummy():
-    """
-    THIS TEST IS NOT YET COMPLETE:  most of the time it works
-    but then for reasons I don't yet know i sometimes see:
-       331                 last_best = losses.argmin() 
-       TypeError: unsupported operand type(s) for -: 'int' and 'NoneType'
-       This problem appears to go away if you re-run the test ... 
-       This has to be investiaged further.
+    #THIS TEST IS NOT YET COMPLETE:  most of the time it works
+    #but then for reasons I don't yet know i sometimes see:
+    #  331                 last_best = losses.argmin() 
+    #   TypeError: unsupported operand type(s) for -: 'int' and 'NoneType'
+    #   This problem appears to go away if you re-run the test ... 
+    #   This has to be investiaged further.
        
-    """
     S = exps.MetaExp(experiments.SyncBoostingAlgo,
                     {"round_len": 5},
                     10,
@@ -140,28 +146,47 @@ def test_meta_dummy():
                    hyperopt.Random,
                    "localhost:22334/test_hyperopt",
                    "test_stuff")
-    S.trials.delete_all()
+    S.delete_all()
     S.run(10)
-    selected = S.bandit_algo.best_by_round(list(S.trials))
+    selected = S.bandit_algo.boosting_best_by_round(S.trials, S.bandit)
     assert len(selected) == 2
     T = copy.deepcopy(S.trials.results)
     S.run(20)
     assert all([t == s for t, s in zip(T, S.trials.results[:10])])
-    selected = S.bandit_algo.best_by_round(list(S.trials))
+    selected = S.bandit_algo.boosting_best_by_round(S.trials, S.bandit)
     assert len(selected) == 4
+    
 
-
+@attr('slow')
+@attr('mongo')
 def test_budget_experiment():
-    S = exps.BudgetExperiment(ntrials=10, 
+    S = exps.BudgetExperiment(ntrials=4, 
                        save=False,
                        num_features=10,
-                       ensemble_sizes=[2, 5],
+                       ensemble_sizes=[2],
                        bandit_func=DummyDecisionsBandit,
                        bandit_algo_class=hyperopt.Random,
                        exp_prefix='test_stuff',
                        mongo_opts='localhost:22334/test_hyperopt',
                        look_back=1,
                        run_parallel=False)
+    assert S.get_info() == {'control': OrderedDict([('bandit', 'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 10), ('bandit_algo', 'hyperopt.base.Random')]),
+ 'fixed_features_2': {'ada_mix': OrderedDict([('bandit', 'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 5), ('bandit_algo', 'hyperopt.base.Random'), ('mixture', 'eccv12.experiments.AdaboostMixture'), ('mixture_kwargs', {'test_mask': True}), ('ensemble_size', 2)]),
+  'asyncboost': OrderedDict([('bandit', 'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 5), ('meta_algo', 'eccv12.experiments.AsyncBoostingAlgo'), ('bandit_algo', 'hyperopt.base.Random'), ('meta_kwargs', {'look_back': 1, 'round_len': 4})]),
+  'basic': OrderedDict([('bandit', 'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 5), ('bandit_algo', 'hyperopt.base.Random')]),
+  'simple_mix': OrderedDict([('bandit', 'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 5), ('bandit_algo', 'hyperopt.base.Random'), ('mixture', 'eccv12.experiments.SimpleMixture'), ('mixture_kwargs', {}), ('ensemble_size', 2)]),
+  'syncboost': OrderedDict([('bandit', 'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 5), ('meta_algo', 'eccv12.experiments.SyncBoostingAlgo'), ('bandit_algo', 'hyperopt.base.Random'), ('meta_kwargs', {'round_len': 4})])},
+ 'fixed_trials_2': {'ada_mix': OrderedDict([('bandit', 'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 10), ('bandit_algo', 'hyperopt.base.Random'), ('mixture', 'eccv12.experiments.AdaboostMixture'), ('mixture_kwargs', {'test_mask': True}), ('ensemble_size', 2)]),
+  'asyncboost': OrderedDict([('bandit', 'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 10), ('meta_algo', 'eccv12.experiments.AsyncBoostingAlgo'), ('bandit_algo', 'hyperopt.base.Random'), ('meta_kwargs', {'look_back': 1, 'round_len': 2})]),
+  'basic': OrderedDict([('bandit', 'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 10), ('bandit_algo', 'hyperopt.base.Random')]),
+  'simple_mix': OrderedDict([('bandit', 'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 10), ('bandit_algo', 'hyperopt.base.Random'), ('mixture', 'eccv12.experiments.SimpleMixture'), ('mixture_kwargs', {}), ('ensemble_size', 2)]),
+  'syncboost': OrderedDict([('bandit', 'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 10), ('meta_algo', 'eccv12.experiments.SyncBoostingAlgo'), ('bandit_algo', 'hyperopt.base.Random'), ('meta_kwargs', {'round_len': 2})])}}
     S.delete_all()
     S.run()
-                      
+    res = S.get_result()
+    assert res.keys() == ['control', 'fixed_trials_2', 'fixed_features_2']
+    assert res['control'].keys() == ['bandit', 'num_features', 'bandit_algo', 'trials']
+    assert len(res['control']['trials']) == 4
+    assert len(res['fixed_trials_2']['basic']['trials']) == 4
+    assert len(res['fixed_features_2']['basic']['trials']) == 8
+    

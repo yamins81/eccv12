@@ -1,5 +1,9 @@
 """
 Testing experiment classes
+
+The "test_digits" tests show validate that the four
+basic algorithms for ensemble selection produce loss results in the 
+right ordering, e.g. random ensembles > Top-A mixture > Adaboost > HTBoost
 """
 import copy
 import unittest
@@ -73,6 +77,7 @@ class FastBoostableDigits(BoostableDigits):
 
 
 class ForAllBoostingAlgos(object):
+
     """Mixin tests that call self.work(<BoostingAlgoCls>)
     """
 
@@ -403,7 +408,6 @@ def test_random_ensembles():
     assert np.allclose(errors['random_full'][0], 0.3656, atol=1e-3)
     assert np.allclose(errors['random_full'][1], 0.354, atol=1e-3)
 
-
     return exp, errors, {'random': [selected_spec]}
 
 
@@ -500,7 +504,6 @@ def boosted_ensembles_helper(boosting_algo_class, full_0, full_1, atol=1e-3):
     It runs experiments on "LargerBoostableDigits" and asserts that the
     results come out consistently with our expectation regarding order.
     """
-
     bandit = NormalBoostableDigits()
     bandit_algo = hyperopt.Random(bandit)
     boosting_algo = boosting_algo_class(bandit_algo, round_len=ROUND_LEN)
