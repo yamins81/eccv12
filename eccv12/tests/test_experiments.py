@@ -1,11 +1,13 @@
 """
 Testing experiment classes
 """
+import copy
 import unittest
+
 import nose
 from nose.plugins.attrib import attr
-
 import numpy as np
+
 import hyperopt
 import pyll
 import eccv12.experiments as experiments
@@ -363,14 +365,14 @@ class NormalBoostableDigits(BoostableDigits):
     iterations of ensemble construction.
     """
 
-    param_gen = dict(FastBoostableDigits.param_gen)
+    param_gen = copy.deepcopy(FastBoostableDigits.param_gen)
     param_gen['feat_spec']['n_features'] = BASE_NUM_FEATURES / NUM_ROUNDS
 
 class LargerBoostableDigits(BoostableDigits):
     """
     This class is for searching the full ensemble space all at once
     """
-    param_gen = dict(FastBoostableDigits.param_gen)
+    param_gen = copy.deepcopy(FastBoostableDigits.param_gen)
     param_gen['feat_spec']['n_features'] = BASE_NUM_FEATURES
 
 
@@ -399,6 +401,8 @@ def test_random_ensembles():
 
     assert np.allclose(errors['random_full'][0], 0.3656, atol=1e-3)
     assert np.allclose(errors['random_full'][1], 0.354, atol=1e-3)
+
+
     return exp, errors, {'random': [selected_spec]}
 
 
@@ -440,18 +444,6 @@ def test_mixture_ensembles():
               'ada_mask_partial': ada_mask_er_partial,
               'ada_mask_full': ada_mask_er_full}
 
-    print errors
-
-    print 'simple_full', errors['simple_full']
-    print 'simple_partial[0]', errors['simple_partial'][0]
-    print 'simple_partial[1]', errors['simple_partial'][1]
-
-    print 'ANF', list(errors['ada_nomask_full'])
-    print 'ANP0', list(errors['ada_nomask_partial'][0])
-    print 'ANP1', list(errors['ada_nomask_partial'][1])
-    print 'AMF', list(errors['ada_mask_full'])
-    print 'AMP0', list(errors['ada_mask_partial'][0])
-    print 'AMP1', list(errors['ada_mask_partial'][1])
 
     ##
     ## SimpleMixture tests
@@ -459,45 +451,40 @@ def test_mixture_ensembles():
     ##   -  errors[...][0] is training error
     ##   -  errors[...][1] is test error
 
-    assert np.allclose(errors['simple_full'][0], 0.068, atol=1e-3)
-    assert np.allclose(errors['simple_full'][1], 0.11, atol=1e-3)
-
-    assert np.allclose(errors['simple_partial'][0],
-            [0.1336, 0.088800000000000004, 0.076799999999999993,
-                0.067199999999999996, 0.068000000000000005],
-        atol=1e-3)
-    assert np.allclose(errors['simple_partial'][1],
-            [0.14199999999999999, 0.112, 0.114, 0.11, 0.104],
-        atol=1e-3)
-
     ##
     ## AdaBoostMixture tests
     ##
     ##   -  errors[...][0] is training error
     ##   -  errors[...][1] is test error
 
+    print errors
+    print '-' * 80
+    print """
+    CUT AND PASTE THIS IN TO UPDATE TESTS:
 
-    assert np.allclose(errors['ada_nomask_full'][0], 0.056, atol=1e-3)
-    assert np.allclose(errors['ada_nomask_full'][1], 0.108, atol=1e-3)
+    assert np.allclose(errors['simple_full'][0], %.5f, atol=1e-3)
+    assert np.allclose(errors['simple_full'][1], %.5f, atol=1e-3)
 
-    assert np.allclose(errors['ada_nomask_partial'][0],
-            [0.1336, 0.1024, 0.076799999999999993, 0.066400000000000001,
-                0.059999999999999998],
-            atol=1e-3)
-    assert np.allclose(errors['ada_nomask_partial'][1],
-            [0.14199999999999999, 0.14399999999999999, 0.12, 0.126, 0.122],
-            atol=1e-3)
+    assert np.allclose(errors['ada_nomask_full'][0], %.5f, atol=1e-3)
+    assert np.allclose(errors['ada_nomask_full'][1], %.5f, atol=1e-3)
 
-    assert np.allclose(errors['ada_mask_full'][0], 0.063200000000000006, atol=1e-3)
-    assert np.allclose(errors['ada_mask_full'][1],  0.106, atol=1e-3)
+    assert np.allclose(errors['ada_mask_full'][0], %.5f, atol=1e-3)
+    assert np.allclose(errors['ada_mask_full'][1],  %.5f, atol=1e-3)
 
-    assert np.allclose(errors['ada_mask_partial'][0],
-            [0.14399999999999999, 0.1032, 0.073599999999999999,
-                0.073599999999999999, 0.061600000000000002],
-            atol=1e-3)
-    assert np.allclose(errors['ada_mask_partial'][1],
-            [0.14199999999999999, 0.13400000000000001, 0.126, 0.122, 0.12],
-            atol=1e-3)
+    """ % (errors['simple_full']
+            + errors['ada_nomask_full']
+            + errors['ada_mask_full'])
+    print '-' * 80
+
+    assert np.allclose(errors['simple_full'][0], 0.27840, atol=1e-3)
+    assert np.allclose(errors['simple_full'][1], 0.28000, atol=1e-3)
+
+    assert np.allclose(errors['ada_nomask_full'][0], 0.25760, atol=1e-3)
+    assert np.allclose(errors['ada_nomask_full'][1], 0.28000, atol=1e-3)
+
+    assert np.allclose(errors['ada_mask_full'][0], 0.27280, atol=1e-3)
+    assert np.allclose(errors['ada_mask_full'][1], 0.27800, atol=1e-3)
+
 
     selected_specs = {'simple': simple_specs,
                       'ada_nomask': ada_nomask_specs,
@@ -507,8 +494,7 @@ def test_mixture_ensembles():
     return exp, errors, selected_specs
 
 
-def boosted_ensembles_helper(boosting_algo_class, full_0, full_1, part_0,
-        part_1, atol):
+def boosted_ensembles_helper(boosting_algo_class, full_0, full_1, atol=1e-3):
     """
     It runs experiments on "LargerBoostableDigits" and asserts that the
     results come out consistently with our expectation regarding order.
@@ -527,17 +513,21 @@ def boosted_ensembles_helper(boosting_algo_class, full_0, full_1, part_0,
     errors = {'boosted_partial': er_partial, 'boosted_full': er_full}
     selected_specs = {'boosted': selected_specs}
 
+    print boosting_algo_class
     print 'TIDs=', selected_tids
-    print 'full_0=', errors['boosted_full'][0]
-    print 'full_1=', errors['boosted_full'][1]
-    print "part_0=", list(errors['boosted_partial'][0])
-    print "part_1=", list(errors['boosted_partial'][1])
+    print '-' * 80
+    print """
+    CUT AND PASTE THIS IN TO UPDATE TESTS:
 
-    assert np.allclose(errors['boosted_full'][0], full_0, atol=atol)
-    assert np.allclose(errors['boosted_full'][1], full_1, atol=atol)
+    full_0=%.5f,
+    full_1=%.5f,
 
-    assert np.allclose(errors['boosted_partial'][0], part_0, atol=atol)
-    assert np.allclose(errors['boosted_partial'][1], part_1, atol=atol)
+    """ % (errors['boosted_full'])
+    print '-' * 80
+
+    assert np.allclose(errors['boosted_full'][0], 0.27360, atol=1e-3)
+    assert np.allclose(errors['boosted_full'][1], 0.27400, atol=1e-3)
+
 
     return exp, errors, selected_specs
 
@@ -546,13 +536,8 @@ def boosted_ensembles_helper(boosting_algo_class, full_0, full_1, part_0,
 def test_boosted_ensembles_asyncA():
     return boosted_ensembles_helper(
             experiments.AsyncBoostingAlgoA,
-            full_0=0.0512,
-            full_1=0.11,
-            part_0=[0.14399999999999999, 0.089599999999999999,
-                0.071199999999999999, 0.0608, 0.054399999999999997],
-            part_1=[0.14199999999999999, 0.128, 0.11600000000000001,
-                0.11600000000000001, 0.106],
-            atol=1e-2,
+            full_0=0.2736,
+            full_1=0.274,
             )
 
 
@@ -564,13 +549,8 @@ def test_boosted_ensembles_asyncB():
     #    supposed to.
     return boosted_ensembles_helper(
             experiments.AsyncBoostingAlgoB,
-            full_0=0.0512,
-            full_1=0.11,
-            part_0=[0.14399999999999999, 0.089599999999999999,
-                0.071199999999999999, 0.0608, 0.054399999999999997],
-            part_1=[0.14199999999999999, 0.128, 0.11600000000000001,
-                0.11600000000000001, 0.106],
-            atol=1e-2,
+            full_0=0.2736,
+            full_1=0.274,
             )
 
 
@@ -579,11 +559,8 @@ def test_boosted_ensembles_sync():
     return boosted_ensembles_helper(
             experiments.SyncBoostingAlgo,
             #TIDs=[1, 5, 10], -- not currently tested
-            full_0=0.0512,
-            full_1=0.11,
-            part_0=[0.1664, 0.1136, 0.096, 0.09034, 0.084],
-            part_1=[0.17, 0.142, 0.116, 0.12, 0.118],
-            atol=1e-2,
+            full_0=0.2736,
+            full_1=0.274,
             )
 
 
