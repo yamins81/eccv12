@@ -577,7 +577,7 @@ def test_boosted_ensembles_asyncB():
 def test_boosted_ensembles_sync():
     return boosted_ensembles_helper(
             experiments.SyncBoostingAlgo,
-            TIDs=[1, 5, 10],
+            #TIDs=[1, 5, 10], -- not currently tested
             full_0=0.0512,
             full_1=0.11,
             part_0=[0.1664, 0.1136, 0.096, 0.09034, 0.084],
