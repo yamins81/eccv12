@@ -348,10 +348,8 @@ def test_end_to_end_boost_asyncB():
 
 
 ##
-##
 ## Slow tests actually doing scientifically relevant tests on the
 ## BoostableDigits toy problem.
-##
 ##
 
 BASE_NUM_FEATURES = 16   # -- construct ensembles with this many features
@@ -566,7 +564,109 @@ def test_boosted_ensembles_sync():
 
 
 
+class TestAsyncError(unittest.TestCase):
+    """
+    Tests that ensure that each Algo behaves sensibly in the context of jobs
+    whose finish times are spread across multiple job start times.
+    """
+
+    def setUp(self):
+        self.trials = hyperopt.Trials()
+        self.bandit = DummyDecisionsBandit(n_train=50, n_test=10, n_splits=2)
+        # -- the list of tids used to get info back from FakeRandom
+        self.miscs_tids = []
+        class FakeRandom(hyperopt.Random):
+            def suggest(_self, ids, specs, results, miscs):
+                if miscs:
+                    # -- test that the SubAlgo always sees only jobs from one of
+                    #     the 'procs'
+                    my_proc_num = miscs[0]['proc_num']
+                    assert all((my_proc_num == m['proc_num']) for m in miscs)
+                assert len(specs) == len(results) == len(miscs)
+                # pass back the tids used in this call to suggest
+                self.miscs_tids.append([m['tid'] for m in miscs])
+                return hyperopt.Random.suggest(_self, ids, specs, results, miscs)
+        sub_algo = FakeRandom(self.bandit)
+
+
+    def push_job(self.expected_ids):
+        trials = self.trials
+
+        new_ids = trials.new_trial_ids(1)
+        # -- clear out the tid-passing buffer
+        self.miscs_tids[:] = []
+        new_specs, new_results, new_miscs = self.algo.suggest(new_ids,
+                trials.specs, trials.results, trials.miscs)
+        if expected_ids is not None:
+            # -- assert that FakeRandom got the expected tids
+            #    to work with
+            assert miscs_tids[0] == expected_ids
+        new_trials = trials.new_trial_docs(new_ids,
+                new_specs, new_results, new_miscs)
+        trials.insert_trial_docs(new_trials)
+        return new_ids
+
+    def do_job_ok(self):
+        # -- DummyDecisionsBandit always succeeds
+        Experiment(self.trials, self.algo, async=True).serial_evaluate(1)
+        # trials.refresh is called by serial_evaluate
+
+    def do_job_error(self):
+        for trial in self.trials._dynamic_trials:
+            if trial['state'] == JOB_STATE_NEW:
+                trial['state'] = JOB_STATE_ERROR
+                trial['misc']['error'] = (
+                        str(type(Exception)),
+                        'TestAsyncError crashed your trial for lolz')
+        self.trials.refresh()
+
+    def assert_counts(new, inprog, done, error):
+        """
+        Assert that self.trials has exactly the corresponding number of trials
+        in each state.
+
+        Pass None to ignore the count of a state.
+        """
+        if new is not None:
+            assert new == self.trials.count_by_state_unsynced(
+                hyperopt.JOB_STATE_NEW)
+        if inprog is not None:
+            assert inprog == self.trials.count_by_state_unsynced(
+                hyperopt.JOB_STATE_RUNNING)
+        if done is not None:
+            assert done == self.trials.count_by_state_unsynced(
+                hyperopt.JOB_STATE_DONE)
+        if error is not None:
+            assert error == self.trials.count_by_state_unsynced(
+                hyperopt.JOB_STATE_ERROR)
+
+    def test_parallel_algo(self):
+        self.algo = experiments.ParallelAlgo(sub_algo, num_procs=5)
+
+        # -- test that even if some of the first set of jobs are done async
+        #    that the first member of each process gets no data to work from.
+        push_job([])
+        do_jobs(1)
+        push_job([])
+        assert_counts(1, 0, 1, 0)
+        push_job([])
+        push_job([])
+        do_jobs(2)
+        assert_counts(1, 0, 3, 0)
+        push_job([])
+        assert_counts(2, 0, 3, 0)
+
+        # -- at this point, 5 tracks (procs?) of the ParallelAlgo should start passing
+        #    some evidence, if the corresponding trials are done
+
+        push_job([0])  # -- 4 jobs have finished
+        push_job([1])
+        push_job([2])
+        push_job([3])
+        push_job([4])   # -- last job of first set still not done, but inprog
+        #                   jobs are sent by experiment, so it should show up here
+
+        raise 0
+
+
 # XXX TEST WITH SPORADIC FAILURES
-
-# XXX TEST WITH ASYNC EXECUTION
-
