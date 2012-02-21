@@ -60,10 +60,18 @@ class LFWBandit(lfw.MainBandit):
 
 class SearchExp(object):
     """
-    basic "control" experiment to compare to other approaches
+    Basic control experiment against which to compare to other approaches.
+
+    num_features - the experiment will search a bandit that is configured to
+            deliver this many features.
+
     """
     def __init__(self, num_features, bandit_func, bandit_algo_class, mongo_opts,
                  exp_prefix, trials=None):
+        # -- N.B.
+        # if trials is None, then mongo_opts is used to create a MongoTrials,
+        # otherwise it is ignored.
+        #
         self.num_features = num_features
         self.bandit_algo_class = bandit_algo_class
         self.bandit = bandit_func(num_features)
@@ -125,7 +133,7 @@ class SearchExp(object):
                 async=True,
                 cmd=('driver_attachment', 'bandit_data'))
 
-        ##count results differently/better
+        # XXX: count results differently/better
         self.trials.refresh()
         num_done = len([_x for _x in self.trials.results
                                         if _x['status'] == hyperopt.STATUS_OK])
