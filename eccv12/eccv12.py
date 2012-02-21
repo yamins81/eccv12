@@ -284,62 +284,6 @@ class NestedExperiment(object):
     #####plotting code goes here also
 
 
-class BudgetExperiment(NestedExperiment):
-    """
-    for a given budget, explore comparisons in various ways for various
-    sizes of ensembles
-    """
-    def init_experiments(self, num_features,
-                   ensemble_sizes,
-                   bandit_func,
-                   bandit_algo_class,
-                   exp_prefix,
-                   mongo_opts,
-                   look_back,
-                   run_parallel=False):
-
-        ntrials = self.ntrials
-        save = self.save
-        #basic control to compare to
-        control_exp = SearchExp(num_features=num_features,
-                      bandit_func=bandit_func,
-                      bandit_algo_class=bandit_algo_class,
-                      mongo_opts=mongo_opts,
-                      exp_prefix=exp_prefix)
-        self.add_exp(control_exp, 'control')
-
-        for es in ensemble_sizes:
-            #trade off ensemble size for more trials, fixed final feature size
-            _C = ComparisonExperiment(ntrials=ntrials * es,
-                               save=save,
-                               num_features=num_features / es,
-                               round_len=ntrials,
-                               ensemble_size=es,
-                               bandit_func=bandit_func,
-                               bandit_algo_class=bandit_algo_class,
-                               mongo_opts=mongo_opts,
-                               exp_prefix=exp_prefix,
-                               run_parallel=run_parallel,
-                               look_back=look_back,
-                               adamix_kwargs={'test_mask':True})
-            self.add_exp(_C, 'fixed_features_%d' % es)
-
-            #trade off ensemble size for more features, fixed number of trials
-            _C = ComparisonExperiment(ntrials=ntrials,
-                               save=save,
-                               num_features=num_features,
-                               round_len=ntrials / es,
-                               ensemble_size=es,
-                               bandit_func=bandit_func,
-                               bandit_algo_class=bandit_algo_class,
-                               mongo_opts=mongo_opts,
-                               exp_prefix=exp_prefix,
-                               run_parallel=run_parallel,
-                               look_back=look_back,
-                               adamix_kwargs={'test_mask':True})
-            self.add_exp(_C, 'fixed_trials_%d' % es)
-
-
 class ComparisonExperiment(NestedExperiment):
     """Compare various approaches to ensemble construction.
     """
@@ -405,6 +349,67 @@ class ComparisonExperiment(NestedExperiment):
                                    mongo_opts=mongo_opts,
                                    exp_prefix=exp_prefix)
             self.add_exp(parallel_exp, 'parallel')
+
+
+class BudgetExperiment(NestedExperiment):
+    """
+    For a given budget, explore comparisons in various ways for various
+    sizes of ensembles.
+
+
+    ntrials
+
+    """
+    def init_experiments(self, num_features,
+                   ensemble_sizes,
+                   bandit_func,
+                   bandit_algo_class,
+                   exp_prefix,
+                   mongo_opts,
+                   look_back,
+                   run_parallel=False):
+
+        ntrials = self.ntrials
+        save = self.save
+        # -- search models sampled from `bandit_func(num_features)`
+        #    using search algorithm `bandit_algo_class`
+        control_exp = SearchExp(num_features=num_features,
+                      bandit_func=bandit_func,
+                      bandit_algo_class=bandit_algo_class,
+                      mongo_opts=mongo_opts,
+                      exp_prefix=exp_prefix)
+        self.add_exp(control_exp, 'control')
+
+        for es in ensemble_sizes:
+            #trade off ensemble size for more trials, fixed final feature size
+            _C = ComparisonExperiment(ntrials=ntrials * es,
+                               save=save,
+                               num_features=num_features / es,
+                               round_len=ntrials,
+                               ensemble_size=es,
+                               bandit_func=bandit_func,
+                               bandit_algo_class=bandit_algo_class,
+                               mongo_opts=mongo_opts,
+                               exp_prefix=exp_prefix,
+                               run_parallel=run_parallel,
+                               look_back=look_back,
+                               adamix_kwargs={'test_mask':True})
+            self.add_exp(_C, 'fixed_features_%d' % es)
+
+            #trade off ensemble size for more features, fixed number of trials
+            _C = ComparisonExperiment(ntrials=ntrials,
+                               save=save,
+                               num_features=num_features,
+                               round_len=ntrials / es,
+                               ensemble_size=es,
+                               bandit_func=bandit_func,
+                               bandit_algo_class=bandit_algo_class,
+                               mongo_opts=mongo_opts,
+                               exp_prefix=exp_prefix,
+                               run_parallel=run_parallel,
+                               look_back=look_back,
+                               adamix_kwargs={'test_mask':True})
+            self.add_exp(_C, 'fixed_trials_%d' % es)
 
 
 def run_random_experiment():
