@@ -298,6 +298,7 @@ def test_digits_random_ensembles():
               'random_full': er_full}
     selected_specs = {'random': selected_specs}
 
+    #THIS TEST FAILS -- I've stopped updating the numbers here because I don't know what's stable anymore
     assert np.abs(errors['random_full'][0] - .274) < 1e-2
     return exp, errors, selected_specs
 
