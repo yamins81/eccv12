@@ -242,7 +242,7 @@ class LargerBoostableDigits(FastBoostableDigits):
 
 class NormalBoostableDigits(FastBoostableDigits):
     param_gen = dict(FastBoostableDigits.param_gen)
-    param_gen['feat_spec']['n_features'] = BASE_NUM_FEATURES / ROUND_LEN
+    param_gen['feat_spec']['n_features'] = BASE_NUM_FEATURES / NUM_ROUNDS
     
 
 @attr('slow')
