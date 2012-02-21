@@ -29,17 +29,17 @@ def test_mixture_initializes():
                         hyperopt.Random,
                         "localhost:22334/test_hyperopt",
                         "test_stuff")
-    
+
     assert S.get_info() == OrderedDict([('bandit', 'eccv12.eccv12.LFWBandit'),
                             ('num_features', 10),
                             ('bandit_algo', 'hyperopt.base.Random'),
                             ('mixture', 'eccv12.experiments.AdaboostMixture'),
                             ('mixture_kwargs', {'test_mask': True}),
                             ('ensemble_size', 5)])
-    
+
     assert S.get_exp_key() == "test_stuffbandit:eccv12.eccv12.LFWBandit_num_features:10_bandit_algo:hyperopt.base.Random_mixture:eccv12.experiments.AdaboostMixture_mixture_kwargs:{'test_mask': True}_ensemble_size:5"
-    
-    
+
+
 def test_meta_initializes():
     S = exps.MetaExp(experiments.AsyncBoostingAlgo,
                     {"round_len":5, "look_back":1},
@@ -48,30 +48,30 @@ def test_meta_initializes():
                     hyperopt.Random,
                     "localhost:22334/test_hyperopt",
                     "test_stuff")
-                    
+
     assert S.get_info() == OrderedDict([('bandit', 'eccv12.eccv12.LFWBandit'),
                  ('num_features', 10),
                  ('meta_algo', 'eccv12.experiments.AsyncBoostingAlgo'),
                  ('bandit_algo', 'hyperopt.base.Random'),
                  ('meta_kwargs', {'look_back': 1, 'round_len': 5})])
 
-                    
+
 def test_search_initializes():
     S = exps.SearchExp(10,
                        exps.LFWBandit,
                        hyperopt.Random,
                        "localhost:22334/test_hyperopt",
                        "test_stuff")
-                       
+
     assert S.get_info() == OrderedDict([('bandit', 'eccv12.eccv12.LFWBandit'),
                ('num_features', 10), ('bandit_algo', 'hyperopt.base.Random')])
-               
+
 
 class DummyDecisionsBandit(BaseBandit):
     param_gen = dict(
             seed=pyll.scope.randint(1000),
             decisions=None)
-            
+
     def __init__(self, n_features):
         BaseBandit.__init__(self)
         self.n_features = n_features
@@ -83,7 +83,7 @@ class DummyDecisionsBandit(BaseBandit):
         yhat = rs.normal(loc=0, scale=1, size=(1, self.n_features))
         decisions = config['decisions']
         if decisions is None:
-            decisions = np.zeros((1, self.n_features))     
+            decisions = np.zeros((1, self.n_features))
         else:
             decisions = np.array(decisions)
         new_dec = yhat + decisions
@@ -110,13 +110,13 @@ def test_search_dummy():
     T = copy.deepcopy(S.trials.results)
     S.run(20)
     assert all([t == s for t, s in zip(T, S.trials.results[:10])])
-    
 
-@attr('mongo')    
+
+@attr('mongo')
 @attr('medium')
 def test_mix_dummy():
     S = exps.MixtureExp(experiments.AdaboostMixture,
-                        {'test_mask': True}, 
+                        {'test_mask': True},
                         5,
                         10,
                        DummyDecisionsBandit,
@@ -128,8 +128,8 @@ def test_mix_dummy():
     res = S.get_result()
     assert len(res['mixture_inds']) == 5
     assert res['mixture_weights'].shape == (5, 1)
-    
-@attr('mongo')    
+
+@attr('mongo')
 @attr('medium')
 def test_meta_dummy():
     #THIS TEST IS NOT YET COMPLETE:  most of the time it works
@@ -138,7 +138,7 @@ def test_meta_dummy():
     #   TypeError: unsupported operand type(s) for -: 'int' and 'NoneType'
     #   This problem appears to go away if you re-run the test ... 
     #   This has to be investiaged further.
-       
+
     S = exps.MetaExp(experiments.SyncBoostingAlgo,
                     {"round_len": 5},
                     10,
@@ -155,12 +155,12 @@ def test_meta_dummy():
     assert all([t == s for t, s in zip(T, S.trials.results[:10])])
     selected = S.bandit_algo.boosting_best_by_round(S.trials, S.bandit)
     assert len(selected) == 4
-    
+
 
 @attr('slow')
 @attr('mongo')
 def test_budget_experiment():
-    S = exps.BudgetExperiment(ntrials=4, 
+    S = exps.BudgetExperiment(ntrials=4,
                        save=False,
                        num_features=10,
                        ensemble_sizes=[2],
@@ -189,4 +189,4 @@ def test_budget_experiment():
     assert len(res['control']['trials']) == 4
     assert len(res['fixed_trials_2']['basic']['trials']) == 4
     assert len(res['fixed_features_2']['basic']['trials']) == 8
-    
+
