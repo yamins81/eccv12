@@ -368,6 +368,7 @@ class NormalBoostableDigits(BoostableDigits):
     param_gen = copy.deepcopy(FastBoostableDigits.param_gen)
     param_gen['feat_spec']['n_features'] = BASE_NUM_FEATURES / NUM_ROUNDS
 
+
 class LargerBoostableDigits(BoostableDigits):
     """
     This class is for searching the full ensemble space all at once
