@@ -66,12 +66,12 @@ class DummyDecisionsBandit(BaseBandit):
 
 
 class FastBoostableDigits(BoostableDigits):
-    NUM_ROUNDS = 5
-    BASE_NUM_FEATURES = 50
+    NUM_ROUNDS = 5           # -- use this many rounds to do it
+    BASE_NUM_FEATURES = 50   # -- construct ensembles with this many features
     ROUND_LEN = 5
 
     param_gen = dict(BoostableDigits.param_gen)
-    param_gen['svm_max_observations'] = 1000 # -- smaller value for speed
+    # param_gen['svm_max_observations'] = 1000
 
 
 class NormalBoostableDigits(FastBoostableDigits):
@@ -388,9 +388,8 @@ def test_random_ensembles():
     errors = {'random_partial': er_partial,
               'random_full': er_full}
 
-    # XXX I get this failing because it comes out to 0.17 now.. should I
-    # change it
-    assert np.abs(errors['random_full'][0] - .274) < 1e-2
+    assert np.allclose(errors['random_full'][0], .144, atol=1e-3)
+    assert np.allclose(errors['random_full'][1], .142, atol=1e-3)
     return exp, errors, {'random': [selected_spec]}
 
 
@@ -406,7 +405,7 @@ def test_mixture_ensembles():
     bandit = NormalBoostableDigits()
     bandit_algo = hyperopt.Random(bandit)
     trials = hyperopt.Trials()
-    exp = hyperopt.Experiment(trials, bandit_algo, async=False)
+    exp = Experiment(trials, bandit_algo)
     exp.run(NUM_ROUNDS * ROUND_LEN)
 
     results = trials.results
@@ -442,17 +441,19 @@ def test_mixture_ensembles():
     ##   -  errors[...][0] is training error
     ##   -  errors[...][1] is test error
 
-    assert np.allclose(errors['simple_full'][0], 0.156, atol=1e-2)
+    print 'simple_full', errors['simple_full']
+    assert np.allclose(errors['simple_full'][0], 0.068, atol=1e-3)
+    assert np.allclose(errors['simple_full'][1], 0.11, atol=1e-3)
 
-    assert np.allclose(errors['simple_full'][1], 0.164, atol=1e-2)
-
+    print 'simple_partial[0]', errors['simple_partial'][0]
+    print 'simple_partial[1]', errors['simple_partial'][1]
     assert np.allclose(errors['simple_partial'][0],
-        [0.1752, 0.1376, 0.1272, 0.1288, 0.12],
-        atol=1e-2)
-
+            [0.1336, 0.088800000000000004, 0.076799999999999993,
+                0.067199999999999996, 0.068000000000000005],
+        atol=1e-3)
     assert np.allclose(errors['simple_partial'][1],
-        [0.214, 0.152, 0.15, 0.15, 0.146],
-        atol=1e-2)
+            [0.14199999999999999, 0.112, 0.114, 0.11, 0.104],
+        atol=1e-3)
 
     ### XXX: is it normal that the partial fit results get so much lower in
     #         both train and test, than the full-fit errors?  Usually I saw
@@ -473,25 +474,27 @@ def test_mixture_ensembles():
     print 'AMP0', list(errors['ada_mask_partial'][0])
     print 'AMP1', list(errors['ada_mask_partial'][1])
 
-    assert np.allclose(errors['ada_nomask_full'][0], 0.10, atol=1e-2)
-    assert np.allclose(errors['ada_nomask_full'][1], 0.128, atol=1e-2)
+    assert np.allclose(errors['ada_nomask_full'][0], 0.056, atol=1e-3)
+    assert np.allclose(errors['ada_nomask_full'][1], 0.108, atol=1e-3)
 
     assert np.allclose(errors['ada_nomask_partial'][0],
-            [0.1752, 0.1328, 0.108, 0.1008, 0.0928],
-            atol=1e-2)
+            [0.1336, 0.1024, 0.076799999999999993, 0.066400000000000001,
+                0.059999999999999998],
+            atol=1e-3)
     assert np.allclose(errors['ada_nomask_partial'][1],
-            [0.214, 0.158, 0.13, 0.134, 0.132],
-            atol=1e-2)
+            [0.14199999999999999, 0.14399999999999999, 0.12, 0.126, 0.122],
+            atol=1e-3)
 
-    assert np.allclose(errors['ada_mask_full'][0], .1088, atol=1e-2)
-    assert np.allclose(errors['ada_mask_full'][1], .1360, atol=1e-2)
+    assert np.allclose(errors['ada_mask_full'][0], 0.063200000000000006, atol=1e-3)
+    assert np.allclose(errors['ada_mask_full'][1],  0.106, atol=1e-3)
 
     assert np.allclose(errors['ada_mask_partial'][0],
-            [0.1752, 0.1312, 0.0976, 0.0928, 0.0856],
-            atol=1e-2)
+            [0.14399999999999999, 0.1032, 0.073599999999999999,
+                0.073599999999999999, 0.061600000000000002],
+            atol=1e-3)
     assert np.allclose(errors['ada_mask_partial'][1],
-            [0.174, 0.168, 0.13, 0.126, 0.134],
-            atol=1e-2)
+            [0.14199999999999999, 0.13400000000000001, 0.126, 0.122, 0.12],
+            atol=1e-3)
 
     selected_specs = {'simple': simple_specs,
                       'ada_nomask': ada_nomask_specs,
@@ -501,50 +504,87 @@ def test_mixture_ensembles():
     return exp, errors, selected_specs
 
 
-@attr('slow')
-def test_boosted_ensembles_asyncA():
-    return boosted_ensembles_base(
-            experiments.AsyncBoostingAlgoA)
-
-
-@attr('slow')
-def test_boosted_ensembles_asyncB():
-    return boosted_ensembles_base(
-            experiments.AsyncBoostingAlgoB)
-
-
-@attr('slow')
-def test_boosted_ensembles_sync():
-    return boosted_ensembles_base(
-            experiments.SyncBoostingAlgo)
-
-
-def assert_boosted_ensembles_for_regression(boosting_algo_class):
+def boosted_ensembles_helper(boosting_algo_class, full_0, full_1, part_0,
+        part_1, atol):
     """
     It runs experiments on "LargerBoostableDigits" and asserts that the
     results come out consistently with our expectation regarding order.
     """
+    NUM_ROUNDS = FastBoostableDigits.NUM_ROUNDS
+    ROUND_LEN = FastBoostableDigits.ROUND_LEN
+
     bandit = NormalBoostableDigits()
     bandit_algo = hyperopt.Random(bandit)
-    boosting_algo = boosting_algo_class(bandit_algo,
-                                        round_len=ROUND_LEN)
+    boosting_algo = boosting_algo_class(bandit_algo, round_len=ROUND_LEN)
     trials = hyperopt.Trials()
-    exp = hyperopt.Experiment(
-            trials,
-            boosting_algo,
-            async=False)
+    exp = Experiment(trials, boosting_algo)
     exp.run(NUM_ROUNDS * ROUND_LEN)
     selected_specs = boosting_algo.boosting_best_by_round(trials, bandit)
+    selected_tids = boosting_algo.ensemble_member_tids(trials, bandit)
     er_partial = bandit.score_mixture_partial_svm(selected_specs)
     er_full = bandit.score_mixture_full_svm(selected_specs)
-    errors = {'boosted_partial': er_partial,
-              'boosted_full': er_full}
+    errors = {'boosted_partial': er_partial, 'boosted_full': er_full}
     selected_specs = {'boosted': selected_specs}
 
-    assert np.abs(errors['boosted_full'][0] - .1528) < 1e-2
-    assert np.abs(np.mean(errors['boosted_partial'][0]) - 0.21968) < 1e-2
+    print 'TIDs=', selected_tids
+    print 'full_0=', errors['boosted_full'][0]
+    print 'full_1=', errors['boosted_full'][1]
+    print "part_0=", list(errors['boosted_partial'][0])
+    print "part_1=", list(errors['boosted_partial'][1])
+
+    assert np.allclose(errors['boosted_full'][0], full_0, atol=atol)
+    assert np.allclose(errors['boosted_full'][1], full_1, atol=atol)
+
+    assert np.allclose(errors['boosted_partial'][0], part_0, atol=atol)
+    assert np.allclose(errors['boosted_partial'][1], part_1, atol=atol)
 
     return exp, errors, selected_specs
+
+
+@attr('slow')
+def test_boosted_ensembles_asyncA():
+    return boosted_ensembles_helper(
+            experiments.AsyncBoostingAlgoA,
+            full_0=0.0512,
+            full_1=0.11,
+            part_0=[0.14399999999999999, 0.089599999999999999,
+                0.071199999999999999, 0.0608, 0.054399999999999997],
+            part_1=[0.14199999999999999, 0.128, 0.11600000000000001,
+                0.11600000000000001, 0.106],
+            atol=1e-2,
+            )
+
+
+@attr('slow')
+def test_boosted_ensembles_asyncB():
+    # -- this behaves identically to asyncA
+    #    It's plausible that this is correct.
+    #    Other unit-tests show that the implementations differ when they're
+    #    supposed to.
+    return boosted_ensembles_helper(
+            experiments.AsyncBoostingAlgoB,
+            full_0=0.0512,
+            full_1=0.11,
+            part_0=[0.14399999999999999, 0.089599999999999999,
+                0.071199999999999999, 0.0608, 0.054399999999999997],
+            part_1=[0.14199999999999999, 0.128, 0.11600000000000001,
+                0.11600000000000001, 0.106],
+            atol=1e-2,
+            )
+
+
+@attr('slow')
+def test_boosted_ensembles_sync():
+    return boosted_ensembles_helper(
+            experiments.SyncBoostingAlgo,
+            TIDs=[1, 5, 10],
+            full_0=0.0512,
+            full_1=0.11,
+            part_0=[0.1664, 0.1136, 0.096, 0.09034, 0.084],
+            part_1=[0.17, 0.142, 0.116, 0.12, 0.118],
+            atol=1e-2,
+            )
+
 
 
 # XXX TEST WITH SPORADIC FAILURES
