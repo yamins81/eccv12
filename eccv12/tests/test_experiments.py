@@ -586,13 +586,17 @@ class TestAsyncError(unittest.TestCase):
                 # pass back the tids used in this call to suggest
                 self.miscs_tids.append([m['tid'] for m in miscs])
                 return hyperopt.Random.suggest(_self, ids, specs, results, miscs)
-        sub_algo = FakeRandom(self.bandit)
+        self.sub_algo = FakeRandom(self.bandit)
 
+    #
+    # Define a mini-language for describing asynchronous and error-ridden
+    # experiments as an event sequence.
+    #
 
-    def push_job(self.expected_ids):
+    def push_job(self, tid, expected_ids):
         trials = self.trials
 
-        new_ids = trials.new_trial_ids(1)
+        new_ids = [tid]
         # -- clear out the tid-passing buffer
         self.miscs_tids[:] = []
         new_specs, new_results, new_miscs = self.algo.suggest(new_ids,
@@ -600,27 +604,35 @@ class TestAsyncError(unittest.TestCase):
         if expected_ids is not None:
             # -- assert that FakeRandom got the expected tids
             #    to work with
-            assert miscs_tids[0] == expected_ids
+            assert len(self.miscs_tids) == 1
+            print 'EXPECTED', expected_ids
+            print 'GOT', self.miscs_tids
+            assert self.miscs_tids[0] == expected_ids
         new_trials = trials.new_trial_docs(new_ids,
                 new_specs, new_results, new_miscs)
+        new_trials[0]['misc']['cmd'] = None
         trials.insert_trial_docs(new_trials)
         return new_ids
 
-    def do_job_ok(self):
-        # -- DummyDecisionsBandit always succeeds
-        Experiment(self.trials, self.algo, async=True).serial_evaluate(1)
-        # trials.refresh is called by serial_evaluate
-
-    def do_job_error(self):
+    def do_job_ok(self, tid):
         for trial in self.trials._dynamic_trials:
-            if trial['state'] == JOB_STATE_NEW:
-                trial['state'] = JOB_STATE_ERROR
+            if trial['tid'] == tid:
+                assert trial['state'] == hyperopt.JOB_STATE_NEW
+                trial['state'] = hyperopt.JOB_STATE_DONE
+                trial['result'] = self.bandit.evaluate(trial['spec'], None)
+        self.trials.refresh()
+
+    def do_job_error(self, tid):
+        for trial in self.trials._dynamic_trials:
+            if trial['tid'] == tid:
+                assert trial['state'] == hyperopt.JOB_STATE_NEW
+                trial['state'] = hyperopt.JOB_STATE_ERROR
                 trial['misc']['error'] = (
                         str(type(Exception)),
                         'TestAsyncError crashed your trial for lolz')
         self.trials.refresh()
 
-    def assert_counts(new, inprog, done, error):
+    def assert_counts(self, new, inprog, done, error):
         """
         Assert that self.trials has exactly the corresponding number of trials
         in each state.
@@ -640,33 +652,83 @@ class TestAsyncError(unittest.TestCase):
             assert error == self.trials.count_by_state_unsynced(
                 hyperopt.JOB_STATE_ERROR)
 
-    def test_parallel_algo(self):
-        self.algo = experiments.ParallelAlgo(sub_algo, num_procs=5)
+    def get_cmds(self):
+        return (self.push_job, self.do_job_ok, self.do_job_error,
+                self.assert_counts)
+
+    #
+    # Test various event sequences on various algos
+    #
+
+    def test_parallel_algo_0(self):
+        self.algo = experiments.ParallelAlgo(self.sub_algo, num_procs=5)
+        push, do_ok, do_err, assert_counts = self.get_cmds()
 
         # -- test that even if some of the first set of jobs are done async
         #    that the first member of each process gets no data to work from.
-        push_job([])
-        do_jobs(1)
-        push_job([])
+        push(0, [])
+        do_ok(0)
+        push(1, [])
         assert_counts(1, 0, 1, 0)
-        push_job([])
-        push_job([])
-        do_jobs(2)
+        push(2, [])
+        push(3, [])
+        do_ok(2)
+        do_ok(1)
         assert_counts(1, 0, 3, 0)
-        push_job([])
+        push(4, [])
         assert_counts(2, 0, 3, 0)
 
         # -- at this point, 5 tracks (procs?) of the ParallelAlgo should start passing
         #    some evidence, if the corresponding trials are done
 
-        push_job([0])  # -- 4 jobs have finished
-        push_job([1])
-        push_job([2])
-        push_job([3])
-        push_job([4])   # -- last job of first set still not done, but inprog
+        #  XXX This is currently failing, what is right?
+        push(5, [0])  # -- 4 jobs have finished
+        push(6, [1])
+        push(7, [2])
+        push(8, [3])
+        push(9, [4])   # -- last job of first set still not done, but inprog
         #                   jobs are sent by experiment, so it should show up here
+        assert_counts(7, 0, 3, 0)
 
-        raise 0
+    def test_parallel_algo_1(self):
+        self.algo = experiments.ParallelAlgo(self.sub_algo, num_procs=5)
+        push, do_ok, do_err, assert_counts = self.get_cmds()
+        # put in some errors in the first round
+        raise NotImplementedError('keep going')
+
+    def test_asyncA_0(self):
+        self.algo = experiments.AsyncBoostingAlgoA(self.sub_algo, round_len=4)
+        push, do_ok, do_err, assert_counts = self.get_cmds()
+
+        raise NotImplementedError('keep going')
+
+    def test_asyncA_1(self):
+        self.algo = experiments.AsyncBoostingAlgoA(self.sub_algo, round_len=4)
+        push, do_ok, do_err, assert_counts = self.get_cmds()
+        # put in some errors in the first round
+        raise NotImplementedError('keep going')
+
+    def test_asyncB_0(self):
+        self.algo = experiments.AsyncBoostingAlgoB(self.sub_algo, round_len=4)
+        push, do_ok, do_err, assert_counts = self.get_cmds()
+        raise NotImplementedError()
+
+    def test_asyncB_1(self):
+        self.algo = experiments.AsyncBoostingAlgoB(self.sub_algo, round_len=4)
+        push, do_ok, do_err, assert_counts = self.get_cmds()
+        # put in some errors in the first round
+        raise NotImplementedError('keep going')
+
+    def test_sync_0(self):
+        self.algo = experiments.SyncBoostingAlgoA(self.sub_algo, round_len=4)
+        push, do_ok, do_err, assert_counts = self.get_cmds()
+        raise NotImplementedError()
+
+    def test_sync_1(self):
+        self.algo = experiments.SyncBoostingAlgoA(self.sub_algo, round_len=4)
+        push, do_ok, do_err, assert_counts = self.get_cmds()
+        # put in some errors in the first round
+        raise NotImplementedError('keep going')
 
 
 # XXX TEST WITH SPORADIC FAILURES
