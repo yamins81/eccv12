@@ -585,7 +585,8 @@ class TestAsyncError(unittest.TestCase):
                 assert len(specs) == len(results) == len(miscs)
                 # pass back the tids used in this call to suggest
                 self.miscs_tids.append([m['tid'] for m in miscs])
-                return hyperopt.Random.suggest(_self, ids, specs, results, miscs)
+                stuff = hyperopt.Random.suggest(_self, ids, specs, results, miscs)
+                return stuff
         self.sub_algo = FakeRandom(self.bandit)
 
     #
@@ -598,6 +599,7 @@ class TestAsyncError(unittest.TestCase):
 
         new_ids = [tid]
         # -- clear out the tid-passing buffer
+        print('--')
         self.miscs_tids[:] = []
         new_specs, new_results, new_miscs = self.algo.suggest(new_ids,
                 trials.specs, trials.results, trials.miscs)
@@ -605,6 +607,7 @@ class TestAsyncError(unittest.TestCase):
             # -- assert that FakeRandom got the expected tids
             #    to work with
             assert len(self.miscs_tids) == 1
+            print "---"
             print 'EXPECTED', expected_ids
             print 'GOT', self.miscs_tids
             assert self.miscs_tids[0] == expected_ids
@@ -612,6 +615,7 @@ class TestAsyncError(unittest.TestCase):
                 new_specs, new_results, new_miscs)
         new_trials[0]['misc']['cmd'] = None
         trials.insert_trial_docs(new_trials)
+        trials.refresh()
         return new_ids
 
     def do_job_ok(self, tid):
@@ -671,24 +675,31 @@ class TestAsyncError(unittest.TestCase):
         push(1, [])
         assert_counts(1, 0, 1, 0)
         push(2, [])
+        assert_counts(2, 0, 1, 0)
         push(3, [])
+        assert_counts(3, 0, 1, 0)
         do_ok(2)
+        assert_counts(2, 0, 2, 0)
         do_ok(1)
         assert_counts(1, 0, 3, 0)
         push(4, [])
         assert_counts(2, 0, 3, 0)
+        do_ok(4)
+        assert_counts(1, 0, 4, 0)
 
         # -- at this point, 5 tracks (procs?) of the ParallelAlgo should start passing
         #    some evidence, if the corresponding trials are done
-
-        #  XXX This is currently failing, what is right?
-        push(5, [0])  # -- 4 jobs have finished
+        
+        push(5, [0])  
+        assert_counts(2, 0, 4, 0)
         push(6, [1])
+        assert_counts(3, 0, 4, 0)
         push(7, [2])
+        assert_counts(4, 0, 4, 0)
         push(8, [3])
-        push(9, [4])   # -- last job of first set still not done, but inprog
-        #                   jobs are sent by experiment, so it should show up here
-        assert_counts(7, 0, 3, 0)
+        assert_counts(5, 0, 4, 0)
+        push(9, [4])
+        assert_counts(6, 0, 4, 0)
 
     def test_parallel_algo_1(self):
         self.algo = experiments.ParallelAlgo(self.sub_algo, num_procs=5)
@@ -720,12 +731,12 @@ class TestAsyncError(unittest.TestCase):
         raise NotImplementedError('keep going')
 
     def test_sync_0(self):
-        self.algo = experiments.SyncBoostingAlgoA(self.sub_algo, round_len=4)
+        self.algo = experiments.SyncBoostingAlgo(self.sub_algo, round_len=4)
         push, do_ok, do_err, assert_counts = self.get_cmds()
         raise NotImplementedError()
 
     def test_sync_1(self):
-        self.algo = experiments.SyncBoostingAlgoA(self.sub_algo, round_len=4)
+        self.algo = experiments.SyncBoostingAlgo(self.sub_algo, round_len=4)
         push, do_ok, do_err, assert_counts = self.get_cmds()
         # put in some errors in the first round
         raise NotImplementedError('keep going')
