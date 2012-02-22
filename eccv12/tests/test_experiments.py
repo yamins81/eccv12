@@ -600,10 +600,13 @@ class TestAsyncError(unittest.TestCase):
         # -- clear out the tid-passing buffer
         self.miscs_tids[:] = []
         print '--'
-        print [x['state'] for x in trials]
-        print [x.get('error') for x in trials.miscs]
+        ok_idx = [idx for idx, t in enumerate(trials) if t['state'] != hyperopt.JOB_STATE_ERROR]
+        specs = [trials.specs[idx] for idx in ok_idx]
+        results = [trials.results[idx] for idx in ok_idx]
+        miscs = [trials.miscs[idx] for idx in ok_idx]
+        print [m['proc_num'] for m in miscs]
         new_specs, new_results, new_miscs = self.algo.suggest(new_ids,
-                trials.specs, trials.results, trials.miscs)
+                                                  specs, results, miscs)
         if expected_ids is not None:
             # -- assert that FakeRandom got the expected tids
             #    to work with
@@ -707,16 +710,36 @@ class TestAsyncError(unittest.TestCase):
         push, do_ok, do_err, assert_counts = self.get_cmds()
 
         push(0, [])
+        assert_counts(1, 0, 0, 0)
         do_err(0)
+        assert_counts(0, 0, 0, 1)
         push(1, [])
+        assert_counts(1, 0, 0, 1)
         do_ok(1)
+        assert_counts(0, 0, 1, 1)
         push(2, [])
+        assert_counts(1, 0, 1, 1)
         do_ok(2)
+        assert_counts(0, 0, 2, 1)
         push(3, [])
+        assert_counts(1, 0, 2, 1)
         push(4, [])
+        assert_counts(2, 0, 2, 1)
         do_ok(3)
+        assert_counts(1, 0, 3, 1)
         push(5, [])
-        push(6, [])
+        assert_counts(2, 0, 3, 1)
+        push(6, [1])
+        assert_counts(3, 0, 3, 1)
+        push(7, [2])
+        assert_counts(4, 0, 3, 1)
+        do_err(4)
+        assert_counts(3, 0, 3, 2)
+        push(8, [])
+        push(9, [3])
+        push(10, [8])
+        push(11, [5])
+        
 
     def test_asyncA_0(self):
         self.algo = experiments.AsyncBoostingAlgoA(self.sub_algo, round_len=4)
