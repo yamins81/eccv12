@@ -141,12 +141,6 @@ def test_mix_dummy():
 @attr('mongo')    
 @attr('medium')
 def test_meta_dummy():
-    #THIS TEST IS NOT YET COMPLETE:  most of the time it works
-    #but then for reasons I don't yet know i sometimes see:
-    #  331                 last_best = losses.argmin() 
-    #   TypeError: unsupported operand type(s) for -: 'int' and 'NoneType'
-    #   This problem appears to go away if you re-run the test ... 
-    #   This has to be investiaged further.
        
     S = exps.MetaExp(experiments.SyncBoostingAlgo,
                     {"round_len": 5},
@@ -155,7 +149,6 @@ def test_meta_dummy():
                    hyperopt.Random,
                    "localhost:22334/test_hyperopt",
                    "test_stuff")
-    S.delete_all()
     S.run(10)
     selected = S.bandit_algo.boosting_best_by_round(S.trials, S.bandit)
     assert len(selected) == 2

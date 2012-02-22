@@ -115,20 +115,18 @@ class SearchExp(object):
         bandit_kwargs = {}
         blob = cPickle.dumps((bandit_name, bandit_args, bandit_kwargs))
         self.trials.attachments['bandit_data'] = blob
+        self.trials.refresh()
+        bandit_algo_wrap = NtrialsBanditAlgo(self.bandit_algo, ntrials)
         exp = hyperopt.Experiment(
                 self.trials,
-                self.bandit_algo,
+                bandit_algo_wrap,
                 async=True,
-                cmd=('driver_attachment', 'bandit_data'))
-                
-        ##count results differently/better
+                cmd=('driver_attachment', 'bandit_data'))   
+        n_done = len([_x for _x in self.trials.results if _x['status'] == hyperopt.STATUS_OK])
+        n_left = ntrials - n_done
+        exp.run(n_left, block_until_done=True)
         self.trials.refresh()
-        num_done = len([_x for _x in self.trials.results 
-                                        if _x['status'] == hyperopt.STATUS_OK])
-        num_left = ntrials - num_done
-        exp.run(num_left, block_until_done=True)
         
-
     def save(self):
         """
         assemble results and save them out to a pkl file
@@ -140,7 +138,22 @@ class SearchExp(object):
 
     def delete_all(self):
         self.trials.delete_all()
-        
+    
+    
+class NtrialsBanditAlgo(hyperopt.BanditAlgo):
+    def __init__(self, base_bandit_algo, ntrials):
+        hyperopt.BanditAlgo.__init__(self, base_bandit_algo.bandit)
+        self.base_bandit_algo = base_bandit_algo
+        self.ntrials = ntrials
+    
+    def suggest(self, new_ids, specs, results, miscs):
+        OKs = [_x for _x in results if _x['status'] == hyperopt.STATUS_OK] 
+        new_ids = new_ids[: self.ntrials - len(OKs)]
+        if not new_ids:
+            return [], [], []
+        else:
+            return self.base_bandit_algo.suggest(new_ids, specs, results, miscs)
+
 
 class MixtureExp(SearchExp):
     """
