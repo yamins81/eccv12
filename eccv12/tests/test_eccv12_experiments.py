@@ -149,6 +149,7 @@ def test_meta_dummy():
                    hyperopt.Random,
                    "localhost:22334/test_hyperopt",
                    "test_stuff")
+    S.delete_all()
     S.run(10)
     selected = S.bandit_algo.boosting_best_by_round(S.trials, S.bandit)
     assert len(selected) == 2

@@ -122,9 +122,7 @@ class SearchExp(object):
                 bandit_algo_wrap,
                 async=True,
                 cmd=('driver_attachment', 'bandit_data'))   
-        n_done = len([_x for _x in self.trials.results if _x['status'] == hyperopt.STATUS_OK])
-        n_left = ntrials - n_done
-        exp.run(n_left, block_until_done=True)
+        exp.run(sys.maxint, block_until_done=False, break_when_n=ntrials)
         self.trials.refresh()
         
     def save(self):
@@ -147,8 +145,10 @@ class NtrialsBanditAlgo(hyperopt.BanditAlgo):
         self.ntrials = ntrials
     
     def suggest(self, new_ids, specs, results, miscs):
-        OKs = [_x for _x in results if _x['status'] == hyperopt.STATUS_OK] 
-        new_ids = new_ids[: self.ntrials - len(OKs)]
+        OKs = [x for x in results if x['status'] == hyperopt.STATUS_OK]
+        UNFINISHED = [x for x in results if x['status'] in [hyperopt.STATUS_RUNNING,
+                                                            hyperopt.STATUS_NEW]]
+        new_ids = new_ids[: self.ntrials - len(OKs) - len(UNFINISHED)]
         if not new_ids:
             return [], [], []
         else:
