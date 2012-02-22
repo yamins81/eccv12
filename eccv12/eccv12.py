@@ -122,7 +122,7 @@ class SearchExp(object):
                 bandit_algo_wrap,
                 async=True,
                 cmd=('driver_attachment', 'bandit_data'))   
-        exp.run(sys.maxint, block_until_done=False, break_when_n=ntrials)
+        exp.run(sys.maxint, block_until_done=False, break_when_n_done=ntrials)
         self.trials.refresh()
         
     def save(self):
