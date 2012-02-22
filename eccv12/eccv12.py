@@ -133,12 +133,16 @@ class SearchExp(object):
                 async=True,
                 cmd=('driver_attachment', 'bandit_data'))
 
-        # XXX: count results differently/better
-        self.trials.refresh()
-        num_done = len([_x for _x in self.trials.results
-                                        if _x['status'] == hyperopt.STATUS_OK])
-        num_left = ntrials - num_done
-        exp.run(num_left, block_until_done=True)
+        while True:
+            # Consider factoring this out into hyperopt.
+            n_that_count = self.trials.count_by_state_unsynced(
+                hyperopt.JOB_STATE_DONE)
+            num_left = ntrials - n_that_count
+            if num_left == 0:
+                break
+            exp.run(1, block_until_done=True)
+            # -- postcondition: trials had no NEW or RUNNING jobs at some very
+            # recent time.
 
 
     def save(self):
