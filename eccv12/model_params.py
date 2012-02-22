@@ -214,6 +214,12 @@ def pyll_param_func(nf=None):
         """
         return quniform(smin - q + 1e-5, smax, q)
 
+    def cont_pt1_10():
+        """Return a continuous replacement for one_of(.1, 1, 10)"""
+        s = np.sqrt(10)
+        return loguniform(np.log(.1 / s), np.log(10 * s))
+
+
     # N.B. that each layer is constructed with distinct objects
     # we don't want to use the same norm_shape_size at every layer.
     def lnorm():
@@ -222,11 +228,9 @@ def pyll_param_func(nf=None):
         return ('lnorm', {'kwargs':
                     {'inker_shape' : (size, size),
                      'outker_shape' : (size, size),
-                     'remove_mean' : choice([0, 1]),
-                     'stretch' : uniform(0, 10),
-                     # -- the original was a grid with .1, 1, 10
-                     #    This tries to match with 
-                     'threshold' : loguniform(np.log(.03), np.log(30)),
+                     'remove_mean' : one_of(0, 1),
+                     'stretch' : cont_pt1_10(),
+                     'threshold' : cont_pt1_10(),
                  }})
 
     def lpool(stride=2):
