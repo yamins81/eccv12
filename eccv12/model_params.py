@@ -246,7 +246,10 @@ def pyll_param_func(nf=None):
 
     def fbcorr(max_filters, iseed, n_filters=None):
         if n_filters is None:
-            qloguniform(np.log(1e-5), np.log(max_filters), q=16)
+            n_filters = qloguniform(
+                    np.log(1e-5),
+                    np.log(max_filters),
+                    q=16)
         size = rfilter_size(2, 10)
         return ('fbcorr', {
             'initialize': {
