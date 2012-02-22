@@ -3,6 +3,7 @@ import copy
 import pyll
 choice = pyll.scope.choice
 uniform = pyll.scope.uniform
+one_of = pyll.scope.one_of    # -- just one_of(a, b) means choice([a, b])
 
 norm_shape_choice = choice([(3,3),(5,5),(7,7),(9,9)])
 
@@ -192,3 +193,88 @@ def main_param_func(nf):
     v2 = l2_params
     v2['slm'][-1][0][1]['initialize']['n_filters'] = nf
     return choice([v2, v3])
+
+
+def pyll_param_func(nf=None):
+    """
+    Return a template for lfw.MainBandit that describes a hyperopt-friendly
+    description of the search space.
+
+    The goal here is to approximately match the FG11 sampling distribution,
+    while smoothing out the search space by using quantized ranges and
+    continuous variables where appropriate.
+    """
+
+    def rfilter_size(smin, smax, q=1):
+        """Return an integer size from smin to smax inclusive with equal prob
+        """
+        return quniform(smin - q + 1e-5, smax, q)
+
+    # N.B. that each layer is constructed with distinct objects
+    # we don't want to use the same norm_shape_size at every layer.
+    def lnorm():
+        size = rfilter_size(2, 10)
+
+        return ('lnorm', {'kwargs':
+                    {'inker_shape' : (size, size),
+                     'outker_shape' : (size, size),
+                     'remove_mean' : choice([0, 1]),
+                     'stretch' : uniform(0, 10),
+                     # -- the original was a grid with .1, 1, 10
+                     #    This tries to match with 
+                     'threshold' : loguniform(np.log(.03), np.log(30)),
+                 }})
+
+    def lpool(stride=2):
+        # XXX test that bincount on a big sample of these guys comes out about right
+        size = rfilter_size(2, 10)
+        # XXX are fractional powers ok here?
+        return ('lpool', {
+            'kwargs': {
+                'ker_shape': (size, size),
+                'order': loguniform(np.log(1), np.log(10)),
+                'stride': stride,
+                }})
+
+    def fbcorr(max_filters, iseed, n_filters=None):
+        if n_filters is None:
+            qloguniform(np.log(1e-5), np.log(max_filters), q=16)
+        size = rfilter_size(2, 10)
+        return ('fbcorr', {
+            'initialize': {
+                'filter_shape': (size, size),
+                'n_filters': n_filters,
+                'generate': (
+                    'random:uniform',
+                    {'rseed': choice(range(iseed, iseed + 5))}
+                    ),
+                },
+            'kwargs': {},
+            })
+
+    preproc_l3 = dict(
+            global_normalize=0,
+            crop=one_of(
+                [0, 0, 250, 250],
+                [25, 25, 175, 175],
+                [88, 63, 163, 188]),
+            size=[200, 200],
+            }
+
+    # -- N.B. shallow copy keeps the same crop object
+    preproc_l2 = dict(preproc_l3, size=[100, 100])
+
+    l0 = [lnorm()]
+    l1 = [fbcorr(64 + 32, 1), lpool(), lnorm()]
+    l2 = [fbcorr(128 + 64, 11), lpool(), lnorm()]
+    l3 = [fbcorr(256 + 128, 111), lpool(), lnorm()]
+
+    # -- the re-use of l0 and l1 will make both slm models accumulate evidence
+    #    for what works and what doesn't
+    # -- the cloning of l2 will do the opposite -- what works for l2 in l2_slm
+    #    will not be connected to what's good for l2 in l3_slm.
+    l3_slm = dict(slm=[l0, l1, l2, l3], preproc=preproc_l3)
+    l2_slm = dict(slm=[l0, l1, pyll.clone(l2)], preproc=preproc_l2)
+
+    return one_of(l3_slm, l2_slm)
+
