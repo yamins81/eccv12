@@ -127,23 +127,16 @@ class SearchExp(object):
         bandit_kwargs = {}
         blob = cPickle.dumps((bandit_name, bandit_args, bandit_kwargs))
         self.trials.attachments['bandit_data'] = blob
+        self.trials.refresh()
+        bandit_algo_wrap = NtrialsBanditAlgo(self.bandit_algo, ntrials)
         exp = hyperopt.Experiment(
                 self.trials,
-                self.bandit_algo,
+                bandit_algo_wrap,
                 async=True,
-                cmd=('driver_attachment', 'bandit_data'))
-
-        while True:
-            # Consider factoring this out into hyperopt.
-            n_that_count = self.trials.count_by_state_unsynced(
-                hyperopt.JOB_STATE_DONE)
-            num_left = ntrials - n_that_count
-            if num_left == 0:
-                break
-            exp.run(1, block_until_done=True)
-            # -- postcondition: trials had no NEW or RUNNING jobs at some very
-            # recent time.
-
+                max_queue_len=1,
+                cmd=('driver_attachment', 'bandit_data'))   
+        exp.run(sys.maxint, block_until_done=False, break_when_n_done=ntrials)
+        self.trials.refresh()
 
     def save(self):
         """
@@ -156,6 +149,23 @@ class SearchExp(object):
 
     def delete_all(self):
         self.trials.delete_all()
+
+    
+class NtrialsBanditAlgo(hyperopt.BanditAlgo):
+    def __init__(self, base_bandit_algo, ntrials):
+        hyperopt.BanditAlgo.__init__(self, base_bandit_algo.bandit)
+        self.base_bandit_algo = base_bandit_algo
+        self.ntrials = ntrials
+    
+    def suggest(self, new_ids, specs, results, miscs):
+        OKs = [x for x in results if x['status'] == hyperopt.STATUS_OK]
+        UNFINISHED = [x for x in results if x['status'] in [hyperopt.STATUS_RUNNING,
+                                                            hyperopt.STATUS_NEW]]
+        new_ids = new_ids[: self.ntrials - len(OKs) - len(UNFINISHED)]
+        if not new_ids:
+            return [], [], []
+        else:
+            return self.base_bandit_algo.suggest(new_ids, specs, results, miscs)
 
 
 class MixtureExp(SearchExp):
@@ -216,8 +226,8 @@ class NestedExperiment(object):
     Basic class for nested experiments.  The purpose of this class is to make
     it possible to run nested-style experiments in whatever order one wants
     and to obtain information about them easily.
-
-
+    
+    Derived classes must implement init_experiments method. 
     N.B. These methods take name that is a *tuple*.
          The `name` is a list/tuple of strings... these index into a hierarchy
          of nested experiments.

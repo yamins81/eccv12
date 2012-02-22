@@ -38,8 +38,16 @@ def test_mixture_initializes():
                             ('ensemble_size', 5)])
 
     assert S.get_exp_key() == "test_stuffbandit:eccv12.eccv12.LFWBandit_num_features:10_bandit_algo:hyperopt.base.Random_mixture:eccv12.experiments.AdaboostMixture_mixture_kwargs:{'test_mask': True}_ensemble_size:5"
-
-
+    S = exps.MixtureExp(experiments.SimpleMixture,
+                        {},
+                        5,
+                        10,
+                        exps.LFWBandit,
+                        hyperopt.Random,
+                        "localhost:22334/test_hyperopt",
+                        "test_stuff")
+    
+    
 def test_meta_initializes():
     S = exps.MetaExp(experiments.AsyncBoostingAlgo,
                     {"round_len":5, "look_back":1},
@@ -95,6 +103,7 @@ class DummyDecisionsBandit(BaseBandit):
                 is_test=is_test.tolist())
         return result
 
+
 @attr('mongo')
 @attr('medium')
 def test_search_dummy():
@@ -104,11 +113,12 @@ def test_search_dummy():
                        "localhost:22334/test_hyperopt",
                        "test_stuff")
     S.delete_all()
-    S.run(10)
-    assert len(S.trials.results) == 10
+    S.run(10)  
+    assert len(S.trials.results) == 10 #make sure number of jobs have been run
     assert 1 > np.mean([x['loss'] for x in S.trials.results]) > 0
     T = copy.deepcopy(S.trials.results)
-    S.run(20)
+    S.run(20)  
+    assert len(S.trials.results) == 20 #make sure right # of jobs have been run
     assert all([t == s for t, s in zip(T, S.trials.results[:10])])
 
 
@@ -129,16 +139,10 @@ def test_mix_dummy():
     assert len(res['mixture_inds']) == 5
     assert res['mixture_weights'].shape == (5, 1)
 
+
 @attr('mongo')
 @attr('medium')
 def test_meta_dummy():
-    #THIS TEST IS NOT YET COMPLETE:  most of the time it works
-    #but then for reasons I don't yet know i sometimes see:
-    #  331                 last_best = losses.argmin() 
-    #   TypeError: unsupported operand type(s) for -: 'int' and 'NoneType'
-    #   This problem appears to go away if you re-run the test ... 
-    #   This has to be investiaged further.
-
     S = exps.MetaExp(experiments.SyncBoostingAlgo,
                     {"round_len": 5},
                     10,
@@ -148,15 +152,18 @@ def test_meta_dummy():
                    "test_stuff")
     S.delete_all()
     S.run(10)
+    assert len(S.trials.results) == 10
     selected = S.bandit_algo.boosting_best_by_round(S.trials, S.bandit)
     assert len(selected) == 2
     T = copy.deepcopy(S.trials.results)
     S.run(20)
+    assert len(S.trials.results) == 20
     assert all([t == s for t, s in zip(T, S.trials.results[:10])])
-    selected = S.bandit_algo.boosting_best_by_round(S.trials, S.bandit)
-    assert len(selected) == 4
-
-
+    selected2 = S.bandit_algo.boosting_best_by_round(S.trials, S.bandit)
+    assert len(selected2) == 4
+    assert selected2[:2] == selected
+    
+    
 @attr('slow')
 @attr('mongo')
 def test_budget_experiment():
