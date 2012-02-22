@@ -16,3 +16,6 @@
 [submodule "thoreano"]
 	path = thoreano
 	url = git@github.com:jaberg/thoreano.git
+[submodule "pythor3"]
+	path = pythor3
+	url = git@github.com:nsf-ri-ubicv/pythor3.git

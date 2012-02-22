@@ -1,11 +1,15 @@
 """
-Experiment generator classes for easily creating the kinds of search-strategy comparisons
-we care about for the eccv paper.   Classes also contain conventions for saving
-out results and then (soon enough) generating figures. 
+Experiment generator classes for easily creating the kinds of search-strategy
+comparisons we care about for the eccv paper.   Classes also contain
+conventions for saving out results and then (soon enough) generating figures.
 
-This stuff is still in the process of being tested. 
+This stuff is still in the process of being tested.
 
-Entry point is to call something like "run_random_experiment()" or "run_tpe_experiment()"
+Entry point is to call something like
+
+* `run_random_experiment()`
+
+* `run_tpe_experiment()`
 
 """
 import cPickle
@@ -33,20 +37,20 @@ from hyperopt.mongoexp import MongoTrials, as_mongo_str
 
 from pyll import scope, clone, as_apply
 
-import lfw 
+import lfw
 import model_params
 
-from .experiments import (SyncBoostingAlgo,
-                                AsyncBoostingAlgo,
-                                AdaboostMixture,
-                                SimpleMixture,
-                                ParallelAlgo)
+from .experiments import SyncBoostingAlgo
+from .experiments import AsyncBoostingAlgo
+from .experiments import AdaboostMixture
+from .experiments import SimpleMixture
+from .experiments import ParallelAlgo
 from .model_params import main_param_func
 
 
 def cname(cls):
     return cls.__class__.__module__ + '.' + cls.__class__.__name__
-              
+
 
 class LFWBandit(lfw.MainBandit):
     def __init__(self, n_features):
@@ -56,26 +60,36 @@ class LFWBandit(lfw.MainBandit):
 
 class SearchExp(object):
     """
-    basic "control" experiment to compare to other approaches
+    Basic control experiment against which to compare to other approaches.
+
+    num_features - the experiment will search a bandit that is configured to
+            deliver this many features.
+
     """
     def __init__(self, num_features, bandit_func, bandit_algo_class, mongo_opts,
                  exp_prefix, trials=None):
+        # -- N.B.
+        # if trials is None, then mongo_opts is used to create a MongoTrials,
+        # otherwise it is ignored.
+        #
         self.num_features = num_features
         self.bandit_algo_class = bandit_algo_class
         self.bandit = bandit_func(num_features)
-        self.mongo_opts = mongo_opts 
+        self.mongo_opts = mongo_opts
         self.init_bandit_algo()
         self.exp_prefix = exp_prefix
-        self.exp_key = self.get_exp_key()
+
         if trials is None:
             trials = MongoTrials(as_mongo_str(self.mongo_opts) + '/jobs',
-                                      exp_key=self.exp_key)
+                                      exp_key=self.get_exp_key())
             #trials = Trials()
+
         self.trials = trials
-                
+        self.exp_key = self.trials._exp_key
+
     def init_bandit_algo(self):
         self.bandit_algo = self.bandit_algo_class(self.bandit)
-        
+
     def get_info(self):
         """
         return a dictionary containing identifying information about the experiment
@@ -85,15 +99,15 @@ class SearchExp(object):
             bandit=cname(self.bandit),
             bandit_algo=cname(self.bandit_algo)
             )
-    
+
     def get_exp_key(self):
         """
         turn identifying information into a mongo experiment key
         """
         info = self.get_info()
         tag = '_'.join([k + ':' + str(v) for (k, v) in info.items()])
-        return self.exp_prefix + tag 
-        
+        return self.exp_prefix + tag
+
     def get_filename(self, ntrials):
         """
         turn indentifying information into a filename for results saveout
@@ -101,30 +115,28 @@ class SearchExp(object):
         info = self.get_info()
         tag = '_'.join([k + ':' + str(v) for (k, v) in info.items()])
         return self.exp_prefix + tag + ('_%d' % ntrials) + '.pkl'
- 
+
     def get_result(self):
         trial_info = self.get_info()
         trial_info['trials'] = self.trials
         return trial_info
 
-    def run(self, n_trials):
+    def run(self, ntrials):
         bandit_name = self.get_info()['bandit']
         bandit_args = (self.num_features,)
         bandit_kwargs = {}
         blob = cPickle.dumps((bandit_name, bandit_args, bandit_kwargs))
         self.trials.attachments['bandit_data'] = blob
+        self.trials.refresh()
+        bandit_algo_wrap = NtrialsBanditAlgo(self.bandit_algo, ntrials)
         exp = hyperopt.Experiment(
                 self.trials,
-                self.bandit_algo,
+                bandit_algo_wrap,
                 async=True,
-                cmd=('driver_attachment', 'bandit_data'))
-                
-        ##count results differently/better
-        num_done = len([_x for _x in self.trials.results 
-                                        if _x['status'] == hyperopt.STATUS_OK])
-        num_left = n_trials - num_done
-        exp.run(num_left, block_until_done=True)
-        
+                max_queue_len=1,
+                cmd=('driver_attachment', 'bandit_data'))   
+        exp.run(sys.maxint, block_until_done=False, break_when_n_done=ntrials)
+        self.trials.refresh()
 
     def save(self):
         """
@@ -135,41 +147,64 @@ class SearchExp(object):
         ntrials = len(self.trials.results)
         cPickle.dump(result, open(self.get_filename(ntrials), 'w'))
 
+    def delete_all(self):
+        self.trials.delete_all()
+
+    
+class NtrialsBanditAlgo(hyperopt.BanditAlgo):
+    def __init__(self, base_bandit_algo, ntrials):
+        hyperopt.BanditAlgo.__init__(self, base_bandit_algo.bandit)
+        self.base_bandit_algo = base_bandit_algo
+        self.ntrials = ntrials
+    
+    def suggest(self, new_ids, specs, results, miscs):
+        OKs = [x for x in results if x['status'] == hyperopt.STATUS_OK]
+        UNFINISHED = [x for x in results if x['status'] in [hyperopt.STATUS_RUNNING,
+                                                            hyperopt.STATUS_NEW]]
+        new_ids = new_ids[: self.ntrials - len(OKs) - len(UNFINISHED)]
+        if not new_ids:
+            return [], [], []
+        else:
+            return self.base_bandit_algo.suggest(new_ids, specs, results, miscs)
+
 
 class MixtureExp(SearchExp):
     """
-    Mixture version of the class.  (just basically adds mixture info to 
+    Mixture version of the class.  (just basically adds mixture info to
     the identifying information)
     """
-    def __init__(self, mixture_class, ensemble_size, *args, **kwargs):
+    def __init__(self, mixture_class, mixture_kwargs, ensemble_size, *args, **kwargs):
         self.mixture_class = mixture_class
+        self.mixture_kwargs = mixture_kwargs
         self.ensemble_size = ensemble_size
         SearchExp.__init__(self, *args, **kwargs)
-        self.mixture = self.mixture_class(self.trials, self.bandit)
+        self.mixture = self.mixture_class(self.trials, self.bandit,
+                                          **mixture_kwargs)
 
     def get_info(self):
         info = SearchExp.get_info(self)
-        info['mixture'] = cname(self.mixture_class(None, None))
+        info['mixture'] = cname(self.mixture_class(None, None, **self.mixture_kwargs))
+        info['mixture_kwargs'] = self.mixture_kwargs
         info['ensemble_size'] = self.ensemble_size
         return info
-            
+
     def get_result(self):
         trial_info = SearchExp.get_result(self)
         inds, weights = self.mixture.mix_inds(self.ensemble_size)
         trial_info['mixture_inds'] = inds
         trial_info['mixture_weights'] = weights
         return trial_info
-        
-    
+
+
 class MetaExp(SearchExp):
     """
-    Version for having meta-bandit-algos, e.g. boosting, parallel. 
+    Version for having meta-bandit-algos, e.g. boosting, parallel.
     """
     def __init__(self, meta_algo_class, meta_kwargs, *args, **kwargs):
         self.meta_algo_class = meta_algo_class
         self.meta_kwargs = meta_kwargs
         SearchExp.__init__(self, *args, **kwargs)
-    
+
     def init_bandit_algo(self):
         """
         wrap the original bandit algo in the meta bandit algo
@@ -177,7 +212,7 @@ class MetaExp(SearchExp):
         self.base_bandit_algo = self.bandit_algo_class(self.bandit)
         self.bandit_algo = self.meta_algo_class(self.base_bandit_algo,
                                                 **self.meta_kwargs)
-                                        
+
     def get_info(self):
         info = SearchExp.get_info(self)
         info['meta_algo'] = info.pop('bandit_algo')
@@ -188,16 +223,26 @@ class MetaExp(SearchExp):
 
 class NestedExperiment(object):
     """
-    Basic class for nested experiments.  The purpose of this class is to make 
+    Basic class for nested experiments.  The purpose of this class is to make
     it possible to run nested-style experiments in whatever order one wants
     and to obtain information about them easily.
+    
+    Derived classes must implement init_experiments method. 
+    N.B. These methods take name that is a *tuple*.
+         The `name` is a list/tuple of strings... these index into a hierarchy
+         of nested experiments.
     """
     def __init__(self, ntrials, save, *args, **kwargs):
         self.experiments = OrderedDict([])
         self.ntrials = ntrials
         self.save = save
         self.init_experiments(*args, **kwargs)
-        
+
+    def add_exp(self, exp, tag):
+        if not hasattr(exp, 'ntrials'):
+            exp.ntrials = self.ntrials
+        self.experiments[tag] = exp
+
     def get_experiment(self, name):
         if len(name) == 0:
             return self
@@ -208,42 +253,40 @@ class NestedExperiment(object):
             else:
                 return e
 
-    def run(self, name=()):
+    def run(self, name=(), ntrials=None):
         exp = self.get_experiment(name)
         if isinstance(exp, NestedExperiment):
-            for exp0_name in exp.experiments:
-                exp0 = exp.experiments[exp0_name]
-                if isinstance(exp0, NestedExperiment):
-                    exp0.run()
-                else:
-                    exp0.run(self.ntrials);
-                    if self.save:
-                        exp0.save()
+            for exp0 in exp.experiments.values():
+                exp0.run(ntrials=exp0.ntrials)
         else:
-            exp.run(self.ntrials)
-            if self.save:
-                exp.save()
-            
+            exp.run(ntrials=exp.ntrials)
+
     def delete_all(self, name=()):
         exp = self.get_experiment(name)
         if isinstance(exp, NestedExperiment):
-            for exp0_name in exp.experiments:
-                exp0 = exp.experiments[exp0_name]
-                if isinstance(exp0, NestedExperiment):
-                    exp0.delete_all()
-                else:
-                    exp0.trials.delete_all()
+            for exp0 in exp.experiments.values():
+                exp0.delete_all()
         else:
-            exp.trials.delete_all()
-            
+            exp.delete_all()
+
     def save(self, name=()):
         exp = self.get_experiment(name)
         if isinstance(exp, NestedExperiment):
-            for exp0_name in exp.experiments:
-                exp0 = exp.experiments[exp0_name]
+            for exp0 in exp.experiments.vales():
                 exp0.save()
         else:
             exp.save()
+
+    def get_info(self, name=()):
+        exp = self.get_experiment(name)
+        if isinstance(exp, NestedExperiment):
+            res = {}
+            for exp0_name in exp.experiments:
+                exp0 = exp.experiments[exp0_name]
+                res[exp0_name] = exp0.get_info()
+            return res
+        else:
+            return exp.get_info()
 
     def get_result(self, name=()):
         exp = self.get_experiment(name)
@@ -256,79 +299,26 @@ class NestedExperiment(object):
         else:
             return exp.get_result()
 
-                                           
+
     #####plotting code goes here also
 
 
-class BudgetExperiment(NestedExperiment):
-    """
-    for a given budget, explore comparisons in various ways for various 
-    sizes of ensembles
-    """
-    def init_experiments(self, num_features, 
-                   ensemble_sizes,
-                   bandit_func,
-                   bandit_algo_class,
-                   exp_prefix,
-                   mongo_opts,
-                   look_back,
-                   run_parallel=False):
-        
-        ntrials = self.ntrials
-        save = self.save
-        #basic control to compare to
-        control_exp = SearchExp(num_features=num_features,
-                      bandit_func=bandit_func,
-                      bandit_algo_class=bandit_algo_class,
-                      mongo_opts=mongo_opts,
-                      exp_prefix=exp_prefix)
-        self.experiments['control'] = control_exp
-    
-        for es in ensemble_sizes:
-            #trade off ensemble size for more trials, fixed final feature size
-            _C = ComparisonExperiment(ntrials=ntrials * es,
-                               save=save,
-                               num_features=num_features / es, 
-                               round_len=ntrials,
-                               ensemble_size=es,
-                               bandit_func=bandit_func,
-                               bandit_algo_class=bandit_algo_class,
-                               mongo_opts=mongo_opts,
-                               exp_prefix=exp_prefix,
-                               run_parallel=run_parallel,
-                               look_back=look_back)
-            self.experiments['fixed_features_%d' % es] = _C
-            
-            #trade off ensemble size for more features, fixed number of trials
-            _C = ComparisonExperiment(ntrials=ntrials, 
-                               save=save,
-                               num_features=num_features, 
-                               round_len=ntrials / es,
-                               ensemble_size=es,
-                               bandit_func=bandit_func,
-                               bandit_algo_class=bandit_algo_class,
-                               mongo_opts=mongo_opts,
-                               exp_prefix=exp_prefix,
-                               run_parallel=run_parallel,
-                               look_back=look_back)
-            self.experiments['fixed_trials_%d' % es] = _C
-   
-        
 class ComparisonExperiment(NestedExperiment):
     """Compare various approaches to ensemble construction.
     """
-    def init_experiments(self, num_features, round_len, ensemble_size, 
+    def init_experiments(self, num_features, round_len, ensemble_size,
                  bandit_func, bandit_algo_class, mongo_opts, exp_prefix,
-                 run_parallel, look_back):
+                 run_parallel, look_back, adamix_kwargs):
 
         basic_exp = SearchExp(num_features=num_features,
                       bandit_func=bandit_func,
                       bandit_algo_class=bandit_algo_class,
                       mongo_opts=mongo_opts,
                       exp_prefix=exp_prefix)
-        self.experiments['basic'] = basic_exp
+        self.add_exp(basic_exp, 'basic')
 
         simple_mix = MixtureExp(mixture_class=SimpleMixture,
+                            mixture_kwargs={},
                             ensemble_size=ensemble_size,
                             num_features=num_features,
                             bandit_func=bandit_func,
@@ -336,10 +326,10 @@ class ComparisonExperiment(NestedExperiment):
                             mongo_opts=mongo_opts,
                             exp_prefix=exp_prefix,
                             trials=basic_exp.trials)
-        self.experiments['simple_mix'] = simple_mix
+        self.add_exp(simple_mix, 'simple_mix')
 
-        
         ada_mix = MixtureExp(mixture_class=AdaboostMixture,
+                            mixture_kwargs=adamix_kwargs,
                             ensemble_size=ensemble_size,
                             num_features=num_features,
                             bandit_func=bandit_func,
@@ -347,8 +337,8 @@ class ComparisonExperiment(NestedExperiment):
                             mongo_opts=mongo_opts,
                             exp_prefix=exp_prefix,
                             trials=basic_exp.trials)
-        self.experiments['ada_mix'] = ada_mix
-        
+        self.add_exp(ada_mix, 'ada_mix')
+
         syncboost_exp = MetaExp(meta_algo_class=SyncBoostingAlgo,
                                 meta_kwargs={"round_len": round_len},
                                 num_features=num_features,
@@ -356,8 +346,8 @@ class ComparisonExperiment(NestedExperiment):
                                 bandit_algo_class=bandit_algo_class,
                                 mongo_opts=mongo_opts,
                                 exp_prefix=exp_prefix)
-        self.experiments['syncboost'] = syncboost_exp
-    
+        self.add_exp(syncboost_exp, 'syncboost')
+
         asyncboost_exp = MetaExp(meta_algo_class=AsyncBoostingAlgo,
                                 meta_kwargs={"round_len": round_len,
                                              "look_back": look_back},
@@ -366,8 +356,8 @@ class ComparisonExperiment(NestedExperiment):
                                 bandit_algo_class=bandit_algo_class,
                                 mongo_opts=mongo_opts,
                                 exp_prefix=exp_prefix)
-        self.experiments['asyncboost'] = asyncboost_exp
-        
+        self.add_exp(asyncboost_exp, 'asyncboost')
+
         if run_parallel:
             parallel_exp = MetaExp(meta_algo_class=ParallelBoostingAlgo,
                                    meta_kwargs={"num_procs": ensemble_size},
@@ -376,12 +366,90 @@ class ComparisonExperiment(NestedExperiment):
                                    bandit_algo_class=bandit_algo_class,
                                    mongo_opts=mongo_opts,
                                    exp_prefix=exp_prefix)
-            self.experiments['parallel'] = parallel_exp
-        
-        
-def run_random_experiment():    
+            self.add_exp(parallel_exp, 'parallel')
+
+
+class BudgetExperiment(NestedExperiment):
+    """
+    For a given budget, explore comparisons in various ways for various
+    sizes of ensembles.
+
+
+    self.ntrials * num_features is the total budget for feature evaluation
+    during training.
+
+    num_features is the total budget for features in the final model.
+
+    This function sets up several experiments, that partition num_features
+    into various numbers (ensemble_sizes[i]) of feature sets.
+
+    N.B. that in the context of LFW and pythor-style feature extraction in
+    particular, the num features will always be multiplied by the output
+    feature-map size... which is a somewhat complicated function of many
+    parameters in the search space.  This introduces noise into the process of
+    trying to equalize experiment sizes, but anyway the equality was never
+    really quite there so no huge loss.
+
+    """
+    def init_experiments(self, num_features,
+                   ensemble_sizes,
+                   bandit_func,
+                   bandit_algo_class,
+                   exp_prefix,
+                   mongo_opts,
+                   look_back,
+                   run_parallel=False):
+
+        ntrials = self.ntrials
+        save = self.save
+        # -- search models sampled from `bandit_func(num_features)`
+        #    using search algorithm `bandit_algo_class`
+        control_exp = SearchExp(num_features=num_features,
+                      bandit_func=bandit_func,
+                      bandit_algo_class=bandit_algo_class,
+                      mongo_opts=mongo_opts,
+                      exp_prefix=exp_prefix)
+        self.add_exp(control_exp, 'control')
+
+        for es in ensemble_sizes:
+            #trade off ensemble size for more trials, fixed final feature size
+            assert num_features % es == 0
+            _C = ComparisonExperiment(ntrials=ntrials * es,
+                               num_features=num_features / es,
+                               round_len=ntrials,
+                               save=save,
+                               ensemble_size=es,
+                               bandit_func=bandit_func,
+                               bandit_algo_class=bandit_algo_class,
+                               mongo_opts=mongo_opts,
+                               exp_prefix=exp_prefix,
+                               run_parallel=run_parallel,
+                               look_back=look_back,
+                               adamix_kwargs={'test_mask':True})
+            self.add_exp(_C, 'fixed_features_%d' % es)
+
+            #trade off ensemble size for more features, fixed number of trials
+            _C = ComparisonExperiment(ntrials=ntrials,
+                               save=save,
+                               num_features=num_features,
+                               round_len=ntrials / es,
+                               ensemble_size=es,
+                               bandit_func=bandit_func,
+                               bandit_algo_class=bandit_algo_class,
+                               mongo_opts=mongo_opts,
+                               exp_prefix=exp_prefix,
+                               run_parallel=run_parallel,
+                               look_back=look_back,
+                               adamix_kwargs={'test_mask':True})
+            self.add_exp(_C, 'fixed_trials_%d' % es)
+
+
+def run_random_experiment():
+    """
+    THIS IS JUST ILLUSTRATIVE of how it WOULD be called
+    """
     B = BudgetExperiment(num_features=128,
-                       num_trials=100, 
+                       num_trials=100,
                        ensemble_sizes=[2, 5],
                        bandit_func=LFWBandit,
                        bandit_algo_class=hyperopt.Random,
@@ -389,12 +457,12 @@ def run_random_experiment():
                        mongo_opts='localhost:27017/eccv12',
                        look_back=1,
                        run_parallel=False)
-    B.run_all()
-                      
-                      
-def run_tpe_experiment():    
+    B.run()
+
+
+def run_tpe_experiment():
     B = BudgetExperiment(num_features=128,
-                       num_trials=100, 
+                       num_trials=100,
                        ensemble_sizes=[2, 5],
                        bandit_func=LFWBandit,
                        bandit_algo_class=hyperopt.TreeParzenEstimator,
@@ -402,4 +470,4 @@ def run_tpe_experiment():
                        mongo_opts='localhost:27017/eccv12',
                        look_back=1,
                        run_parallel=True)
-    B.run_all()
+    B.run()
