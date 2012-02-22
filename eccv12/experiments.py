@@ -12,13 +12,26 @@ import numpy as np
 import hyperopt
 
 
+def filter_oks(specs, results, miscs):
+    ok_idxs = [ii for ii, result in enumerate(results)
+            if result['status'] == hyperopt.STATUS_OK]
+    specs = [specs[ii] for ii in ok_idxs]
+    results = [results[ii] for ii in ok_idxs]
+    miscs = [miscs[ii] for ii in ok_idxs]
+    return specs, results, miscs
+
+
+def filter_ok_trials(trials):
+    return filter_oks(trials.specs, trials.results, trials.miscs)
+
+
 ##############
 ###MIXTURES###
 ##############
 
 class NotEnoughTrialsError(Exception):
     def __init__(self, A, N):
-        self.msg = 'Not enough trials: requires %d, has %d.' % (A, N)
+        self.msg = 'Not enough ok trials: requires %d, has %d.' % (A, N)
 
 
 class SimpleMixture(object):
@@ -34,7 +47,8 @@ class SimpleMixture(object):
 
         Return list of positions in self.trials, list of weights.
         """
-        results = self.trials.results
+        specs, results, miscs = filter_ok_trials(self.trials)
+
         if len(results) < A:
             raise NotEnoughTrialsError(A, len(results))
         specs = self.trials.specs
@@ -47,7 +61,7 @@ class SimpleMixture(object):
 
         Return list of specs, list of weights.
         """
-        specs = self.trials.specs
+        specs, results, miscs = filter_ok_trials(self.trials)
         inds, weights = self.mix_inds(A, **kwargs)
         return [specs[ind] for ind in inds], weights
 
@@ -64,7 +78,7 @@ class AdaboostMixture(SimpleMixture):
     def fetch_labels(self):
         """Return the 1D vector of +-1 labels for all examples.
         """
-        results = self.trials.results
+        specs, results, miscs = filter_ok_trials(self.trials)
         # -- take a detour and do a sanity check:
         #    All trials should have actually stored the *same* labels.
         labels = np.array([_r['labels'] for _r in results])
@@ -83,7 +97,7 @@ class AdaboostMixture(SimpleMixture):
     def fetch_decisions(self):
         """Return the 3D decisions array of each (trial, split, example)
         """
-        results = self.trials.results
+        specs, results, miscs = filter_ok_trials(self.trials)
         decisions = np.array([_r['decisions'] for _r in results])
         assert decisions.ndim == 3
         return decisions
@@ -104,7 +118,7 @@ class AdaboostMixture(SimpleMixture):
 
         Return (list of positions in self.trials), (list of weights).
         """
-        results = self.trials.results
+        specs, results, miscs = filter_ok_trials(self.trials)
         if len(results) < A:
             raise NotEnoughTrialsError(A, len(results))
         labels, split_mask = self.fetch_labels()
@@ -150,6 +164,9 @@ class AdaboostMixture(SimpleMixture):
 ###PARALLEL###
 ##############
 
+##XXXXXX:  filter OKs here in parallel?  I think NOT, given when the search exp 
+##meta-banditalgo will do
+
 class ParallelAlgo(hyperopt.BanditAlgo):
     """Interleaves calls to `num_procs` independent Trials sets
     
@@ -161,6 +178,7 @@ class ParallelAlgo(hyperopt.BanditAlgo):
         self.num_procs = num_procs
 
     def suggest(self, new_ids, specs, results, miscs):
+
         num_procs = self.num_procs
         proc_nums = [s['proc_num'] for s in miscs]
         proc_counts = np.array([proc_nums.count(j) for j in range(num_procs)])
@@ -182,17 +200,8 @@ class ParallelAlgo(hyperopt.BanditAlgo):
 ###BOOSTING###
 ##############
 
-def filter_oks(specs, results, miscs):
-    ok_idxs = [ii for ii, result in enumerate(results)
-            if result['status'] == hyperopt.STATUS_OK]
-    specs = [specs[ii] for ii in ok_idxs]
-    results = [results[ii] for ii in ok_idxs]
-    miscs = [miscs[ii] for ii in ok_idxs]
-    return specs, results, miscs
-
-
-def filter_ok_trials(trials):
-    return filter_oks(trials.specs, trials.results, trials.miscs)
+###XXXX In all these, consider using filter_ok just for purposes of picking
+###a thing to continue .. but passing on all the passed stuff to sub bandit algo
 
 
 class BoostingAlgoBase(hyperopt.BanditAlgo):
