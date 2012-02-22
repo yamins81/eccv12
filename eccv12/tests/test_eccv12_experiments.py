@@ -113,11 +113,12 @@ def test_search_dummy():
                        "localhost:22334/test_hyperopt",
                        "test_stuff")
     S.delete_all()
-    S.run(10)
-    assert len(S.trials.results) == 10
+    S.run(10)  
+    assert len(S.trials.results) == 10 #make sure number of jobs have been run
     assert 1 > np.mean([x['loss'] for x in S.trials.results]) > 0
     T = copy.deepcopy(S.trials.results)
-    S.run(20)
+    S.run(20)  
+    assert len(S.trials.results) == 20 #make sure right # of jobs have been run
     assert all([t == s for t, s in zip(T, S.trials.results[:10])])
     
 
@@ -151,13 +152,16 @@ def test_meta_dummy():
                    "test_stuff")
     S.delete_all()
     S.run(10)
+    assert len(S.trials.results) == 10
     selected = S.bandit_algo.boosting_best_by_round(S.trials, S.bandit)
     assert len(selected) == 2
     T = copy.deepcopy(S.trials.results)
     S.run(20)
+    assert len(S.trials.results) == 20
     assert all([t == s for t, s in zip(T, S.trials.results[:10])])
-    selected = S.bandit_algo.boosting_best_by_round(S.trials, S.bandit)
-    assert len(selected) == 4
+    selected2 = S.bandit_algo.boosting_best_by_round(S.trials, S.bandit)
+    assert len(selected2) == 4
+    assert selected2[:2] == selected
     
 
 @attr('slow')
