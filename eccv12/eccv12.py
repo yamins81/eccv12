@@ -216,6 +216,11 @@ class NestedExperiment(object):
     Basic class for nested experiments.  The purpose of this class is to make
     it possible to run nested-style experiments in whatever order one wants
     and to obtain information about them easily.
+
+
+    N.B. These methods take name that is a *tuple*.
+         The `name` is a list/tuple of strings... these index into a hierarchy
+         of nested experiments.
     """
     def __init__(self, ntrials, save, *args, **kwargs):
         self.experiments = OrderedDict([])
@@ -313,7 +318,6 @@ class ComparisonExperiment(NestedExperiment):
                             trials=basic_exp.trials)
         self.add_exp(simple_mix, 'simple_mix')
 
-
         ada_mix = MixtureExp(mixture_class=AdaboostMixture,
                             mixture_kwargs=adamix_kwargs,
                             ensemble_size=ensemble_size,
@@ -361,7 +365,20 @@ class BudgetExperiment(NestedExperiment):
     sizes of ensembles.
 
 
-    ntrials
+    self.ntrials * num_features is the total budget for feature evaluation
+    during training.
+
+    num_features is the total budget for features in the final model.
+
+    This function sets up several experiments, that partition num_features
+    into various numbers (ensemble_sizes[i]) of feature sets.
+
+    N.B. that in the context of LFW and pythor-style feature extraction in
+    particular, the num features will always be multiplied by the output
+    feature-map size... which is a somewhat complicated function of many
+    parameters in the search space.  This introduces noise into the process of
+    trying to equalize experiment sizes, but anyway the equality was never
+    really quite there so no huge loss.
 
     """
     def init_experiments(self, num_features,
@@ -386,10 +403,11 @@ class BudgetExperiment(NestedExperiment):
 
         for es in ensemble_sizes:
             #trade off ensemble size for more trials, fixed final feature size
+            assert num_features % es == 0
             _C = ComparisonExperiment(ntrials=ntrials * es,
-                               save=save,
                                num_features=num_features / es,
                                round_len=ntrials,
+                               save=save,
                                ensemble_size=es,
                                bandit_func=bandit_func,
                                bandit_algo_class=bandit_algo_class,
