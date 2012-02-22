@@ -121,6 +121,7 @@ class SearchExp(object):
                 self.trials,
                 bandit_algo_wrap,
                 async=True,
+                max_queue_len=1,
                 cmd=('driver_attachment', 'bandit_data'))   
         exp.run(sys.maxint, block_until_done=False, break_when_n_done=ntrials)
         self.trials.refresh()
