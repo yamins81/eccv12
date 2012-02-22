@@ -633,6 +633,18 @@ class TestAsyncError(unittest.TestCase):
                 trial['result'] = self.bandit.evaluate(trial['spec'], None)
         self.trials.refresh()
 
+    def do_job_fail(self, tid):
+        for trial in self.trials._dynamic_trials:
+            if trial['tid'] == tid:
+                assert trial['state'] == hyperopt.JOB_STATE_NEW
+                trial['state'] = hyperopt.JOB_STATE_DONE
+                trial['result'] = self.bandit.evaluate(trial['spec'], None)
+                assert trial['result']['status'] == hyperopt.STATUS_OK
+                trial['result']['status'] = hyperopt.STATUS_FAIL
+                trial['result'].pop('loss', None)
+                trial['result'].pop('decisions', None)
+        self.trials.refresh()
+
     def do_job_error(self, tid):
         for trial in self.trials._dynamic_trials:
             if trial['tid'] == tid:
@@ -664,8 +676,8 @@ class TestAsyncError(unittest.TestCase):
                 hyperopt.JOB_STATE_ERROR)
 
     def get_cmds(self):
-        return (self.push_job, self.do_job_ok, self.do_job_error,
-                self.assert_counts)
+        return (self.push_job, self.do_job_ok, self.do_job_fail, 
+                self.do_job_error, self.assert_counts)
 
     #
     # Test various event sequences on various algos
@@ -673,7 +685,7 @@ class TestAsyncError(unittest.TestCase):
 
     def test_parallel_algo_0(self):
         self.algo = experiments.ParallelAlgo(self.sub_algo, num_procs=5)
-        push, do_ok, do_err, assert_counts = self.get_cmds()
+        push, do_ok, do_fail, do_err, assert_counts = self.get_cmds()
 
         # -- test that even if some of the first set of jobs are done async
         #    that the first member of each process gets no data to work from.
@@ -710,7 +722,7 @@ class TestAsyncError(unittest.TestCase):
 
     def test_parallel_algo_1(self):
         self.algo = experiments.ParallelAlgo(self.sub_algo, num_procs=5)
-        push, do_ok, do_err, assert_counts = self.get_cmds()
+        push, do_ok, do_fail, do_err, assert_counts = self.get_cmds()
 
         push(0, [])
         assert_counts(1, 0, 0, 0)
@@ -746,7 +758,7 @@ class TestAsyncError(unittest.TestCase):
 
     def test_asyncA_0(self):
         self.algo = experiments.AsyncBoostingAlgoA(self.sub_algo, round_len=4)
-        push, do_ok, do_err, assert_counts = self.get_cmds()
+        push, do_ok, do_fail, do_err, assert_counts = self.get_cmds()
 
         # -- test that even if some of the first set of jobs are done async
         #    that the first member of each process gets no data to work from.
@@ -756,29 +768,29 @@ class TestAsyncError(unittest.TestCase):
 
     def test_asyncA_1(self):
         self.algo = experiments.AsyncBoostingAlgoA(self.sub_algo, round_len=4)
-        push, do_ok, do_err, assert_counts = self.get_cmds()
+        push, do_ok, do_fail, do_err, assert_counts = self.get_cmds()
         # put in some errors in the first round
         raise NotImplementedError('keep going')
 
     def test_asyncB_0(self):
         self.algo = experiments.AsyncBoostingAlgoB(self.sub_algo, round_len=4)
-        push, do_ok, do_err, assert_counts = self.get_cmds()
+        push, do_ok, do_fail, do_err, assert_counts = self.get_cmds()
         raise NotImplementedError()
 
     def test_asyncB_1(self):
         self.algo = experiments.AsyncBoostingAlgoB(self.sub_algo, round_len=4)
-        push, do_ok, do_err, assert_counts = self.get_cmds()
+        push, do_ok, do_fail, do_err, assert_counts = self.get_cmds()
         # put in some errors in the first round
         raise NotImplementedError('keep going')
 
     def test_sync_0(self):
         self.algo = experiments.SyncBoostingAlgo(self.sub_algo, round_len=4)
-        push, do_ok, do_err, assert_counts = self.get_cmds()
+        push, do_ok, do_fail, do_err, assert_counts = self.get_cmds()
         raise NotImplementedError()
 
     def test_sync_1(self):
         self.algo = experiments.SyncBoostingAlgo(self.sub_algo, round_len=4)
-        push, do_ok, do_err, assert_counts = self.get_cmds()
+        push, do_ok, do_fail, do_err, assert_counts = self.get_cmds()
         # put in some errors in the first round
         raise NotImplementedError('keep going')
 
