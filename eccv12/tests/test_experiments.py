@@ -585,8 +585,7 @@ class TestAsyncError(unittest.TestCase):
                 assert len(specs) == len(results) == len(miscs)
                 # pass back the tids used in this call to suggest
                 self.miscs_tids.append([m['tid'] for m in miscs])
-                stuff = hyperopt.Random.suggest(_self, ids, specs, results, miscs)
-                return stuff
+                return hyperopt.Random.suggest(_self, ids, specs, results, miscs)
         self.sub_algo = FakeRandom(self.bandit)
 
     #
@@ -599,7 +598,6 @@ class TestAsyncError(unittest.TestCase):
 
         new_ids = [tid]
         # -- clear out the tid-passing buffer
-        print('--')
         self.miscs_tids[:] = []
         new_specs, new_results, new_miscs = self.algo.suggest(new_ids,
                 trials.specs, trials.results, trials.miscs)
