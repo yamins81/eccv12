@@ -17,6 +17,8 @@ import sys
 import matplotlib.pyplot
 import copy
 
+import numpy as np
+
 try:
     from collections import OrderedDict
 except ImportError:
@@ -67,7 +69,7 @@ class SearchExp(object):
 
     """
     def __init__(self, num_features, bandit_func, bandit_algo_class, mongo_opts,
-                 exp_prefix, trials=None):
+                 exp_prefix, trials=None, error_cutoff=np.inf):
         # -- N.B.
         # if trials is None, then mongo_opts is used to create a MongoTrials,
         # otherwise it is ignored.
@@ -78,6 +80,7 @@ class SearchExp(object):
         self.mongo_opts = mongo_opts
         self.init_bandit_algo()
         self.exp_prefix = exp_prefix
+        self.error_cutoff = error_cutoff
 
         if trials is None:
             trials = MongoTrials(as_mongo_str(self.mongo_opts) + '/jobs',
@@ -128,7 +131,11 @@ class SearchExp(object):
         blob = cPickle.dumps((bandit_name, bandit_args, bandit_kwargs))
         self.trials.attachments['bandit_data'] = blob
         self.trials.refresh()
-        bandit_algo_wrap = NtrialsBanditAlgo(self.bandit_algo, ntrials)
+        bandit_algo_wrap = NtrialsBanditAlgo(self.bandit_algo,
+                                             ntrials=ntrials,
+                                             trials=self.trials,
+                                             error_cutoff=self.error_cutoff)
+        bandit_algo_wrap.trials = self.trials
         exp = hyperopt.Experiment(
                 self.trials,
                 bandit_algo_wrap,
@@ -152,13 +159,29 @@ class SearchExp(object):
 
     
 class NtrialsBanditAlgo(hyperopt.BanditAlgo):
-    def __init__(self, base_bandit_algo, ntrials):
+    def __init__(self, base_bandit_algo, ntrials, trials, error_cutoff):
         hyperopt.BanditAlgo.__init__(self, base_bandit_algo.bandit)
         self.base_bandit_algo = base_bandit_algo
         self.ntrials = ntrials
+        self.trials = trials
+        self.error_cutoff = error_cutoff
     
-    def suggest(self, new_ids, specs, results, miscs):
+    def filter_oks(self, trials, results, miscs):
         OKs = [x for x in results if x['status'] == hyperopt.STATUS_OK]
+        FAILs = [(x, y) for x, y in zip(results, miscs) if x['status'] == hyperopt.STATUS_FAIL]
+        for f, m in FAILs:
+            tid = m['tid']
+            t = [_t for _t in self.trials if t['misc']['tid'] == tid]
+            assert len(t) == 1
+            t = t[0]
+            wall_time = (t['refresh_time'] - t['book_time']).total_seconds()
+            if wall_time > self.error_cutoff:
+                OKs.append(f)
+        return OKs
+
+    def suggest(self, new_ids, specs, results, miscs):
+        
+        OKs = self.filter_oks(self.trials, results, miscs)
         UNFINISHED = [x for x in results if x['status'] in [hyperopt.STATUS_RUNNING,
                                                             hyperopt.STATUS_NEW]]
         new_ids = new_ids[: self.ntrials - len(OKs) - len(UNFINISHED)]
