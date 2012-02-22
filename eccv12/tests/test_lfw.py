@@ -23,7 +23,7 @@ def test_lfw_bandit():
     L = lfw.TestBandit()
     config = stochastic.sample(L.template, np.random.RandomState(0))
     config['decisions'] = None
-    rec = L.evaluate(config, hyperopt.base.Ctrl())
+    rec = L.evaluate(config, hyperopt.base.Ctrl(None))
     assert np.abs(rec['test_accuracy'] - 69.80) < .1
     return rec
 
@@ -34,7 +34,7 @@ def test_fg11_top_bandit():
     config['decisions'] = None
     config['slm'] = stochastic.sample(pyll.as_apply(params.fg11_top), np.random.RandomState(0))
     config['comparison'] = 'sqrtabsdiff'
-    rec = L.evaluate(config, hyperopt.base.Ctrl())
+    rec = L.evaluate(config, hyperopt.base.Ctrl(None))
     assert np.abs(rec['loss'] - .194) < 1e-2
     return rec
 
@@ -56,17 +56,17 @@ def test_mixture_ensembles():
 
     simple = experiments.SimpleMixture(trials, bandit)
     simple_inds, simple_weights = simple.mix_models(NUM_ROUNDS)
-    assert simple_inds.tolist() == [1, 0]
-    
+    assert list(simple_inds) == [1, 0]
+
     ada = experiments.AdaboostMixture(trials, bandit)
     ada_inds, ada_weights = ada.mix_models(NUM_ROUNDS)
     assert  np.abs(ada_weights.reshape((2,)) - np.array([.3812, .1975])).max() < 1e-3
-        
+
     selected_specs = {'simple': simple_specs,
                       'ada': ada_specs}
 
     #really need lfw view 2 methods to test this properly
-    
+
     return exp, selected_specs
 
 

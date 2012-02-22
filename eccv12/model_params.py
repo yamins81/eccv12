@@ -270,7 +270,7 @@ def pyll_param_func(nf=None):
                 [25, 25, 175, 175],
                 [88, 63, 163, 188]),
             size=[200, 200],
-            }
+            )
 
     # -- N.B. shallow copy keeps the same crop object
     preproc_l2 = dict(preproc_l3, size=[100, 100])
