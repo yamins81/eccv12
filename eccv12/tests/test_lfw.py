@@ -37,7 +37,7 @@ def test_fg11_top_bandit():
     rec = L.evaluate(config, hyperopt.base.Ctrl())
     assert np.abs(rec['loss'] - .194) < 1e-2
     return rec
-    
+
 
 NUM_ROUNDS = 2
 ROUND_LEN = 1
@@ -68,3 +68,13 @@ def test_mixture_ensembles():
     #really need lfw view 2 methods to test this properly
     
     return exp, selected_specs
+
+
+def test_pyll_resampling():
+    bandit = lfw.MainBandit()
+    s0 = pyll.stochastic.sample(bandit.template, np.random.RandomState(0))
+    s1 = pyll.stochastic.sample(bandit.template, np.random.RandomState(0))
+    print s0['model']['slm'][-1][-1][-1]['kwargs']['stretch']
+    print s1['model']['slm'][-1][-1][-1]['kwargs']['stretch']
+
+    assert s0 == s1
