@@ -599,6 +599,7 @@ class TestAsyncError(unittest.TestCase):
         new_ids = [tid]
         # -- clear out the tid-passing buffer
         self.miscs_tids[:] = []
+        print '--'
         new_specs, new_results, new_miscs = self.algo.suggest(new_ids,
                 trials.specs, trials.results, trials.miscs)
         if expected_ids is not None:
@@ -702,14 +703,28 @@ class TestAsyncError(unittest.TestCase):
     def test_parallel_algo_1(self):
         self.algo = experiments.ParallelAlgo(self.sub_algo, num_procs=5)
         push, do_ok, do_err, assert_counts = self.get_cmds()
-        # put in some errors in the first round
-        raise NotImplementedError('keep going')
+
+        push(0, [])
+        do_err(0)
+        push(1, [])
+        do_ok(1)
+        push(2, [])
+        do_ok(2)
+        push(3, [])
+        push(4, [])
+        do_ok(3)
+        push(5, [])
+        push(6, [])
 
     def test_asyncA_0(self):
         self.algo = experiments.AsyncBoostingAlgoA(self.sub_algo, round_len=4)
         push, do_ok, do_err, assert_counts = self.get_cmds()
 
+        # -- test that even if some of the first set of jobs are done async
+        #    that the first member of each process gets no data to work from.
         raise NotImplementedError('keep going')
+    
+
 
     def test_asyncA_1(self):
         self.algo = experiments.AsyncBoostingAlgoA(self.sub_algo, round_len=4)
