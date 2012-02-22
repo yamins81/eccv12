@@ -4,6 +4,10 @@ import pyll
 choice = pyll.scope.choice
 uniform = pyll.scope.uniform
 one_of = pyll.scope.one_of    # -- just one_of(a, b) means choice([a, b])
+uniform = pyll.scope.uniform
+quniform = pyll.scope.quniform
+loguniform = pyll.scope.loguniform
+qloguniform = pyll.scope.qloguniform
 
 norm_shape_choice = choice([(3,3),(5,5),(7,7),(9,9)])
 
