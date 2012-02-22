@@ -595,11 +595,13 @@ class TestAsyncError(unittest.TestCase):
 
     def push_job(self, tid, expected_ids):
         trials = self.trials
-
+        trials.refresh()
         new_ids = [tid]
         # -- clear out the tid-passing buffer
         self.miscs_tids[:] = []
         print '--'
+        print [x['state'] for x in trials]
+        print [x.get('error') for x in trials.miscs]
         new_specs, new_results, new_miscs = self.algo.suggest(new_ids,
                 trials.specs, trials.results, trials.miscs)
         if expected_ids is not None:
