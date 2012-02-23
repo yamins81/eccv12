@@ -1,4 +1,5 @@
 import copy
+import numpy as np
 
 import pyll
 choice = pyll.scope.choice
@@ -150,12 +151,12 @@ cvpr_top = [[('lnorm',
          'remove_mean': 1,
          'stretch': 0.1,
          'threshold': 1}})]]
-         
-         
+
+
 crop_choice = choice([[0, 0, 250, 250],
                       [25, 25, 175, 175],
                       [88, 63, 163, 188]])
-                      
+
 l3_params = {'slm': [[('lnorm', lnorm)],
                      [('fbcorr', filter1),
                       ('lpool', lpool_sub2),
@@ -170,7 +171,7 @@ l3_params = {'slm': [[('lnorm', lnorm)],
              'preproc': {'global_normalize': 0,
                          'crop': crop_choice,
                          'size': [200, 200]}} 
-                                          
+
 l2_params = {'slm': [[('lnorm', lnorm)],
                      [('fbcorr', filter1),
                       ('lpool', lpool_sub2),
@@ -182,7 +183,7 @@ l2_params = {'slm': [[('lnorm', lnorm)],
              'preproc': {'global_normalize': 0,
                          'crop': crop_choice,
                          'size': [100, 100]}}
-                         
+
 main_params = choice([l3_params, l2_params])
 
 test_params = {'slm': [[('lnorm', lnorm)]],
@@ -279,13 +280,14 @@ def pyll_param_func(nf=None):
     l1 = [fbcorr(64 + 32, 1), lpool(), lnorm()]
     l2 = [fbcorr(128 + 64, 11), lpool(), lnorm()]
     l3 = [fbcorr(256 + 128, 111), lpool(), lnorm()]
+    l2_clone = pyll.clone(pyll.as_apply(l2))
 
     # -- the re-use of l0 and l1 will make both slm models accumulate evidence
     #    for what works and what doesn't
     # -- the cloning of l2 will do the opposite -- what works for l2 in l2_slm
     #    will not be connected to what's good for l2 in l3_slm.
     l3_slm = dict(slm=[l0, l1, l2, l3], preproc=preproc_l3)
-    l2_slm = dict(slm=[l0, l1, pyll.clone(l2)], preproc=preproc_l2)
+    l2_slm = dict(slm=[l0, l1, l2_clone], preproc=preproc_l2)
 
     return one_of(l3_slm, l2_slm)
 
