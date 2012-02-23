@@ -1,8 +1,16 @@
+import sys
 import copy
+import threading
 import time
 import numpy as np
 import pyll
+
 import hyperopt
+from hyperopt.tests.test_mongoexp import with_mongo_trials
+from hyperopt.tests.test_mongoexp import MongoWorker
+from hyperopt.tests.test_mongoexp import TempMongo
+from hyperopt.tests.test_mongoexp import ReserveTimeout
+
 import eccv12.eccv12 as exps
 import eccv12.experiments as experiments
 from eccv12.bandits import BaseBandit
@@ -20,8 +28,8 @@ except ImportError:
                           "not available. To install it: "
                           "'pip install -vUI ordereddict'")
 
-
-def test_mixture_initializes():
+@with_mongo_trials
+def test_mixture_initializes(trials):
     S = exps.MixtureExp(experiments.AdaboostMixture,
                         {'test_mask': True},
                         5,
@@ -47,9 +55,10 @@ def test_mixture_initializes():
                         hyperopt.Random,
                         "localhost:22334/test_hyperopt",
                         "test_stuff")
-    
-    
-def test_meta_initializes():
+
+
+@with_mongo_trials
+def test_meta_initializes(trials):
     S = exps.MetaExp(experiments.AsyncBoostingAlgo,
                     {"round_len":5, "look_back":1},
                     10,
@@ -65,7 +74,8 @@ def test_meta_initializes():
                  ('meta_kwargs', {'look_back': 1, 'round_len': 5})])
 
 
-def test_search_initializes():
+@with_mongo_trials
+def test_search_initializes(trials):
     S = exps.SearchExp(10,
                        exps.LFWBandit,
                        hyperopt.Random,
@@ -82,7 +92,7 @@ class DummyDecisionsBandit(BaseBandit):
             decisions=None)
     fail_prob = 0
     time_delay = 0
-    
+
     def __init__(self, n_features):
         BaseBandit.__init__(self)
         self.n_features = n_features
@@ -90,7 +100,7 @@ class DummyDecisionsBandit(BaseBandit):
     def delay(self):
         time_delay = self.time_delay
         time.sleep(time_delay)
-        
+
     def performance_func(self, config, ctrl):
         r34 = np.random.RandomState(34)
         y = np.sign(r34.randn(self.n_features))
@@ -103,7 +113,7 @@ class DummyDecisionsBandit(BaseBandit):
             decisions = np.array(decisions)
         new_dec = yhat + decisions
         is_test = np.ones(decisions.shape)
-        
+
         self.delay() #random time delay, 0 by default
 
         #sporadic failures, none by default
@@ -127,33 +137,72 @@ class DummyDecisionsBandit(BaseBandit):
 
 class FailureDummyDecisionsBandit(DummyDecisionsBandit):
     fail_prob = 0.2
-    
+
 
 class HighFailureDummyDecisionsBandit(DummyDecisionsBandit):
     fail_prob = 0.5
-    
+
+
+# TODO: MOVE TO HYPEROPT
+def _worker_thread_fn(host_id, n_jobs, timeout, dbname='foodb'):
+    mw = MongoWorker(mj=TempMongo.mongo_jobs(dbname))
+    try:
+        while n_jobs:
+            mw.run_one(host_id, timeout)
+            print 'worker: %s ran job' % str(host_id)
+            n_jobs -= 1
+    except ReserveTimeout:
+        pass
+
+
+# TODO MOVE TO HYPEROPT
+def with_worker_threads(n_threads, dbname, n_jobs=sys.maxint, timeout=10.0):
+    """
+    Decorator that will run a test with some MongoWorker threads in flight
+    """
+    def newth(ii):
+        return threading.Thread(
+                target=_worker_thread_fn,
+                args=(('hostname', ii), n_jobs, timeout, dbname))
+    def deco(f):
+        def wrapper(*args, **kwargs):
+            # --start some threads
+            threads = map(newth, range(n_threads))
+            [th.start() for th in threads]
+            try:
+                return f(*args, **kwargs)
+            finally:
+                [th.join() for th in threads]
+        wrapper.__name__ = f.__name__ # -- nose requires test in name
+        return wrapper
+    return deco
+
 
 @attr('mongo')
 @attr('medium')
-def test_search_dummy():
+@with_mongo_trials
+@with_worker_threads(3, 'test_hyperopt', timeout=5.0)
+def test_search_dummy(trials):
     S = exps.SearchExp(10,
                        DummyDecisionsBandit,
                        hyperopt.Random,
                        "localhost:22334/test_hyperopt",
                        "test_stuff")
     S.delete_all()
-    S.run(10)  
+    S.run(10)
     assert len(S.trials.results) == 10 #make sure number of jobs have been run
     assert 1 > np.mean([x['loss'] for x in S.trials.results]) > 0
     T = copy.deepcopy(S.trials.results)
-    S.run(20)  
+    S.run(20)
     assert len(S.trials.results) == 20 #make sure right # of jobs have been run
     assert all([t == s for t, s in zip(T, S.trials.results[:10])])
 
 
 @attr('mongo')
 @attr('medium')
-def test_search_dummy_failure():
+@with_mongo_trials
+@with_worker_threads(3, 'test_hyperopt', timeout=5.0)
+def test_search_dummy_failure(trials):
     S = exps.SearchExp(10,
                        FailureDummyDecisionsBandit,
                        hyperopt.Random,
@@ -163,11 +212,13 @@ def test_search_dummy_failure():
     S.run(10)
     #make sure failure has caused 2 additional trials
     assert len(S.trials) == 12 
-    
-    
+
+
 @attr('mongo')
 @attr('medium')
-def test_search_dummy_failure_highprob():
+@with_mongo_trials
+@with_worker_threads(3, 'test_hyperopt', timeout=5.0)
+def test_search_dummy_failure_highprob(trials):
     S = exps.SearchExp(10,
                        HighFailureDummyDecisionsBandit,
                        hyperopt.Random,
@@ -181,7 +232,9 @@ def test_search_dummy_failure_highprob():
 
 @attr('mongo')
 @attr('medium')
-def test_search_dummy_failure_highprob_walltime_cutoff():
+@with_mongo_trials
+@with_worker_threads(3, 'test_hyperopt', timeout=5.0)
+def test_search_dummy_failure_highprob_walltime_cutoff(trials):
     S = exps.SearchExp(10,
                        HighFailureDummyDecisionsBandit,
                        hyperopt.Random,
@@ -197,7 +250,9 @@ def test_search_dummy_failure_highprob_walltime_cutoff():
 
 @attr('mongo')
 @attr('medium')
-def test_mix_dummy():
+@with_mongo_trials
+@with_worker_threads(3, 'test_hyperopt', timeout=5.0)
+def test_mix_dummy(trials):
     S = exps.MixtureExp(experiments.AdaboostMixture,
                         {'test_mask': True},
                         5,
@@ -215,7 +270,9 @@ def test_mix_dummy():
 
 @attr('mongo')
 @attr('medium')
-def test_meta_dummy():
+@with_mongo_trials
+@with_worker_threads(3, 'test_hyperopt', timeout=5.0)
+def test_meta_dummy(trials):
     S = exps.MetaExp(experiments.SyncBoostingAlgo,
                     {"round_len": 5},
                     10,
@@ -235,11 +292,13 @@ def test_meta_dummy():
     selected2 = S.bandit_algo.boosting_best_by_round(S.trials, S.bandit)
     assert len(selected2) == 4
     assert selected2[:2] == selected
-    
-    
+
+
 @attr('slow')
 @attr('mongo')
-def test_budget_experiment():
+@with_mongo_trials
+@with_worker_threads(3, 'test_hyperopt', timeout=5.0)
+def test_budget_experiment(trials):
     S = exps.BudgetExperiment(ntrials=4,
                        save=False,
                        num_features=10,

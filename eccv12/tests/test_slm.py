@@ -1,12 +1,14 @@
 import cPickle
 import string
+
+import nose
 import numpy as np
 import unittest
 import scipy.io
 
 import skdata.lfw
 
-from eccv12.plugins import (slm_memmap,
+from eccv12.lfw import (slm_memmap,
                             pairs_memmap,
                             verification_pairs,
                             get_images,
@@ -14,7 +16,7 @@ from eccv12.plugins import (slm_memmap,
                             delete_memmap)
 
 
-class BestVsSavedKernels(unittest.TestCase): 
+class BestVsSavedKernels(unittest.TestCase):
     namebase = 'test'
     test_pair_inds = range(2200)
     comparison = 'mult'
@@ -69,7 +71,10 @@ class BestVsSavedKernels(unittest.TestCase):
                                             
         all_test_pair_inds = self.test_pair_inds
         
-        x = scipy.io.loadmat(self.matfile)
+        try:
+            x = scipy.io.loadmat(self.matfile)
+        except:
+            raise nose.SkipTest()
         x_train_fnames_0 = map(string.strip, map(str, x['train_fnames'][::2]))
         x_train_fnames_1 = map(string.strip, map(str, x['train_fnames'][1::2]))
         x_train_labels = map(int, x['train_labels'])
@@ -137,17 +142,15 @@ class BestVsSavedKernels(unittest.TestCase):
             
     def test_cook(self):
         namebase = self.namebase
-        print 0
+        try:
+            x = scipy.io.loadmat('AJ_Cook_0001.jpg.ht1_1_l3__150fd767e9d5d6822e414b6ae20d7da6ce9469fa_gray.mat')
+        except:
+            raise nose.SkipTest()
         image_features = slm_memmap(self.desc,
                             get_images('float32'),
                             namebase + '_img_feat')              
-        print 1
         computed_f = np.asarray(image_features[0])
-        print 2
-        x = scipy.io.loadmat('AJ_Cook_0001.jpg.ht1_1_l3__150fd767e9d5d6822e414b6ae20d7da6ce9469fa_gray.mat')
-        print 3
         stored_f = x['data'].reshape((10, 10, 256))
-        print 4
         absdiff = np.abs(computed_f - stored_f)
         absdiffmax = absdiff.max()
         if absdiffmax > .001:
@@ -155,7 +158,3 @@ class BestVsSavedKernels(unittest.TestCase):
             print stored_f[:, :, 0]
             assert 0, ('too much error: %s' % absdiffmax)        
 
-        
-                
-        
-        

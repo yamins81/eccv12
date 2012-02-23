@@ -168,12 +168,12 @@ class AdaboostMixture(SimpleMixture):
 ###PARALLEL###
 ##############
 
-##XXXXXX:  filter OKs here in parallel?  I think NOT, given when the search exp 
+##XXXXXX: filter OKs here in parallel?  I think NOT, given when the search exp
 ##meta-banditalgo will do
 
 class ParallelAlgo(hyperopt.BanditAlgo):
     """Interleaves calls to `num_procs` independent Trials sets
-    
+
     Injects a `proc_num` field into the miscs document for book-keeping.
     """
     def __init__(self, sub_algo, num_procs):
@@ -192,13 +192,11 @@ class ParallelAlgo(hyperopt.BanditAlgo):
         proc_idxs = (proc_nums == proc_num).nonzero()[0]
         proc_trial_docs = [trials.trials[idx] for idx in proc_idxs]
         proc_trials = trials_from_docs(proc_trial_docs, exp_key=trials._exp_key)
-        new_specs, new_results, new_miscs = self.sub_algo.suggest(new_ids,
-                                                            proc_trials)
-        for doc in new_miscs:
-            assert 'proc_num' not in doc
-            doc['proc_num'] = proc_num
-        return trials.new_trial_docs(new_ids,
-                new_specs, new_results, new_miscs)
+        new_docs = self.sub_algo.suggest(new_ids, proc_trials)
+        for doc in new_docs:
+            assert 'proc_num' not in doc['misc']
+            doc['misc']['proc_num'] = proc_num
+        return new_docs
 
 
 ##############
@@ -278,7 +276,7 @@ class AsyncBoostingAlgo(BoostingAlgoBase):
 
     def suggest(self, new_ids, trials):
         specs, results, miscs = trials.specs, trials.results, trials.miscs
-        
+
         assert len(specs) == len(results) == len(miscs)
         if len(new_ids) > 1:
             raise NotImplementedError()
@@ -326,11 +324,11 @@ class AsyncBoostingAlgo(BoostingAlgoBase):
             else:
                 others = self.idxs_continuing(miscs, None)
 
-        
+
         continuing_trials_docs = [trials.trials[idx] for idx in others]
         continuing_trials = trials_from_docs(continuing_trials_docs,
                                                      exp_key=trials._exp_key)
-                
+
         new_trial_docs = self.sub_algo.suggest(new_ids, continuing_trials)
 
         for trial in new_trial_docs:
@@ -424,12 +422,11 @@ class SyncBoostingAlgo(BoostingAlgoBase):
             decisions = None
             my_round = 0
             decisions_src = None
- 
-        selected_trial_docs = [t for t in trials 
+
+        selected_trial_docs = [t for t in trials
                                   if t['misc']['boosting']['round'] == my_round]        
         selected_trials = trials_from_docs(selected_trial_docs,
                                                   exp_key=trials._exp_key)
-                                                  
         new_trial_docs = self.sub_algo.suggest(new_ids, selected_trials)
 
         for trial in new_trial_docs:
