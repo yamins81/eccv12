@@ -7,9 +7,7 @@ import pyll
 
 import hyperopt
 from hyperopt.tests.test_mongoexp import with_mongo_trials
-from hyperopt.tests.test_mongoexp import MongoWorker
-from hyperopt.tests.test_mongoexp import TempMongo
-from hyperopt.tests.test_mongoexp import ReserveTimeout
+from hyperopt.tests.test_mongoexp import with_worker_threads
 
 import eccv12.eccv12 as exps
 import eccv12.experiments as experiments
@@ -143,41 +141,6 @@ class HighFailureDummyDecisionsBandit(DummyDecisionsBandit):
     fail_prob = 0.5
 
 
-# TODO: MOVE TO HYPEROPT
-def _worker_thread_fn(host_id, n_jobs, timeout, dbname='foodb'):
-    mw = MongoWorker(mj=TempMongo.mongo_jobs(dbname))
-    try:
-        while n_jobs:
-            mw.run_one(host_id, timeout)
-            print 'worker: %s ran job' % str(host_id)
-            n_jobs -= 1
-    except ReserveTimeout:
-        pass
-
-
-# TODO MOVE TO HYPEROPT
-def with_worker_threads(n_threads, dbname, n_jobs=sys.maxint, timeout=10.0):
-    """
-    Decorator that will run a test with some MongoWorker threads in flight
-    """
-    def newth(ii):
-        return threading.Thread(
-                target=_worker_thread_fn,
-                args=(('hostname', ii), n_jobs, timeout, dbname))
-    def deco(f):
-        def wrapper(*args, **kwargs):
-            # --start some threads
-            threads = map(newth, range(n_threads))
-            [th.start() for th in threads]
-            try:
-                return f(*args, **kwargs)
-            finally:
-                [th.join() for th in threads]
-        wrapper.__name__ = f.__name__ # -- nose requires test in name
-        return wrapper
-    return deco
-
-
 @attr('mongo')
 @attr('medium')
 @with_mongo_trials
@@ -297,7 +260,8 @@ def test_meta_dummy(trials):
 @attr('slow')
 @attr('mongo')
 @with_mongo_trials
-@with_worker_threads(3, 'test_hyperopt', timeout=5.0)
+# -- I tried timeout of 10, and 1/3 workers timed out mid-experiment
+@with_worker_threads(3, 'test_hyperopt', timeout=15.0)
 def test_budget_experiment(trials):
     S = exps.BudgetExperiment(ntrials=4,
                        save=False,
