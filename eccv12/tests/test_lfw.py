@@ -168,9 +168,7 @@ class ForInts(object):
     def test_2(self):
         self.forint(2)
 
-    def test_3(self):
-        self.forint(3)
-
+    @attr('slow')
     def test_many(self):
         for seed in range(100, 150):
             self.forint(seed)
