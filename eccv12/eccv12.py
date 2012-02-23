@@ -171,7 +171,7 @@ class NtrialsBanditAlgo(hyperopt.BanditAlgo):
         FAILs = [(x, y) for x, y in zip(results, miscs) if x['status'] == hyperopt.STATUS_FAIL]
         for f, m in FAILs:
             tid = m['tid']
-            t = [_t for _t in self.trials if t['misc']['tid'] == tid]
+            t = [_t for _t in self.trials if _t['misc']['tid'] == tid]
             assert len(t) == 1
             t = t[0]
             wall_time = (t['refresh_time'] - t['book_time']).total_seconds()

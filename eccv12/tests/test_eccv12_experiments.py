@@ -107,7 +107,9 @@ class DummyDecisionsBandit(BaseBandit):
         self.delay() #random time delay, 0 by default
 
         #sporadic failures, none by default
-        fail = np.random.RandomState(0).uniform() < self.fail_prob
+        fail_no = np.random.RandomState(config['seed']).uniform()
+        print('fail_no', fail_no)
+        fail = fail_no < self.fail_prob
         if fail:
             result = dict(
                     status=hyperopt.STATUS_FAIL,
@@ -123,7 +125,7 @@ class DummyDecisionsBandit(BaseBandit):
         return result
 
 
-class FailureDummyDecisions(DummyDecisionsBandit):
+class FailureDummyDecisionsBandit(DummyDecisionsBandit):
     fail_prob = 0.2
     
 
@@ -143,6 +145,20 @@ def test_search_dummy():
     S.run(20)  
     assert len(S.trials.results) == 20 #make sure right # of jobs have been run
     assert all([t == s for t, s in zip(T, S.trials.results[:10])])
+
+
+@attr('mongo')
+@attr('medium')
+def test_search_dummy_failure():
+    S = exps.SearchExp(10,
+                       FailureDummyDecisionsBandit,
+                       hyperopt.Random,
+                       "localhost:22334/test_hyperopt",
+                       "test_stuff")
+    S.delete_all()
+    S.run(10)
+    #make sure failure has caused additional trial
+    assert len(S.trials.results) == 11 
 
 
 @attr('mongo')
