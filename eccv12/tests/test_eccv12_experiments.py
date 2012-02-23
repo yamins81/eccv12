@@ -1,4 +1,5 @@
 import copy
+import time
 import numpy as np
 import pyll
 import hyperopt
@@ -79,11 +80,17 @@ class DummyDecisionsBandit(BaseBandit):
     param_gen = dict(
             seed=pyll.scope.randint(1000),
             decisions=None)
-
+    fail_prob = 0
+    time_delay = 0
+    
     def __init__(self, n_features):
         BaseBandit.__init__(self)
         self.n_features = n_features
 
+    def delay(self):
+        time_delay = self.time_delay
+        time.sleep(time_delay)
+        
     def performance_func(self, config, ctrl):
         r34 = np.random.RandomState(34)
         y = np.sign(r34.randn(self.n_features))
@@ -96,13 +103,35 @@ class DummyDecisionsBandit(BaseBandit):
             decisions = np.array(decisions)
         new_dec = yhat + decisions
         is_test = np.ones(decisions.shape)
-        result = dict(
-                loss=np.mean(y != np.sign(new_dec)),
-                labels=y.tolist(),
-                decisions=new_dec.tolist(),
-                is_test=is_test.tolist())
+        
+        self.delay() #random time delay, 0 by default
+
+        #sporadic failures, none by default
+        fail_no = np.random.RandomState(config['seed']).uniform()
+        print('fail_no', fail_no)
+        fail = fail_no < self.fail_prob
+        if fail:
+            result = dict(
+                    status=hyperopt.STATUS_FAIL,
+                    labels=None,
+                    decisions=None,
+                    is_test=None)
+        else:
+            result = dict(
+                    loss=np.mean(y != np.sign(new_dec)),
+                    labels=y.tolist(),
+                    decisions=new_dec.tolist(),
+                    is_test=is_test.tolist())
         return result
 
+
+class FailureDummyDecisionsBandit(DummyDecisionsBandit):
+    fail_prob = 0.2
+    
+
+class HighFailureDummyDecisionsBandit(DummyDecisionsBandit):
+    fail_prob = 0.5
+    
 
 @attr('mongo')
 @attr('medium')
@@ -120,6 +149,50 @@ def test_search_dummy():
     S.run(20)  
     assert len(S.trials.results) == 20 #make sure right # of jobs have been run
     assert all([t == s for t, s in zip(T, S.trials.results[:10])])
+
+
+@attr('mongo')
+@attr('medium')
+def test_search_dummy_failure():
+    S = exps.SearchExp(10,
+                       FailureDummyDecisionsBandit,
+                       hyperopt.Random,
+                       "localhost:22334/test_hyperopt",
+                       "test_stuff")
+    S.delete_all()
+    S.run(10)
+    #make sure failure has caused 2 additional trials
+    assert len(S.trials) == 12 
+    
+    
+@attr('mongo')
+@attr('medium')
+def test_search_dummy_failure_highprob():
+    S = exps.SearchExp(10,
+                       HighFailureDummyDecisionsBandit,
+                       hyperopt.Random,
+                       "localhost:22334/test_hyperopt",
+                       "test_stuff")
+    S.delete_all()
+    S.run(10)
+    #assert higher error prob has caused many more failures
+    assert len(S.trials) == 21
+
+
+@attr('mongo')
+@attr('medium')
+def test_search_dummy_failure_highprob_walltime_cutoff():
+    S = exps.SearchExp(10,
+                       HighFailureDummyDecisionsBandit,
+                       hyperopt.Random,
+                       "localhost:22334/test_hyperopt",
+                       "test_stuff",
+                       walltime_cutoff=0)
+    S.delete_all()
+    S.run(10)
+    #assert that even with a lot of failures, a 0 walltime_cutoff
+    #means that all status=fail trials are still counted
+    assert len(S.trials) == 10
 
 
 @attr('mongo')

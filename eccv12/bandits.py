@@ -39,6 +39,7 @@ class BaseBandit(hyperopt.Bandit):
     def evaluate(self, config, ctrl):
         validate_config(config)
         result = self.performance_func(config, ctrl)
-        validate_result(result, config)
         result.setdefault('status', hyperopt.STATUS_OK)
+        if result['status'] == hyperopt.STATUS_OK:
+            validate_result(result, config)
         return result

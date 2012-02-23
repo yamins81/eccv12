@@ -17,6 +17,8 @@ import sys
 import matplotlib.pyplot
 import copy
 
+import numpy as np
+
 try:
     from collections import OrderedDict
 except ImportError:
@@ -32,7 +34,7 @@ except ImportError:
 
 import hyperopt
 import hyperopt.plotting
-from hyperopt import Trials
+from hyperopt import Trials, STATUS_RUNNING, STATUS_NEW, StopExperiment
 from hyperopt.mongoexp import MongoTrials, as_mongo_str
 
 from pyll import scope, clone, as_apply
@@ -67,7 +69,7 @@ class SearchExp(object):
 
     """
     def __init__(self, num_features, bandit_func, bandit_algo_class, mongo_opts,
-                 exp_prefix, trials=None):
+                 exp_prefix, trials=None, walltime_cutoff=np.inf):
         # -- N.B.
         # if trials is None, then mongo_opts is used to create a MongoTrials,
         # otherwise it is ignored.
@@ -78,6 +80,7 @@ class SearchExp(object):
         self.mongo_opts = mongo_opts
         self.init_bandit_algo()
         self.exp_prefix = exp_prefix
+        self.walltime_cutoff = walltime_cutoff
 
         if trials is None:
             trials = MongoTrials(as_mongo_str(self.mongo_opts) + '/jobs',
@@ -88,7 +91,8 @@ class SearchExp(object):
         self.exp_key = self.trials._exp_key
 
     def init_bandit_algo(self):
-        self.bandit_algo = self.bandit_algo_class(self.bandit)
+        self.bandit_algo = self.bandit_algo_class(self.bandit,
+                                     cmd=('driver_attachment', 'bandit_data'))
 
     def get_info(self):
         """
@@ -128,14 +132,15 @@ class SearchExp(object):
         blob = cPickle.dumps((bandit_name, bandit_args, bandit_kwargs))
         self.trials.attachments['bandit_data'] = blob
         self.trials.refresh()
-        bandit_algo_wrap = NtrialsBanditAlgo(self.bandit_algo, ntrials)
+        bandit_algo_wrap = NtrialsBanditAlgo(self.bandit_algo,
+                                             ntrials=ntrials,
+                                             walltime_cutoff=self.walltime_cutoff)
         exp = hyperopt.Experiment(
                 self.trials,
                 bandit_algo_wrap,
                 async=True,
-                max_queue_len=1,
-                cmd=('driver_attachment', 'bandit_data'))   
-        exp.run(sys.maxint, block_until_done=False, break_when_n_done=ntrials)
+                max_queue_len=1)   
+        exp.run(sys.maxint, block_until_done=False)
         self.trials.refresh()
 
     def save(self):
@@ -152,22 +157,36 @@ class SearchExp(object):
 
     
 class NtrialsBanditAlgo(hyperopt.BanditAlgo):
-    def __init__(self, base_bandit_algo, ntrials):
+    def __init__(self, base_bandit_algo, ntrials, walltime_cutoff):
         hyperopt.BanditAlgo.__init__(self, base_bandit_algo.bandit)
         self.base_bandit_algo = base_bandit_algo
         self.ntrials = ntrials
+        self.walltime_cutoff = walltime_cutoff
     
-    def suggest(self, new_ids, specs, results, miscs):
-        OKs = [x for x in results if x['status'] == hyperopt.STATUS_OK]
-        UNFINISHED = [x for x in results if x['status'] in [hyperopt.STATUS_RUNNING,
-                                                            hyperopt.STATUS_NEW]]
-        new_ids = new_ids[: self.ntrials - len(OKs) - len(UNFINISHED)]
-        if not new_ids:
-            return [], [], []
+    def filter_oks(self, trials):
+        OKs = [t for t in trials 
+                          if t['result']['status'] == hyperopt.STATUS_OK]
+        FAILs = [t for t in trials 
+                        if t['result']['status'] == hyperopt.STATUS_FAIL]
+        for t in FAILs:
+            wall_time = (t['refresh_time'] - t['book_time']).total_seconds()
+            if wall_time > self.walltime_cutoff:
+                OKs.append(t)
+        return OKs
+
+    def suggest(self, new_ids, trials):
+        OKs = self.filter_oks(trials)
+        if len(OKs) >= self.ntrials:
+            return StopExperiment()
         else:
-            return self.base_bandit_algo.suggest(new_ids, specs, results, miscs)
-
-
+            UNFINISHED = [t for t in trials 
+                      if t['result']['status'] in [STATUS_RUNNING, STATUS_NEW]]
+            new_ids = new_ids[: self.ntrials - len(OKs) - len(UNFINISHED)]
+            if not new_ids:
+                return []
+            else:
+                return self.base_bandit_algo.suggest(new_ids, trials)
+                
 class MixtureExp(SearchExp):
     """
     Mixture version of the class.  (just basically adds mixture info to
@@ -209,7 +228,8 @@ class MetaExp(SearchExp):
         """
         wrap the original bandit algo in the meta bandit algo
         """
-        self.base_bandit_algo = self.bandit_algo_class(self.bandit)
+        self.base_bandit_algo = self.bandit_algo_class(self.bandit,
+                                      cmd=('driver_attachment', 'bandit_data'))
         self.bandit_algo = self.meta_algo_class(self.base_bandit_algo,
                                                 **self.meta_kwargs)
 
