@@ -1,30 +1,90 @@
+from nose.plugins.attrib import attr
+import numpy as np
+
 import eccv12.model_params as params
 import pyll.stochastic as stochastic
 import pyll
 import hyperopt.base
-import numpy as np
 import eccv12.lfw as lfw
 import eccv12.bandits as bandits
 import eccv12.experiments as experiments
 
-tiny_template = pyll.as_apply(params.test_params)
-config_tiny = stochastic.sample(tiny_template, np.random.RandomState(0))
+test_params = {
+    'slm': [[('lnorm', params.lnorm)]],
+    'preproc': {
+        'global_normalize': 0,
+        'crop': params.crop_choice,
+        'size': [20, 20]}}
 
-def test_lfw_basic():
-    rec = lfw.get_performance(config_tiny['slm'], None, config_tiny['preproc'], 'mult')
-    assert np.abs(rec['test_accuracy'] - 68.23) < .1
-    assert np.array(rec['test_errors']).astype(int).sum() == 317
+config_tiny_rnd0 = stochastic.sample(
+        test_params,
+        np.random.RandomState(0))
+
+config_tiny_rnd2 = stochastic.sample(
+        test_params,
+        np.random.RandomState(2))
+
+def test_sampling():
+    """
+    Test that pyll samples the same way as when we ran these experiments.
+    """
+    print config_tiny_rnd0
+    print config_tiny_rnd2
+    assert config_tiny_rnd0 == {
+            'preproc': {
+                'global_normalize': 0,
+                'crop': (25, 25, 175, 175),
+                'size': (20, 20)},
+            'slm': (
+                (
+                    ('lnorm', {
+                        'kwargs': {
+                            'inker_shape': (9, 9),
+                            'outker_shape': (9, 9),
+                            'remove_mean': 0,
+                            'threshold': 0.1,
+                            'stretch': 5.928446182250183}}),),)}
+    assert config_tiny_rnd2 == {'preproc': {'global_normalize': 0, 'crop':
+        (88, 63, 163, 188), 'size': (20, 20)}, 'slm': ((('lnorm', {'kwargs':
+            {'inker_shape': (7, 7), 'outker_shape': (7, 7), 'remove_mean': 0,
+                'threshold': 0.1, 'stretch': array(1.8508207817320688)}}),),)}
+
+@attr('slow')# -- takes about 30 secs with GPU
+def test_lfw_tiny_rnd0():
+    # -- if this test is failing
+    #    -- if test_sampling passes, then the screening program has changed.
+    #    -- if test_sampling fails, then pyll sampling may well be to blame
+    rec = lfw.get_performance(
+            slm=config_tiny_rnd0['slm'],
+            decisions=None,
+            preproc=config_tiny_rnd0['preproc'],
+            comparison='mult')
+    print rec['test_accuracy']
+    print sum(rec['test_errors'])
+    assert np.allclose(rec['test_accuracy'], 58.8, atol=.1)
+    assert sum(rec['test_errors']) == 412
     bandits.validate_result(rec)
     assert rec['label_set'] == [-1, 1]
     return rec
 
 
-def test_lfw_bandit():
-    L = lfw.TestBandit()
-    config = stochastic.sample(L.template, np.random.RandomState(0))
-    config['decisions'] = None
-    rec = L.evaluate(config, hyperopt.base.Ctrl(None))
-    assert np.abs(rec['test_accuracy'] - 69.80) < .1
+@attr('slow')# -- takes about 30 secs with GPU
+def test_lfw_tiny_rnd2():
+    # -- if this test is failing
+    #    -- if test_sampling passes, then the screening program has changed.
+    #    -- if test_sampling fails, then pyll sampling may well be to blame
+    print config_tiny_rnd2
+    rec = lfw.get_performance(
+            slm=config_tiny_rnd2['slm'],
+            decisions=None,
+            preproc=config_tiny_rnd2['preproc'],
+            comparison='mult')
+    print rec['test_accuracy']
+    print sum(rec['test_errors'])
+    assert np.allclose(rec['test_accuracy'], 57.5, atol=.1)
+    assert sum(rec['test_errors']) == 425
+    bandits.validate_result(rec)
+    assert rec['label_set'] == [-1, 1]
     return rec
 
 
