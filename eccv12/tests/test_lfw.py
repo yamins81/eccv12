@@ -99,10 +99,13 @@ def test_fg11_top_bandit():
     return rec
 
 
-NUM_ROUNDS = 2
-ROUND_LEN = 1
-
 def test_mixture_ensembles():
+    """
+    Test that LFW bandit can be used by the Mixtures code
+    """
+    NUM_ROUNDS = 2
+    ROUND_LEN = 1
+
     bandit = lfw.TestBandit()
     bandit_algo = hyperopt.Random(bandit)
     trials = hyperopt.Trials()
@@ -115,12 +118,18 @@ def test_mixture_ensembles():
     specs = trials.specs
 
     simple = experiments.SimpleMixture(trials, bandit)
-    simple_inds, simple_weights = simple.mix_models(NUM_ROUNDS)
-    assert list(simple_inds) == [1, 0]
+    simple_specs, simple_weights = simple.mix_models(NUM_ROUNDS)
 
-    ada = experiments.AdaboostMixture(trials, bandit)
-    ada_inds, ada_weights = ada.mix_models(NUM_ROUNDS)
-    assert  np.abs(ada_weights.reshape((2,)) - np.array([.3812, .1975])).max() < 1e-3
+    ada = experiments.AdaboostMixture(trials, bandit, test_mask=True)
+    ada_specs, ada_weights = ada.mix_models(NUM_ROUNDS)
+
+    print simple_specs
+    print ada_specs
+    print ada_weights
+    # -- in this simple case adaboost and simple should return the same models
+    #    in the same order
+    assert simple_specs == ada_specs
+    assert np.allclose(ada_weights, [[0.29856626], [0.1672368]], atol=1e-3)
 
     selected_specs = {'simple': simple_specs,
                       'ada': ada_specs}
