@@ -32,7 +32,7 @@ class FG11Bandit(BaseBandit):
             preproc={'global_normalize': 0,
                      'size': [200, 200],
                      'crop': [0, 0, 250, 250],
-                    }, # XXX: THIS IS NOT TESTED SINCE CHANGING THE CROPPING
+                    },
             )
 
     def performance_func(self, config, ctrl):
@@ -45,8 +45,10 @@ class FG11Bandit(BaseBandit):
 
 class MainBandit(BaseBandit):
     param_gen = dict(
-            model=model_params.main_params,
-            comparison=model_params.choice(['mult', 'sqrtabsdiff']),
+            model=model_params.pyll_param_func(),
+            comparison=scope.one_of('mult', 'sqrtabsdiff'),
+            decisions=None,
+            # XXX SVM STUFF?
             )
 
     def performance_func(self, config, ctrl):

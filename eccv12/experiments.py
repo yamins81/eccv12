@@ -73,6 +73,9 @@ class AdaboostMixture(SimpleMixture):
     """
 
     def __init__(self, bandit, bandit_algo, test_mask):
+        """
+        test_mask - a BOOLEAN, True means use a test_mask
+        """
         SimpleMixture.__init__(self, bandit, bandit_algo)
         self.test_mask = test_mask
 
