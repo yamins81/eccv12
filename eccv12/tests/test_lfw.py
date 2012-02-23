@@ -53,6 +53,7 @@ def test_sampling_lockdown():
             {'inker_shape': (7, 7), 'outker_shape': (7, 7), 'remove_mean': 0,
                 'threshold': 0.1, 'stretch': array(1.8508207817320688)}}),),)}
 
+
 @attr('slow')# -- takes about 30 secs with GPU
 def test_lfw_tiny_rnd0():
     # -- if this test is failing
@@ -154,8 +155,9 @@ def test_main_bandit():
     print rec['test_accuracy']
     print rec['train_accuracy']
     print rec['loss']
-    raise NotImplementedError()
-    #assert np.abs(rec['test_accuracy'] - 69.80) < .1
+    assert np.allclose(rec['test_accuracy'], 58.3)
+    assert np.allclose(rec['train_accuracy'], 84.9090909091)
+    assert np.allclose(rec['loss'], 0.417)
     return rec
 
 
@@ -172,6 +174,7 @@ class ForInts(object):
     def test_many(self):
         for seed in range(100, 150):
             self.forint(seed)
+
 
 def fuzz_config(config):
     print config
