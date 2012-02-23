@@ -1,6 +1,8 @@
+import unittest
 from nose.plugins.attrib import attr
 import numpy as np
 
+from thoreano.slm import InvalidDescription
 import eccv12.model_params as params
 import pyll.stochastic as stochastic
 import pyll
@@ -24,10 +26,12 @@ config_tiny_rnd2 = stochastic.sample(
         test_params,
         np.random.RandomState(2))
 
-def test_sampling():
+def test_sampling_lockdown():
     """
     Test that pyll samples the same way as when we ran these experiments.
     """
+    # done with commit
+    # f11026e235e57f85e9dd4f3a23a67dac2b33e8db
     print config_tiny_rnd0
     print config_tiny_rnd2
     assert config_tiny_rnd0 == {
@@ -88,17 +92,20 @@ def test_lfw_tiny_rnd2():
     return rec
 
 
+@attr('slow')# -- takes about 30 secs with GPU
 def test_fg11_top_bandit():
     L = lfw.FG11Bandit()
     config = stochastic.sample(L.template, np.random.RandomState(0))
     config['decisions'] = None
-    config['slm'] = stochastic.sample(pyll.as_apply(params.fg11_top), np.random.RandomState(0))
+    config['slm'] = stochastic.sample(pyll.as_apply(params.fg11_top),
+            np.random.RandomState(0))
     config['comparison'] = 'sqrtabsdiff'
     rec = L.evaluate(config, hyperopt.base.Ctrl(None))
     assert np.abs(rec['loss'] - .194) < 1e-2
     return rec
 
 
+@attr('slow')# -- takes about 30 secs with GPU
 def test_mixture_ensembles():
     """
     Test that LFW bandit can be used by the Mixtures code
@@ -139,11 +146,73 @@ def test_mixture_ensembles():
     return exp, selected_specs
 
 
-def test_pyll_resampling():
-    bandit = lfw.MainBandit()
-    s0 = pyll.stochastic.sample(bandit.template, np.random.RandomState(0))
-    s1 = pyll.stochastic.sample(bandit.template, np.random.RandomState(0))
-    print s0['model']['slm'][-1][-1][-1]['kwargs']['stretch']
-    print s1['model']['slm'][-1][-1][-1]['kwargs']['stretch']
+@attr('slow')
+def test_main_bandit():
+    L = lfw.MainBandit()
+    config = stochastic.sample(L.template, np.random.RandomState(999))
+    rec = L.evaluate(config, hyperopt.base.Ctrl(None))
+    print rec['test_accuracy']
+    print rec['train_accuracy']
+    print rec['loss']
+    raise NotImplementedError()
+    #assert np.abs(rec['test_accuracy'] - 69.80) < .1
+    return rec
 
-    assert s0 == s1
+
+class ForInts(object):
+    def test_1(self):
+        self.forint(1)
+
+    def test_2(self):
+        self.forint(2)
+
+    def test_3(self):
+        self.forint(3)
+
+    def test_many(self):
+        for seed in range(100, 150):
+            self.forint(seed)
+
+def fuzz_config(config):
+    print config
+    imgs = lfw.get_images('float32', preproc=config['preproc'])
+    try:
+        mm = lfw.slm_memmap(config['slm'], imgs,
+                name='_test_thoreano_fuzz')
+    except InvalidDescription:
+        return
+
+    # -- evaluate a single example
+    a = mm[0]
+
+    # -- evaluate a batch
+    b = mm[10:14]
+
+    # --re-evaluate
+    ra = mm[0]
+    rb = mm[10:14]
+
+    assert np.all(a == ra)
+    assert np.all(b == rb)
+
+    lfw.delete_memmap(mm)
+
+
+class TestLNormFuzz(unittest.TestCase, ForInts):
+    def forint(self, seed):
+        config = stochastic.sample(
+                dict(
+                    slm=[[params.pf_lnorm()]],
+                    preproc=params.pf_preproc()[1]),
+                np.random.RandomState(seed))
+        fuzz_config(config)
+
+
+class TestParamFuncFuzz(unittest.TestCase, ForInts):
+    def forint(self, seed):
+        L = lfw.MainBandit()
+        config = stochastic.sample(L.template,
+                np.random.RandomState(seed))
+        fuzz_config(config['model'])
+
+

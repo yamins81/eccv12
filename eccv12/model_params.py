@@ -200,6 +200,77 @@ def main_param_func(nf):
     return choice([v2, v3])
 
 
+def rfilter_size(smin, smax, q=1):
+    """Return an integer size from smin to smax inclusive with equal prob
+    """
+    return pyll.scope.int(quniform(smin - q + 1e-5, smax, q))
+
+
+def cont_pt1_10():
+    """Return a continuous replacement for one_of(.1, 1, 10)"""
+    s = np.sqrt(10)
+    return loguniform(np.log(.1 / s), np.log(10 * s))
+
+
+def pf_lnorm():
+    size = rfilter_size(2, 10)
+
+    return ('lnorm', {'kwargs':
+                {'inker_shape' : (size, size),
+                 'outker_shape' : (size, size),
+                 'remove_mean' : one_of(0, 1),
+                 'stretch' : cont_pt1_10(),
+                 'threshold' : cont_pt1_10(),
+             }})
+
+
+def pf_lpool(stride=2):
+    # XXX test that bincount on a big sample of these guys comes out about right
+    size = rfilter_size(2, 10)
+    # XXX are fractional powers ok here?
+    return ('lpool', {
+        'kwargs': {
+            'ker_shape': (size, size),
+            'order': loguniform(np.log(1), np.log(10)),
+            'stride': stride,
+            }})
+
+
+def pf_fbcorr(max_filters, iseed, n_filters=None):
+    if n_filters is None:
+        n_filters = pyll.scope.int(
+                qloguniform(
+                    np.log(1e-5),
+                    np.log(max_filters),
+                    q=16))
+    size = rfilter_size(2, 10)
+    return ('fbcorr', {
+        'initialize': {
+            'filter_shape': (size, size),
+            'n_filters': n_filters,
+            'generate': (
+                'random:uniform',
+                {'rseed': choice(range(iseed, iseed + 5))}
+                ),
+            },
+        'kwargs': {},
+        })
+
+
+def pf_preproc():
+    l3 = dict(
+        global_normalize=0,
+        crop=one_of(
+            [0, 0, 250, 250],
+            [25, 25, 175, 175],
+            [88, 63, 163, 188]),
+        size=[200, 200],
+        )
+    # -- N.B. shallow copy keeps the same crop object
+    l2 = dict(l3, size=[100, 100])
+    return l2, l3
+
+
 def pyll_param_func(nf=None):
     """
     Return a template for lfw.MainBandit that describes a hyperopt-friendly
@@ -210,76 +281,14 @@ def pyll_param_func(nf=None):
     continuous variables where appropriate.
     """
 
-    def rfilter_size(smin, smax, q=1):
-        """Return an integer size from smin to smax inclusive with equal prob
-        """
-        return quniform(smin - q + 1e-5, smax, q)
-
-    def cont_pt1_10():
-        """Return a continuous replacement for one_of(.1, 1, 10)"""
-        s = np.sqrt(10)
-        return loguniform(np.log(.1 / s), np.log(10 * s))
-
-
     # N.B. that each layer is constructed with distinct objects
     # we don't want to use the same norm_shape_size at every layer.
-    def lnorm():
-        size = rfilter_size(2, 10)
+    preproc_l2, preproc_l3 = pf_preproc()
 
-        return ('lnorm', {'kwargs':
-                    {'inker_shape' : (size, size),
-                     'outker_shape' : (size, size),
-                     'remove_mean' : one_of(0, 1),
-                     'stretch' : cont_pt1_10(),
-                     'threshold' : cont_pt1_10(),
-                 }})
-
-    def lpool(stride=2):
-        # XXX test that bincount on a big sample of these guys comes out about right
-        size = rfilter_size(2, 10)
-        # XXX are fractional powers ok here?
-        return ('lpool', {
-            'kwargs': {
-                'ker_shape': (size, size),
-                'order': loguniform(np.log(1), np.log(10)),
-                'stride': stride,
-                }})
-
-    def fbcorr(max_filters, iseed, n_filters=None):
-        if n_filters is None:
-            n_filters = qloguniform(
-                    np.log(1e-5),
-                    np.log(max_filters),
-                    q=16)
-        size = rfilter_size(2, 10)
-        return ('fbcorr', {
-            'initialize': {
-                'filter_shape': (size, size),
-                'n_filters': n_filters,
-                'generate': (
-                    'random:uniform',
-                    {'rseed': choice(range(iseed, iseed + 5))}
-                    ),
-                },
-            'kwargs': {},
-            })
-
-    preproc_l3 = dict(
-            global_normalize=0,
-            crop=one_of(
-                [0, 0, 250, 250],
-                [25, 25, 175, 175],
-                [88, 63, 163, 188]),
-            size=[200, 200],
-            )
-
-    # -- N.B. shallow copy keeps the same crop object
-    preproc_l2 = dict(preproc_l3, size=[100, 100])
-
-    l0 = [lnorm()]
-    l1 = [fbcorr(64 + 32, 1), lpool(), lnorm()]
-    l2 = [fbcorr(128 + 64, 11), lpool(), lnorm()]
-    l3 = [fbcorr(256 + 128, 111), lpool(), lnorm()]
+    l0 = [pf_lnorm()]
+    l1 = [pf_fbcorr(64 + 32, 1), pf_lpool(), pf_lnorm()]
+    l2 = [pf_fbcorr(128 + 64, 11), pf_lpool(), pf_lnorm()]
+    l3 = [pf_fbcorr(256 + 128, 111), pf_lpool(), pf_lnorm()]
     l2_clone = pyll.clone(pyll.as_apply(l2))
 
     # -- the re-use of l0 and l1 will make both slm models accumulate evidence
