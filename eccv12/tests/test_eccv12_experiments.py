@@ -123,6 +123,10 @@ class DummyDecisionsBandit(BaseBandit):
         return result
 
 
+class FailureDummyDecisions(DummyDecisionsBandit):
+    fail_prob = 0.2
+    
+
 @attr('mongo')
 @attr('medium')
 def test_search_dummy():
