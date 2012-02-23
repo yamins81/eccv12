@@ -10,6 +10,7 @@ import sys
 
 import numpy as np
 import hyperopt
+from hyperopt.base import trials_from_docs
 
 
 def filter_oks(specs, results, miscs):
@@ -177,23 +178,24 @@ class ParallelAlgo(hyperopt.BanditAlgo):
         self.sub_algo = sub_algo
         self.num_procs = num_procs
 
-    def suggest(self, new_ids, specs, results, miscs):
+    def suggest(self, new_ids, trials):
 
+        specs, results, miscs = trials.specs, trials.results, trials.miscs
         num_procs = self.num_procs
         proc_nums = [s['proc_num'] for s in miscs]
         proc_counts = np.array([proc_nums.count(j) for j in range(num_procs)])
         proc_num = int(proc_counts.argmin())
         proc_nums = np.array(proc_nums)
         proc_idxs = (proc_nums == proc_num).nonzero()[0]
-        proc_specs = [specs[idx] for idx in proc_idxs]
-        proc_results = [results[idx] for idx in proc_idxs]
-        proc_miscs = [miscs[idx] for idx in proc_idxs]
+        proc_trial_docs = [trials.trials[idx] for idx in proc_idxs]
+        proc_trials = trials_from_docs(proc_trial_docs, exp_key=trials._exp_key)
         new_specs, new_results, new_miscs = self.sub_algo.suggest(new_ids,
-                                           proc_specs, proc_results, proc_miscs)
+                                                            proc_trials)
         for doc in new_miscs:
             assert 'proc_num' not in doc
             doc['proc_num'] = proc_num
-        return new_specs, new_results, new_miscs
+        return trials.new_trial_docs(new_ids,
+                new_specs, new_results, new_miscs)
 
 
 ##############
@@ -271,7 +273,9 @@ class AsyncBoostingAlgo(BoostingAlgoBase):
         self.round_len = round_len
         self.look_back = look_back
 
-    def suggest(self, new_ids, specs, results, miscs):
+    def suggest(self, new_ids, trials):
+        specs, results, miscs = trials.specs, trials.results, trials.miscs
+        
         assert len(specs) == len(results) == len(miscs)
         if len(new_ids) > 1:
             raise NotImplementedError()
@@ -319,29 +323,31 @@ class AsyncBoostingAlgo(BoostingAlgoBase):
             else:
                 others = self.idxs_continuing(miscs, None)
 
-        #print "OTHERS", others
-        new_specs, new_results, new_miscs = self.sub_algo.suggest(new_ids,
-                [results[idx] for idx in others],
-                [specs[idx] for idx in others],
-                [miscs[idx] for idx in others])
+        
+        continuing_trials_docs = [trials.trials[idx] for idx in others]
+        continuing_trials = trials_from_docs(continuing_trials_docs,
+                                                     exp_key=trials._exp_key)
+                
+        new_trial_docs = self.sub_algo.suggest(new_ids, continuing_trials)
 
-        for spec in new_specs:
+        for trial in new_trial_docs:
             # -- patch in decisions of the best current model from previous
             #    round
             # -- This is an assertion because the Bandit should be written
             #    to use these values, and thus be written with the awareness
             #    that they are coming...
+            spec = trial['spec']
             assert spec['decisions'] == None
             spec['decisions'] = cont_decisions
 
-        for misc in new_miscs:
+            misc = trial['misc']
             assert 'boosting' not in misc
             misc['boosting'] = {
                     'variant': 'sync',
                     'round': my_round,
                     'continues': cont_tid}
 
-        return new_specs, new_results, new_miscs
+        return new_trial_docs
 
 
 class AsyncBoostingAlgoA(AsyncBoostingAlgo):
@@ -362,11 +368,11 @@ class SyncBoostingAlgo(BoostingAlgoBase):
         self.sub_algo = sub_algo
         self.round_len = round_len
 
-    def suggest(self, new_ids, specs, results, miscs):
-        assert len(specs) == len(results) == len(miscs)
+    def suggest(self, new_ids, trials):
+
         round_len = self.round_len
 
-        specs, results, miscs = filter_oks(specs, results, miscs)
+        specs, results, miscs = filter_ok_trials(trials)
 
         if miscs:
             rounds = [m['boosting']['round'] for m in miscs]
@@ -415,32 +421,26 @@ class SyncBoostingAlgo(BoostingAlgoBase):
             decisions = None
             my_round = 0
             decisions_src = None
+ 
+        selected_trial_docs = [t for t in trials 
+                                  if t['misc']['boosting']['round'] == my_round]        
+        selected_trials = trials_from_docs(selected_trial_docs,
+                                                  exp_key=trials._exp_key)
+                                                  
+        new_trial_docs = self.sub_algo.suggest(new_ids, selected_trials)
 
-        selected_specs = [s
-                for s, m in zip(specs, miscs)
-                if m['boosting']['round'] == my_round]
-        selected_results = [s
-                for s, m in zip(results, miscs)
-                if m['boosting']['round'] == my_round]
-        selected_miscs = [m
-                for m in miscs if m['boosting']['round'] == my_round]
-
-        new_specs, new_results, new_miscs = self.sub_algo.suggest(new_ids,
-                selected_specs,
-                selected_results,
-                selected_miscs)
-
-        for spec in new_specs:
+        for trial in new_trial_docs:
             # -- patch in decisions of the best current model from previous
             #    round
+            spec = trial['spec']
             assert spec['decisions'] == None
             spec['decisions'] = decisions
 
-        for misc in new_miscs:
+            misc = trial['misc']
             misc['boosting'] = {
                     'variant': 'sync',
                     'round': my_round,
                     'continues': decisions_src}
 
-        return new_specs, new_results, new_miscs
+        return new_trial_docs
 

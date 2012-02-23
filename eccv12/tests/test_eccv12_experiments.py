@@ -161,8 +161,8 @@ def test_search_dummy_failure():
                        "test_stuff")
     S.delete_all()
     S.run(10)
-    #make sure failure has caused additional trial
-    assert len(S.trials.results) == 11 
+    #make sure failure has caused 2 additional trials
+    assert len(S.trials) == 12 
     
     
 @attr('mongo')
@@ -174,8 +174,25 @@ def test_search_dummy_failure_highprob():
                        "localhost:22334/test_hyperopt",
                        "test_stuff")
     S.delete_all()
-    return S
+    S.run(10)
+    #assert higher error prob has caused many more failures
+    assert len(S.trials) == 21
 
+
+@attr('mongo')
+@attr('medium')
+def test_search_dummy_failure_highprob_walltime_cutoff():
+    S = exps.SearchExp(10,
+                       HighFailureDummyDecisionsBandit,
+                       hyperopt.Random,
+                       "localhost:22334/test_hyperopt",
+                       "test_stuff",
+                       walltime_cutoff=0)
+    S.delete_all()
+    S.run(10)
+    #assert that even with a lot of failures, a 0 walltime_cutoff
+    #means that all status=fail trials are still counted
+    assert len(S.trials) == 10
 
 
 @attr('mongo')
