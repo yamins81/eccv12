@@ -51,7 +51,7 @@ def test_sampling_lockdown():
     assert config_tiny_rnd2 == {'preproc': {'global_normalize': 0, 'crop':
         (88, 63, 163, 188), 'size': (20, 20)}, 'slm': ((('lnorm', {'kwargs':
             {'inker_shape': (7, 7), 'outker_shape': (7, 7), 'remove_mean': 0,
-                'threshold': 0.1, 'stretch': array(1.8508207817320688)}}),),)}
+                'threshold': 0.1, 'stretch': 1.8508207817320688}}),),)}
 
 
 @attr('slow')# -- takes about 30 secs with GPU
