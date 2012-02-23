@@ -69,7 +69,7 @@ class SearchExp(object):
 
     """
     def __init__(self, num_features, bandit_func, bandit_algo_class, mongo_opts,
-                 exp_prefix, trials=None, error_cutoff=np.inf):
+                 exp_prefix, trials=None, walltime_cutoff=np.inf):
         # -- N.B.
         # if trials is None, then mongo_opts is used to create a MongoTrials,
         # otherwise it is ignored.
@@ -80,7 +80,7 @@ class SearchExp(object):
         self.mongo_opts = mongo_opts
         self.init_bandit_algo()
         self.exp_prefix = exp_prefix
-        self.error_cutoff = error_cutoff
+        self.walltime_cutoff = walltime_cutoff
 
         if trials is None:
             trials = MongoTrials(as_mongo_str(self.mongo_opts) + '/jobs',
@@ -134,7 +134,7 @@ class SearchExp(object):
         bandit_algo_wrap = NtrialsBanditAlgo(self.bandit_algo,
                                              ntrials=ntrials,
                                              trials=self.trials,
-                                             error_cutoff=self.error_cutoff)
+                                             walltime_cutoff=self.walltime_cutoff)
         bandit_algo_wrap.trials = self.trials
         exp = hyperopt.Experiment(
                 self.trials,
@@ -159,12 +159,12 @@ class SearchExp(object):
 
     
 class NtrialsBanditAlgo(hyperopt.BanditAlgo):
-    def __init__(self, base_bandit_algo, ntrials, trials, error_cutoff):
+    def __init__(self, base_bandit_algo, ntrials, trials, walltime_cutoff):
         hyperopt.BanditAlgo.__init__(self, base_bandit_algo.bandit)
         self.base_bandit_algo = base_bandit_algo
         self.ntrials = ntrials
         self.trials = trials
-        self.error_cutoff = error_cutoff
+        self.walltime_cutoff = walltime_cutoff
     
     def filter_oks(self, trials, results, miscs):
         OKs = [x for x in results if x['status'] == hyperopt.STATUS_OK]
@@ -175,7 +175,7 @@ class NtrialsBanditAlgo(hyperopt.BanditAlgo):
             assert len(t) == 1
             t = t[0]
             wall_time = (t['refresh_time'] - t['book_time']).total_seconds()
-            if wall_time > self.error_cutoff:
+            if wall_time > self.walltime_cutoff:
                 OKs.append(f)
         return OKs
 

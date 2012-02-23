@@ -129,6 +129,10 @@ class FailureDummyDecisionsBandit(DummyDecisionsBandit):
     fail_prob = 0.2
     
 
+class HighFailureDummyDecisionsBandit(DummyDecisionsBandit):
+    fail_prob = 0.5
+    
+
 @attr('mongo')
 @attr('medium')
 def test_search_dummy():
@@ -159,6 +163,19 @@ def test_search_dummy_failure():
     S.run(10)
     #make sure failure has caused additional trial
     assert len(S.trials.results) == 11 
+    
+    
+@attr('mongo')
+@attr('medium')
+def test_search_dummy_failure_highprob():
+    S = exps.SearchExp(10,
+                       HighFailureDummyDecisionsBandit,
+                       hyperopt.Random,
+                       "localhost:22334/test_hyperopt",
+                       "test_stuff")
+    S.delete_all()
+    return S
+
 
 
 @attr('mongo')
