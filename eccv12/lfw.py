@@ -352,13 +352,27 @@ def get_performance(slm, decisions, preproc, comparison,
     assert decisions.shape == (1, 3200)
     if namebase is None:
         namebase = 'memmap_' + str(np.random.randint(1e8))
-    prog = screening_program(
-            slm_desc=slm,
-            preproc=preproc,
-            comparison=comparison,
-            namebase=namebase,
-            decisions=decisions)[1]
-    
-    rval = pyll.rec_eval(prog[progkey])
-    return rval
+    image_features = scope.slm_memmap(
+            desc=slm,
+            X=scope.get_images('float32', preproc=preproc),
+            name=namebase + '_img_feat')
+    if return_multi:
+        comps = ['mult', 'sqrtabsdiff']
+    else:
+        comps = [comparison]
+    cmp_progs = []
+    for comp in comps:
+        sresult = screening_program(
+                    slm_desc=slm,
+                    preproc=preproc,
+                    comparison=comp,
+                    namebase=namebase,
+                    decisions=decisions,
+                    image_features=image_features)[1][progkey]
+        cmp_progs.append((comp, sresult))
+    cmp_results = pyll.rec_eval(cmp_progs)
+    if return_multi:
+        return cmp_results
+    else:
+        return cmp_results[0][1]
 
