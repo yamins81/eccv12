@@ -217,6 +217,8 @@ class PairFeaturesFn(object):
     that maps tensor pairs (of image features) to a 1-D flattened
     feature vector.
     """
+
+    # -- mimic how function objects are named
     __name__  = 'PairFeaturesFn'
 
     def __init__(self, X, fn_name):
@@ -235,7 +237,8 @@ class PairFeaturesFn(object):
     def __call__(self, li, ri):
         lx = self.X[li]
         rx = self.X[ri]
-        return self.fn(lx, rx)
+        rval = self.fn(lx, rx)
+        return rval
 
 
 @scope.define_info(o_len=2)
@@ -297,11 +300,29 @@ def result_binary_classifier_stats_lfw(
 def svm_decisions_lfw(svm, Xyd):
     X, y, d = Xyd
     inc = svm.decision_function(X)
-    return d + inc
+    rval = d + inc
+    return rval
+
+
+@scope.define
+def attach_feature_kernels(train_Xyd, test_Xyd, ctrl):
+    X, y, d = train_Xyd_n
+    XX = np.dot(X, X.T)
+    packed = []
+    for i, xx_i in enumerate(XX):
+        packed.extend(xx_i[i:])
+    blob = cPickle.dumps(np.asarray(packed), -1)
+    ctrl.attachments['packed_normalized_DevTrain_kernel'] = blob
+
+    K2 = np.dot(X, test_Xyd[0].T)
+    blob = cPickle.dumps(K2, -1)
+    ctrl.attachments['normalized_DevTrainTest_kernel'] = blob
+
+    return train_Xyd
 
 
 def screening_program(slm_desc, decisions, comparison, preproc, namebase,
-                      image_features=None):
+                      image_features=None, ctrl=None):
     if image_features is None:
         image_features = scope.slm_memmap(
                 desc=slm_desc,
@@ -332,7 +353,13 @@ def screening_program(slm_desc, decisions, comparison, preproc, namebase,
         (train_X, train_y, train_d,),
         (test_X, test_y, test_d,))
 
-    svm = scope.train_svm(train_Xyd_n, l2_regularization=1e-3, max_observations=20000)
+    if ctrl is not None:
+        train_Xyd_n = scope.attach_feature_kernels(train_Xyd_n, test_Xyd_n, ctrl)
+
+    ### TODO: put consts in config, possibly loop over them in MultiBandit
+    svm = scope.train_svm(train_Xyd_n,
+            l2_regularization=1e-3,
+            max_observations=20000)
 
     new_d_train = scope.svm_decisions_lfw(svm, train_Xyd_n)
     new_d_test = scope.svm_decisions_lfw(svm, test_Xyd_n)
@@ -380,7 +407,8 @@ def get_performance(slm, decisions, preproc, comparison,
                     comparison=comp,
                     namebase=namebase,
                     decisions=decisions,
-                    image_features=image_features)[1][progkey]
+                    image_features=image_features,
+                    ctrl=ctrl)[1][progkey]
         cmp_progs.append([comp, sresult])
     cmp_results = pyll.rec_eval(cmp_progs)
     if return_multi:
