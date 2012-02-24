@@ -240,7 +240,7 @@ def pf_fbcorr(max_filters, iseed, n_filters=None):
     if n_filters is None:
         n_filters = pyll.scope.int(
                 qloguniform(
-                    np.log(1e-5),
+                    np.log(16 / 2.0),
                     np.log(max_filters),
                     q=16))
     size = rfilter_size(2, 10)
