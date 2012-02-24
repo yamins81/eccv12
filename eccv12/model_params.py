@@ -288,15 +288,15 @@ def pyll_param_func(nf=None):
     l0 = [pf_lnorm()]
     l1 = [pf_fbcorr(64 + 32, 1), pf_lpool(), pf_lnorm()]
     l2 = [pf_fbcorr(128 + 64, 11), pf_lpool(), pf_lnorm()]
-    l3 = [pf_fbcorr(256 + 128, 111), pf_lpool(), pf_lnorm()]
-    l2_clone = pyll.clone(pyll.as_apply(l2))
+    l3 = [pf_fbcorr(256 + 128, 111, nf), pf_lpool(), pf_lnorm()]
+    l2_top = [pf_fbcorr(128 + 64, 11, nf), pf_lpool(), pf_lnorm()]
 
     # -- the re-use of l0 and l1 will make both slm models accumulate evidence
     #    for what works and what doesn't
     # -- the cloning of l2 will do the opposite -- what works for l2 in l2_slm
     #    will not be connected to what's good for l2 in l3_slm.
     l3_slm = dict(slm=[l0, l1, l2, l3], preproc=preproc_l3)
-    l2_slm = dict(slm=[l0, l1, l2_clone], preproc=preproc_l2)
+    l2_slm = dict(slm=[l0, l1, l2_top], preproc=preproc_l2)
 
     return one_of(l3_slm, l2_slm)
 
