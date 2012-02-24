@@ -58,9 +58,19 @@ class MainBandit(BaseBandit):
         decisions = config.get('decisions')
         return get_performance(slm, decisions, preproc, comparison)
 
+
 class MultiBandit(hyperopt.Bandit):
-    def __init__(self):
-        hyperopt.Bandit.__init__(self, MainBandit.param_gen)
+    def __init__(self, n_features=None):
+        # if n-features is given, it will set the number of filters
+        # in the top-most layer
+        self.comparison = scope.one_of('mult', 'sqrtabsdiff')
+        template = dict(
+                model=model_params.pyll_param_func(n_features),
+                comparison=self.comparison,
+                decisions=None,
+                # XXX SVM STUFF?
+                )
+        hyperopt.Bandit.__init__(self, template)
 
     def evaluate(self, config, ctrl):
         validate_config(config)
