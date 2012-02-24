@@ -150,6 +150,10 @@ def test_mixture_ensembles():
 def test_main_bandit():
     L = lfw.MainBandit()
     config = stochastic.sample(L.template, np.random.RandomState(999))
+    print config['model']['slm'][0]
+    assert np.allclose(
+            config['model']['slm'][0][0][1]['kwargs']['threshold'],
+            16.894686245715995)
     rec = L.evaluate(config, hyperopt.base.Ctrl(None))
     print rec['test_accuracy']
     print rec['train_accuracy']
