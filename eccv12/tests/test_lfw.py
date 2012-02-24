@@ -6,6 +6,7 @@ from thoreano.slm import InvalidDescription
 import eccv12.model_params as params
 import pyll.stochastic as stochastic
 import pyll
+import hyperopt
 import hyperopt.base
 import eccv12.lfw as lfw
 import eccv12.bandits as bandits
@@ -157,6 +158,32 @@ def test_main_bandit():
     assert np.allclose(rec['train_accuracy'], 84.9090909091)
     assert np.allclose(rec['loss'], 0.417)
     return rec
+
+
+@attr('slow')
+def test_multi_bandit():
+    bandit = lfw.MultiBandit()
+    algo = hyperopt.Random(bandit)
+    trials = hyperopt.Trials()
+    exp = hyperopt.Experiment(trials, algo)
+    exp.catch_bandit_exceptions = False
+    exp.run(1)
+    assert len(trials) > 1
+    docs = trials.trials
+    assert docs[0]['state'] == docs[1]['state'] == hyperopt.JOB_STATE_DONE
+    assert docs[0]['spec']['model'] == docs[1]['spec']['model']
+    assert docs[0]['spec']['comparison'] != docs[1]['spec']['comparison']
+
+    assert docs[0]['misc']['idxs'] == docs[1]['misc']['idxs']
+    assert docs[0]['misc']['vals'] != docs[1]['misc']['vals']
+
+    assert docs[0]['result']['status'] == docs[1]['result']['status']
+    assert docs[0]['result']['loss'] != docs[1]['result']['loss']
+
+    for ii in (0, 1):
+        cc = hyperopt.Ctrl(trials, docs[ii])
+        assert 'packed_normalized_DevTrain_kernel' in cc.attachments
+        assert 'normalized_DevTrainTest_kernel' in cc.attachments
 
 
 class ForInts(object):

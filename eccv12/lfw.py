@@ -60,7 +60,7 @@ class MainBandit(BaseBandit):
 
 class MultiBandit(hyperopt.Bandit):
     def __init__(self):
-        hyperopt.Bandit.__init__(self, copy.deepcopy(MainBandit.param_gen))
+        hyperopt.Bandit.__init__(self, MainBandit.param_gen)
 
     def evaluate(self, config, ctrl):
         validate_config(config)
@@ -73,9 +73,12 @@ class MultiBandit(hyperopt.Bandit):
         #    This computes the key for the MainBandit.comparison choice
         #    in the idxs/vals for this Bandit.
         algo = hyperopt.Random(self)
-        cloned_comp = algo.template_clone_memo[self.comparison]
-        comp_node_id = algo.vh.node_id[cloned_comp]
+        cloned_comp = algo.template_clone_memo[MainBandit.comparison]
+        cloned_comp_choice = algo.vh.choice_memo[cloned_comp]
+        comp_node_id = algo.vh.node_id[cloned_comp_choice]
         # -- now make sure we've got it right...
+        ##print algo.vh.node_id.values()
+        ##print ctrl.current_trial['misc']['vals'].keys()
         compval = ctrl.current_trial['misc']['vals'][comp_node_id]
         # -- the each key indexes its position in the "one_of" in MainBandit
         val_of_comp = {'mult':0, 'sqrtabsdiff':1}
@@ -101,9 +104,15 @@ class MultiBandit(hyperopt.Bandit):
                 my_trial = ctrl.current_trial
                 misc = dict(idxs=copy.deepcopy(my_trial['misc']['idxs']),
                             vals=copy.deepcopy(my_trial['misc']['vals']))
-                assert len(misc['vals'][comp_node_id][0]) == 0
-                misc['vals'][comp_node_id][0] == val_of_comp[comp]
-                ctrl.inject_results([config], [result], [misc])
+                config_ = copy.deepcopy(config)
+                config_['comparison'] = comp
+
+                # -- modify the vals corresponding to the comparison function
+                assert len(misc['vals'][comp_node_id]) == 1
+                assert misc['vals'][comp_node_id][0] == val_of_comp[comparison]
+                misc['vals'][comp_node_id][0] = val_of_comp[comp]
+
+                ctrl.inject_results([config_], [result], [misc])
         assert my_result is not None
         return my_result
 
@@ -347,7 +356,7 @@ def screening_program(slm_desc, decisions, comparison, preproc, namebase,
 
 def get_performance(slm, decisions, preproc, comparison,
                     namebase=None, progkey='result_w_cleanup',
-                    return_multi=False):
+                    return_multi=False, ctrl=None):
     if decisions is None:
         decisions = np.zeros((1, 3200))
     else:
@@ -372,7 +381,7 @@ def get_performance(slm, decisions, preproc, comparison,
                     namebase=namebase,
                     decisions=decisions,
                     image_features=image_features)[1][progkey]
-        cmp_progs.append((comp, sresult))
+        cmp_progs.append([comp, sresult])
     cmp_results = pyll.rec_eval(cmp_progs)
     if return_multi:
         return cmp_results
