@@ -56,8 +56,13 @@ def cname(cls):
 
 class LFWBandit(lfw.MainBandit):
     def __init__(self, n_features):
-        self.param_gen = main_param_func(n_features)
-        lfw.MainBandit.__init__(self)
+            self.param_gen = dict(
+            model=model_params.pyll_param_func(n_featuerss),
+            comparison=scope.one_of('mult', 'sqrtabsdiff'),
+            decisions=None,
+            # XXX SVM STUFF?
+            )
+            lfw.MainBandit.__init__(self)
 
 
 class SearchExp(object):
