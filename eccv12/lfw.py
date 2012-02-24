@@ -20,6 +20,9 @@ from .bandits import BaseBandit, validate_config, validate_result
 from .utils import ImgLoaderResizer
 from .classifier import get_result
 
+# -- register symbols in pyll.scope
+import toyproblem
+
 
 class FG11Bandit(BaseBandit):
     param_gen = dict(
