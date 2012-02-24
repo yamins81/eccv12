@@ -86,7 +86,8 @@ class MultiBandit(hyperopt.Bandit):
 
         cmp_results = get_performance(slm, decisions, preproc,
                                       comparison=None,
-                                      return_multi=True)
+                                      return_multi=True,
+                                      ctrl=ctrl)
         my_result = None
         # XXX This logic is tightly coupled to get_performance
         #     in order to not break tests and other code using get_performance
@@ -305,18 +306,20 @@ def svm_decisions_lfw(svm, Xyd):
 
 
 @scope.define
-def attach_feature_kernels(train_Xyd, test_Xyd, ctrl):
-    X, y, d = train_Xyd_n
+def attach_feature_kernels(train_Xyd, test_Xyd, ctrl, comp):
+    X, y, d = train_Xyd
     XX = np.dot(X, X.T)
     packed = []
     for i, xx_i in enumerate(XX):
         packed.extend(xx_i[i:])
     blob = cPickle.dumps(np.asarray(packed), -1)
-    ctrl.attachments['packed_normalized_DevTrain_kernel'] = blob
+    key = 'packed_normalized_DevTrain_kernel_%s' % comp
+    assert key not in ctrl.attachments
+    ctrl.attachments[key] = blob
 
     K2 = np.dot(X, test_Xyd[0].T)
     blob = cPickle.dumps(K2, -1)
-    ctrl.attachments['normalized_DevTrainTest_kernel'] = blob
+    ctrl.attachments['normalized_DevTrainTest_kernel_%s' % comp] = blob
 
     return train_Xyd
 
@@ -354,7 +357,8 @@ def screening_program(slm_desc, decisions, comparison, preproc, namebase,
         (test_X, test_y, test_d,))
 
     if ctrl is not None:
-        train_Xyd_n = scope.attach_feature_kernels(train_Xyd_n, test_Xyd_n, ctrl)
+        train_Xyd_n = scope.attach_feature_kernels(train_Xyd_n, test_Xyd_n,
+                ctrl, comparison)
 
     ### TODO: put consts in config, possibly loop over them in MultiBandit
     svm = scope.train_svm(train_Xyd_n,

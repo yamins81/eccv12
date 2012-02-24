@@ -184,10 +184,15 @@ def test_multi_bandit():
     assert docs[0]['result']['status'] == docs[1]['result']['status']
     assert docs[0]['result']['loss'] != docs[1]['result']['loss']
 
-    for ii in (0, 1):
-        cc = hyperopt.Ctrl(trials, docs[ii])
-        assert 'packed_normalized_DevTrain_kernel' in cc.attachments
-        assert 'normalized_DevTrainTest_kernel' in cc.attachments
+    # -- this is admittedly a little f'd up but the current code makes it like
+    # this and it's not that bad. The trouble is that the attachments are computed
+    # before the newly inserted job is even created, so they must be attached to
+    # the original job. XXX fix this.
+    ctrl = hyperopt.Ctrl(trials, docs[0])
+    assert 'packed_normalized_DevTrain_kernel_mult' in ctrl.attachments
+    assert 'normalized_DevTrainTest_kernel_mult' in ctrl.attachments
+    assert 'packed_normalized_DevTrain_kernel_sqrtabsdiff' in ctrl.attachments
+    assert 'normalized_DevTrainTest_kernel_sqrtabsdiff' in ctrl.attachments
 
 
 class ForInts(object):
