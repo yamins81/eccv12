@@ -1,7 +1,9 @@
+import copy
 import cPickle
 import os
 
 from thoreano.slm import SLMFunction
+import hyperopt
 
 from skdata import larray
 import skdata.utils
@@ -14,15 +16,9 @@ from pyll import scope
 import model_params
 import comparisons
 
-from .bandits import BaseBandit
+from .bandits import BaseBandit, validate_config, validate_result
 from .utils import ImgLoaderResizer
 from .classifier import get_result
-
-###TODO: move code from .toyproblem to "real" modules
-### --> probably mostly to classifier.py
-from .toyproblem import normalize_Xcols
-from .toyproblem import train_svm
-from .toyproblem import run_all
 
 
 class FG11Bandit(BaseBandit):
@@ -44,9 +40,10 @@ class FG11Bandit(BaseBandit):
 
 
 class MainBandit(BaseBandit):
+    comparison = scope.one_of('mult', 'sqrtabsdiff')
     param_gen = dict(
             model=model_params.pyll_param_func(),
-            comparison=scope.one_of('mult', 'sqrtabsdiff'),
+            comparison=comparison,
             decisions=None,
             # XXX SVM STUFF?
             )
@@ -57,6 +54,55 @@ class MainBandit(BaseBandit):
         comparison = config['comparison']
         decisions = config.get('decisions')
         return get_performance(slm, decisions, preproc, comparison)
+
+class MultiBandit(hyperopt.Bandit):
+    def __init__(self):
+        hyperopt.Bandit.__init__(self, copy.deepcopy(MainBandit.param_gen))
+
+    def evaluate(self, config, ctrl):
+        validate_config(config)
+        slm = config['model']['slm']
+        preproc = config['model']['preproc']
+        comparison = config['comparison']
+        decisions = config.get('decisions')
+
+        # -- hackity hack (move to hyperopt)
+        #    This computes the key for the MainBandit.comparison choice
+        #    in the idxs/vals for this Bandit.
+        algo = hyperopt.Random(self)
+        cloned_comp = algo.template_clone_memo[self.comparison]
+        comp_node_id = algo.vh.node_id[cloned_comp]
+        # -- now make sure we've got it right...
+        compval = ctrl.current_trial['misc']['vals'][comp_node_id]
+        # -- the each key indexes its position in the "one_of" in MainBandit
+        val_of_comp = {'mult':0, 'sqrtabsdiff':1}
+        assert compval == [val_of_comp[comparison]]
+
+        cmp_results = get_performance(slm, decisions, preproc,
+                                      comparison=None,
+                                      return_multi=True)
+        my_result = None
+        # XXX This logic is tightly coupled to get_performance
+        #     in order to not break tests and other code using get_performance
+        #     however, before adding SVM parameters and other things to this
+        #     loop, consider reorganizing to simplify.
+        for comp, result in cmp_results:
+            result.setdefault('status', hyperopt.STATUS_OK)
+            if result['status'] == hyperopt.STATUS_OK:
+                validate_result(result, config)
+            if comp == comparison:
+                # -- store this to the db the normal way
+                my_result = result
+            else:
+                # -- inject this to the trials db directly
+                my_trial = ctrl.current_trial
+                misc = dict(idxs=copy.deepcopy(my_trial['misc']['idxs']),
+                            vals=copy.deepcopy(my_trial['misc']['vals']))
+                assert len(misc['vals'][comp_node_id][0]) == 0
+                misc['vals'][comp_node_id][0] == val_of_comp[comp]
+                ctrl.inject_results([config], [result], [misc])
+        assert my_result is not None
+        return my_result
 
 
 class TestBandit(MainBandit):
@@ -242,15 +288,14 @@ def svm_decisions_lfw(svm, Xyd):
     return d + inc
 
 
-def screening_program(slm_desc, decisions, comparison, preproc, namebase):
-    image_features = scope.slm_memmap(
+def screening_program(slm_desc, decisions, comparison, preproc, namebase,
+                      image_features=None):
+    if image_features is None:
+        image_features = scope.slm_memmap(
                 desc=slm_desc,
                 X=scope.get_images('float32', preproc=preproc),
                 name=namebase + '_img_feat')
     # XXX: check that float32 images lead to correct features
-
-    # XXX: check that it's right that DevTrain has only 2200 verification
-    # pairs!? How we supposed to train a good model?!
 
     # XXX: make sure namebase takes a different value for each process
     #      because it's important that the memmaps don't interfere on disk
@@ -298,7 +343,8 @@ def screening_program(slm_desc, decisions, comparison, preproc, namebase):
 
 
 def get_performance(slm, decisions, preproc, comparison,
-                    namebase=None, progkey='result_w_cleanup'):
+                    namebase=None, progkey='result_w_cleanup',
+                    return_multi=False):
     if decisions is None:
         decisions = np.zeros((1, 3200))
     else:

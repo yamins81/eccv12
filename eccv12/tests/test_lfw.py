@@ -122,8 +122,6 @@ def test_mixture_ensembles():
             bandit_algo,
             async=False)
     exp.run(NUM_ROUNDS * ROUND_LEN)
-    results = trials.results
-    specs = trials.specs
 
     simple = experiments.SimpleMixture(trials, bandit)
     simple_specs, simple_weights = simple.mix_models(NUM_ROUNDS)
