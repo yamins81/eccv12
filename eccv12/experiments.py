@@ -168,35 +168,87 @@ class AdaboostMixture(SimpleMixture):
 ###PARALLEL###
 ##############
 
-##XXXXXX: filter OKs here in parallel?  I think NOT, given when the search exp
-##meta-banditalgo will do
-
-class ParallelAlgo(hyperopt.BanditAlgo):
+class InterleaveAlgo(hyperopt.BanditAlgo):
     """Interleaves calls to `num_procs` independent Trials sets
 
-    Injects a `proc_num` field into the miscs document for book-keeping.
+    This class is implemented carefully to work around some awkwardness
+    in the design of hyperopt.Trials.  The purpose of this banditalgo is to
+    facilitate running several independent BanditAlgos at once.  You might
+    want to do this if you are trying to compare random search to an optimized
+    search for example.
+
+    Trial documents inserted by this suggest function can be tagged with
+    identifying information, but trial documents inserted in turn by the
+    Bandit.evaluate() functions themselves will not be tagged, except by their
+    experiment key (exp_key). So this class uses the exp_key to keep each
+    experiment distinct.  Every sub_algo passed to the constructor requires a
+    corresponding exp_key. If you want to get tricky, you can combine
+    sub-experiments by giving them identical keys. As a consequence of this
+    strategy, this class REQUIRES AN UNRESTRICTED VIEW of the trials object
+    used to make suggestions, so the trials object CANNOT have an exp_key
+    of its own.
+
+    The InterleaveAlgo works on the basis of growing the sub-experiments at
+    the same pace. On every call to suggest(), this function counts up the
+    number of non-error jobs in each sub-experiment, and asks the sub_algo
+    corresponding to the smallest sub-experiment to propose a new document.
+
+    The InterleaveAlgo stops when all of the sub_algo.suggest methods have
+    returned `hyperopt.StopExperiment`.
+
     """
-    def __init__(self, sub_algo, num_procs):
-        hyperopt.BanditAlgo.__init__(self, sub_algo.bandit)
-        self.sub_algo = sub_algo
-        self.num_procs = num_procs
+    def __init__(self, sub_algos, sub_exp_keys, **kwargs):
+        hyperopt.BanditAlgo.__init__(self, sub_algos[0].bandit, **kwargs)
+        # XXX: assert all bandits are the same
+        self.sub_algos = sub_algos
+        self.sub_exp_keys = sub_exp_keys
+        if len(sub_algos) != len(sub_exp_keys):
+            raise ValueError('algos and keys should have same len')
+        # -- will be rebuilt naturally if experiment is continued
+        self.stopped = set()
 
     def suggest(self, new_ids, trials):
+        assert trials._exp_key is None # -- see explanation above
+        sub_trials = [trials.view(exp_key, refresh=False)
+                for exp_key in self.sub_exp_keys]
+        # -- views are not refreshed
+        states_that_count = [
+                hyperopt.JOB_STATE_NEW,
+                hyperopt.JOB_STATE_RUNNING,
+                hyperopt.JOB_STATE_DONE]
+        counts = [st.count_by_state_unsynced(states_that_count)
+                for st in sub_trials]
+        new_docs = []
+        for new_id in new_ids:
+            pref = np.argsort(counts)
+            # -- try to get one of the sub_algos to make a suggestion
+            #    for new_id, in order of sub-experiment size
+            for active in pref:
+                if active not in self.stopped:
+                    sub_algo = self.sub_algos[active]
+                    sub_trial = sub_trials[active]
+                    smth = sub_algo.suggest([new_id], sub_trial)
+                    if smth is hyperopt.StopExperiment:
+                        self.stopped.add(active)
+                    elif smth:
+                        new_doc, = smth
+                        counts[active] += 1
+                        new_docs.append(new_doc)
+                        break
+                    else:
+                        if list(smth) != []:
+                            raise ValueError('bad suggestion',
+                                    (sub_algo, smth))
+        if len(self.stopped) == len(self.sub_algos):
+            return hyperopt.StopExperiment
+        else:
+            return new_docs
 
-        specs, results, miscs = trials.specs, trials.results, trials.miscs
-        num_procs = self.num_procs
-        proc_nums = [s['proc_num'] for s in miscs]
-        proc_counts = np.array([proc_nums.count(j) for j in range(num_procs)])
-        proc_num = int(proc_counts.argmin())
-        proc_nums = np.array(proc_nums)
-        proc_idxs = (proc_nums == proc_num).nonzero()[0]
-        proc_trial_docs = [trials.trials[idx] for idx in proc_idxs]
-        proc_trials = trials_from_docs(proc_trial_docs, exp_key=trials._exp_key)
-        new_docs = self.sub_algo.suggest(new_ids, proc_trials)
-        for doc in new_docs:
-            assert 'proc_num' not in doc['misc']
-            doc['misc']['proc_num'] = proc_num
-        return new_docs
+
+def ParallelAlgo(sub_algo, num_progs, **kwargs):
+    sub_algos = [sub_algo] * num_progs
+    sub_keys = ['EK_%i' % i for i in range(num_progs)]
+    return InterleaveAlgo(sub_algos, sub_keys, **kwargs)
 
 
 ##############
@@ -268,8 +320,8 @@ class AsyncBoostingAlgo(BoostingAlgoBase):
         3 ...
 
     """
-    def __init__(self, sub_algo, round_len, look_back):
-        hyperopt.BanditAlgo.__init__(self, sub_algo.bandit)
+    def __init__(self, sub_algo, round_len, look_back, **kwargs):
+        hyperopt.BanditAlgo.__init__(self, sub_algo.bandit, **kwargs)
         self.sub_algo = sub_algo
         self.round_len = round_len
         self.look_back = look_back
@@ -352,25 +404,24 @@ class AsyncBoostingAlgo(BoostingAlgoBase):
 
 
 class AsyncBoostingAlgoA(AsyncBoostingAlgo):
-    def __init__(self, bandit_algo, round_len):
+    def __init__(self, bandit_algo, round_len, **kwargs):
         AsyncBoostingAlgo.__init__(self, bandit_algo, round_len,
-                look_back=1)
+                look_back=1, **kwargs)
 
 
 class AsyncBoostingAlgoB(AsyncBoostingAlgo):
-    def __init__(self, bandit_algo, round_len):
+    def __init__(self, bandit_algo, round_len, **kwargs):
         AsyncBoostingAlgo.__init__(self, bandit_algo, round_len,
-                look_back=sys.maxint)
+                look_back=sys.maxint, **kwargs)
 
 
 class SyncBoostingAlgo(BoostingAlgoBase):
-    def __init__(self, sub_algo, round_len):
-        hyperopt.BanditAlgo.__init__(self, sub_algo.bandit)
+    def __init__(self, sub_algo, round_len, **kwargs):
+        hyperopt.BanditAlgo.__init__(self, sub_algo.bandit, **kwargs)
         self.sub_algo = sub_algo
         self.round_len = round_len
 
     def suggest(self, new_ids, trials):
-
         round_len = self.round_len
 
         specs, results, miscs = filter_ok_trials(trials)

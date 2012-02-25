@@ -246,12 +246,12 @@ def test_parallel_algo():
 
     class FakeRandom(hyperopt.Random):
         def suggest(self, ids, trials):
-            if trials:
+            trials.refresh()
+            if len(trials):
                 # -- test that the SubAlgo always sees only jobs from one of
                 #     the 'procs'
-                my_proc_num = trials.miscs[0]['proc_num']
-                assert all((my_proc_num == m['proc_num'])
-                        for m in trials.miscs)
+                my_key = trials.trials[0]['exp_key']
+                assert all((my_key == t['exp_key']) for t in trials)
             n_specs_list.append(len(trials))
             return hyperopt.Random.suggest(self, ids, trials)
 
@@ -259,8 +259,9 @@ def test_parallel_algo():
     parallel_algo = experiments.ParallelAlgo(algo, num_procs)
     exp = hyperopt.Experiment(trials, parallel_algo)
     exp.run(num_procs * num_sets)
-    proc_nums = [m['proc_num'] for m in exp.trials.miscs]
+    proc_nums = [int(t['exp_key'][3:]) for t in exp.trials]
     assert proc_nums == range(num_procs) * num_sets
+    print n_specs_list
     assert n_specs_list == [0] * num_procs + [1] * num_procs + [2] * num_procs
 
 
