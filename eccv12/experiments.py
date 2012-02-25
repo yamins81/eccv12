@@ -227,6 +227,10 @@ class InterleaveAlgo(hyperopt.BanditAlgo):
                 if active not in self.stopped:
                     sub_algo = self.sub_algos[active]
                     sub_trial = sub_trials[active]
+                    # XXX This may well transfer data... make sure that's OK
+                    #     In future consider adding a refresh=False
+                    #     to constructor, to prevent this transfer.
+                    sub_trial.refresh()
                     smth = sub_algo.suggest([new_id], sub_trial)
                     if smth is hyperopt.StopExperiment:
                         self.stopped.add(active)
