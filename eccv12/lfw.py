@@ -1,5 +1,7 @@
 import copy
 import cPickle
+import logging
+logger = logging.getLogger(__name__)
 import os
 
 from thoreano.slm import SLMFunction
@@ -114,23 +116,25 @@ class MultiBandit(hyperopt.Bandit):
                 # -- inject this to the trials db directly
                 new_tid, = ctrl.trials.new_trial_ids(1)
                 my_trial = ctrl.current_trial
-                misc = dict(tid=new_tid,
+                new_misc = dict(tid=new_tid,
                             idxs=copy.deepcopy(my_trial['misc']['idxs']),
                             vals=copy.deepcopy(my_trial['misc']['vals']))
-                for nid, nid_idxs in misc['idxs'].items():
+                for nid, nid_idxs in new_misc['idxs'].items():
                     assert len(nid_idxs) <= 1
                     if nid_idxs:
                         assert nid_idxs[0] == my_trial['tid']
                         nid_idxs[0] = new_tid
-                config_ = copy.deepcopy(config)
-                config_['comparison'] = comp
+                new_config = copy.deepcopy(config)
+                new_config['comparison'] = comp
 
                 # -- modify the vals corresponding to the comparison function
-                assert len(misc['vals'][comp_node_id]) == 1
-                assert misc['vals'][comp_node_id][0] == val_of_comp[comparison]
-                misc['vals'][comp_node_id][0] = val_of_comp[comp]
-
-                ctrl.inject_results([config_], [result], [misc], new_tids=[new_tid])
+                assert len(new_misc['vals'][comp_node_id]) == 1
+                assert new_misc['vals'][comp_node_id][0] == val_of_comp[comparison]
+                new_misc['vals'][comp_node_id][0] = val_of_comp[comp]
+                logger.info('injecting %i from %i (exp_key=%s)' % (
+                    new_tid, my_trial['tid'], ctrl.trials._exp_key))
+                ctrl.inject_results([new_config], [result], [new_misc],
+                                    new_tids=[new_tid])
         assert my_result is not None
         return my_result
 
