@@ -292,17 +292,21 @@ class NestedExperiment(object):
                 rval.append(exp)
         return rval
 
-    def run(self):
-        """
-        Keeps suggesting jobs from each SearchExp until they are all done.
-        """
+    def interleaved_algo(self):
         search_exps = self.flatten()
         # XXX assert that all search_exps have same bandit
         search_exps[0].prepare_trials()
         algos = [se.get_bandit_algo() for se in search_exps]
         keys = [se.get_exp_key() for se in search_exps]
-        take_turns = InterleaveAlgo(algos, keys)
-        exp = hyperopt.Experiment(self.trials, take_turns)
+        rval = InterleaveAlgo(algos, keys)
+        return rval
+
+    def run(self):
+        """
+        Keeps suggesting jobs from each SearchExp until they are all done.
+        """
+        rval = self.interleaved_algo()
+        exp = hyperopt.Experiment(self.trials, rval)
         # -- the interleaving algo will break out of this
         exp.run(sys.maxint, block_until_done=True)
 
@@ -511,4 +515,19 @@ def main_lfw_driver(trials):
     add_exps(hyperopt.TreeParzenEstimator, 'ek_tpe')
     return B
 
+
+def main():
+    """
+    This class presents the entire LFW experiment as a BanditAlgo
+    so that it can be started up with 
+    
+    hyperopt-mongo-search --exp_key='' eccv12.lfw.MultiBandit \
+        eccv12.eccv12.WholeExperiment
+    """
+    trials = hyperopt.mongoexp.MongoTrials('mongo://localhost:44556/try1/jobs')
+    B = main_lfw_driver(trials)
+    B.run()
+
+if __name__ == '__main__':
+    sys.exit(main())
 

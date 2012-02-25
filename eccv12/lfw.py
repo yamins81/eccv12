@@ -80,10 +80,10 @@ class MultiBandit(hyperopt.Bandit):
         decisions = config.get('decisions')
 
         # -- hackity hack (move to hyperopt)
-        #    This computes the key for the MainBandit.comparison choice
+        #    This computes the key for the self.comparison choice
         #    in the idxs/vals for this Bandit.
         algo = hyperopt.Random(self)
-        cloned_comp = algo.template_clone_memo[MainBandit.comparison]
+        cloned_comp = algo.template_clone_memo[self.comparison]
         cloned_comp_choice = algo.vh.choice_memo[cloned_comp]
         comp_node_id = algo.vh.node_id[cloned_comp_choice]
         # -- now make sure we've got it right...
