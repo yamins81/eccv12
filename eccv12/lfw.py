@@ -373,7 +373,8 @@ def screening_program(slm_desc, decisions, comparison, preproc, namebase,
         (train_X, train_y, train_d,),
         (test_X, test_y, test_d,))
 
-    if ctrl is not None:
+    if 0 and ctrl is not None:
+        print >> sys.stderr, "SKIPPING FEATURE KERNEL"
         train_Xyd_n = scope.attach_feature_kernels(train_Xyd_n, test_Xyd_n,
                 ctrl, comparison)
 
