@@ -1,7 +1,7 @@
 #!/bin/bash
 
 export SCIKIT_DATA=/scratch_local/skdata
-L=$SCIKITDATA/lfw/aligned
+L=$SCIKIT_DATA/lfw/aligned
 mkdir -p $L
 rsync -a ~/.skdata/lfw/aligned/ $L/
 
