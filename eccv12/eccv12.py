@@ -526,7 +526,7 @@ def main_lfw_driver(trials):
     return N
 
 
-def main_run():
+def main_run(dbname):
     """
     This class presents the entire LFW experiment as a BanditAlgo
     so that it can be started up with 
@@ -534,12 +534,39 @@ def main_run():
     hyperopt-mongo-search --exp_key='' eccv12.lfw.MultiBandit \
         eccv12.eccv12.WholeExperiment
     """
-    trials = hyperopt.mongoexp.MongoTrials('mongo://localhost:44556/try1/jobs')
+    trials = hyperopt.mongoexp.MongoTrials('mongo://localhost:44556/%s/jobs'
+                                           % dbname)
     B = main_lfw_driver(trials)
     B.run()
 
-def main_delete_all():
-    trials = hyperopt.mongoexp.MongoTrials('mongo://localhost:44556/try1/jobs')
+def main_delete_all(dbname):
+    trials = hyperopt.mongoexp.MongoTrials('mongo://localhost:44556/%s/jobs'
+                                           % dbname)
     B = main_lfw_driver(trials)
     B.delete_all()
 
+def main_fix_injected_tid_bug(dbname):
+    trials = hyperopt.mongoexp.MongoTrials('mongo://localhost:44556/%s/jobs'
+                                           % dbname)
+    handle = trials.handle
+    for doc in trials:
+        misc = doc['misc']
+        tid = misc['tid']
+        fromtid = misc.get('from_tid', None)
+        if fromtid is not None:
+            idxs = misc['idxs']
+            for nid, nidxs in idxs.items():
+                assert len(nidxs) <= 1
+                if nidxs:
+                    assert nidxs[0] in (tid, fromtid)
+                    if nidxs[0] == fromtid:
+                        print 'fixing', tid, nid
+                        nidxs[0] = tid
+        #XXXX VERIFY THAT THIS ACTUALLY UPDATES JUST THE SUBDOCUMENT
+        assert 0
+        handle.coll.update(
+            dict(_id=doc['_id']),
+            {'misc': {'$set': doc['misc']}},
+            safe=True,
+            upsert=False,
+            multi=False)
