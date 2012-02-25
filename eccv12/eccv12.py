@@ -546,6 +546,20 @@ def main_show_errors(dbname):
         if doc['state'] == hyperopt.JOB_STATE_ERROR:
             print doc['error']
 
+def main_validate_from_tids(dbname):
+    trials = hyperopt.mongoexp.MongoTrials('mongo://localhost:44556/%s/jobs'
+                                           % dbname, refresh=False)
+    trials.refresh()
+    tdict = dict([(t['tid'], t) for t in trials])
+    print "TIDS", tdict.keys()
+
+    for tid, t in tdict.items():
+        assert t['misc']['tid'] == tid
+        if 'from_tid' in t['misc']:
+            if t['misc']['from_tid'] not in tdict:
+                print 'WTF gave us', tid, t['misc']['from_tid']
+
+
 def main_delete_all(dbname):
     assert 0, "go and disable the assertion if you really want to delete all"
     trials = hyperopt.mongoexp.MongoTrials('mongo://localhost:44556/%s/jobs'
