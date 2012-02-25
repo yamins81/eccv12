@@ -57,7 +57,7 @@ def cname(cls):
 class LFWBandit(lfw.MainBandit):
     def __init__(self, n_features):
             self.param_gen = dict(
-            model=model_params.pyll_param_func(n_featuerss),
+            model=model_params.pyll_param_func(n_features),
             comparison=scope.one_of('mult', 'sqrtabsdiff'),
             decisions=None,
             # XXX SVM STUFF?
