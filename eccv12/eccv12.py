@@ -547,6 +547,7 @@ def main_show_errors(dbname):
             print doc['error']
 
 def main_delete_all(dbname):
+    assert 0, "go and disable the assertion if you really want to delete all"
     trials = hyperopt.mongoexp.MongoTrials('mongo://localhost:44556/%s/jobs'
                                            % dbname)
     B = main_lfw_driver(trials)
