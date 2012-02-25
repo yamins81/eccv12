@@ -278,14 +278,14 @@ class BoostingAlgoBase(hyperopt.BanditAlgo):
         all trials that continue trial tid.
         """
         rval = [idx for idx, misc in enumerate(miscs)
-                if misc['boosting']['continues'] == tid]
+                if continues(miscs, misc) == tid]
         return rval
 
     @staticmethod
     def boosting_best_by_round(trials, bandit):
         specs, results, miscs = filter_ok_trials(trials)
         losses = np.array(map(bandit.loss, results, specs))
-        rounds = np.array([m['boosting']['round'] for m in miscs])
+        rounds = np.array([round_of(trials.miscs, m) for m in miscs])
         urounds = np.unique(rounds)
         urounds.sort()
         assert urounds.tolist() == range(urounds.max() + 1)
@@ -306,12 +306,28 @@ class BoostingAlgoBase(hyperopt.BanditAlgo):
         assert None not in losses
         cur_idx = np.argmin(losses)
         reversed_members_idxs = [cur_idx]
-        while miscs[cur_idx]['boosting']['continues'] != None:
+        while continues(trials.miscs, miscs[cur_idx]) != None:
             cur_idx = [m['tid'] for m in miscs].index(
-                    miscs[cur_idx]['boosting']['continues'])
+                    continues(trials.miscs, miscs[cur_idx]))
             reversed_members_idxs.append(cur_idx)
         rval = [miscs[ii]['tid'] for ii in reversed(reversed_members_idxs)]
         return rval
+
+def round_of(miscs, misc):
+    try:
+        return misc['boosting']['round']
+    except KeyError:
+        fromtid = misc['from_tid']
+        fm = [t for t in miscs if t['tid'] == fromtid][0]
+        return fm['boosting']['round']
+
+def continues(miscs, misc):
+    try:
+        return misc['boosting']['continues']
+    except KeyError:
+        fromtid = misc['from_tid']
+        fm = [t for t in miscs if t['tid'] == fromtid][0]
+        return fm['boosting']['continues']
 
 
 class AsyncBoostingAlgo(BoostingAlgoBase):
@@ -352,7 +368,7 @@ class AsyncBoostingAlgo(BoostingAlgoBase):
 
         if miscs:
             # -- pick a trial to continue
-            rounds_counts = np.bincount([m['boosting']['round']
+            rounds_counts = np.bincount([round_of(miscs, m)
                 for m in miscs])
             assert np.all(rounds_counts > 0)
             assert np.all(rounds_counts[:-1] >= round_len)
@@ -364,7 +380,7 @@ class AsyncBoostingAlgo(BoostingAlgoBase):
             horizon = my_round - look_back
             consider_continuing = [idx
                     for idx, misc in enumerate(miscs)
-                    if horizon <= misc['boosting']['round'] < my_round]
+                    if horizon <= round_of(miscs, misc) < my_round]
 
             #print 'losses', np.array(map(self.bandit.loss, results, specs))
 
@@ -434,9 +450,9 @@ class SyncBoostingAlgo(BoostingAlgoBase):
         specs, results, miscs = filter_ok_trials(trials)
 
         if miscs:
-            rounds = [m['boosting']['round'] for m in miscs]
+            rounds = [round_of(miscs, m) for m in miscs]
             # -- actually the rounds of completed trials
-            complete_rounds = [m['boosting']['round']
+            complete_rounds = [round_of(miscs, m)
                     for m, r in zip(miscs, results) if 'loss' in r]
 
             max_round = max(rounds)
@@ -453,7 +469,7 @@ class SyncBoostingAlgo(BoostingAlgoBase):
 
             round_decs = [[s['decisions']
                 for m, s in zip(miscs, specs)
-                if m['boosting']['round'] == j] for j in urounds]
+                if round_of(miscs, m) == j] for j in urounds]
             assert all([all([_rd == rd[0]
                 for _rd in rd]) for rd in round_decs])
             round_decs = [rd[0] for rd in round_decs]
@@ -462,12 +478,12 @@ class SyncBoostingAlgo(BoostingAlgoBase):
                 my_round = max_round + 1
                 last_specs = [s
                         for s, m in zip(specs, miscs)
-                        if m['boosting']['round'] == max_round]
+                        if round_of(miscs, m) == max_round]
                 last_results = [s
                         for s, m in zip(results, miscs)
-                        if m['boosting']['round'] == max_round]
+                        if round_of(miscs, m) == max_round]
                 last_miscs = [m for m in miscs
-                        if m['boosting']['round'] == max_round]
+                        if round_of(miscs, m) == max_round]
                 losses = np.array(map(self.bandit.loss, last_results, last_specs))
                 last_best = losses.argmin()
                 decisions = last_results[last_best]['decisions']
@@ -475,14 +491,14 @@ class SyncBoostingAlgo(BoostingAlgoBase):
             else:
                 my_round = max_round
                 decisions = round_decs[-1]
-                decisions_src = miscs[-1]['boosting']['continues']
+                decisions_src = continues(miscs, miscs[-1])
         else:
             decisions = None
             my_round = 0
             decisions_src = None
 
         selected_trial_docs = [t for t in trials
-                                  if t['misc']['boosting']['round'] == my_round]        
+                                  if round_of(miscs, t['misc']) == my_round]        
         selected_trials = trials_from_docs(selected_trial_docs,
                                                   exp_key=trials._exp_key)
         new_trial_docs = self.sub_algo.suggest(new_ids, selected_trials)
