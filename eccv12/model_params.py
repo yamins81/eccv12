@@ -236,12 +236,19 @@ def pf_lpool(stride=2):
             }})
 
 
-def pf_fbcorr(max_filters, iseed, n_filters=None):
-    if n_filters is None:
+def pf_fbcorr(max_filters, iseed, n_filters_relto128=None):
+    if n_filters_relto128 is None:
         n_filters = pyll.scope.int(
                 qloguniform(
                     np.log(16 / 2.0),
                     np.log(max_filters),
+                    q=16))
+    else:
+        coef = n_filters_relto128 / 128.0
+        n_filters = pyll.scope.int(
+                qloguniform(
+                    np.log(coef * 16 / 2.0),
+                    np.log(coef * max_filters),
                     q=16))
     size = rfilter_size(2, 10)
     return ('fbcorr', {
