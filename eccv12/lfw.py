@@ -112,9 +112,16 @@ class MultiBandit(hyperopt.Bandit):
                 my_result = result
             else:
                 # -- inject this to the trials db directly
+                new_tid, = ctrl.trials.new_trial_ids(1)
                 my_trial = ctrl.current_trial
-                misc = dict(idxs=copy.deepcopy(my_trial['misc']['idxs']),
+                misc = dict(tid=new_tid,
+                            idxs=copy.deepcopy(my_trial['misc']['idxs']),
                             vals=copy.deepcopy(my_trial['misc']['vals']))
+                for nid, nid_idxs in misc['idxs'].items():
+                    assert len(nid_idxs) <= 1
+                    if nid_idxs:
+                        assert nid_idxs[0] == my_trial['tid']
+                        nid_idxs[0] = new_tid
                 config_ = copy.deepcopy(config)
                 config_['comparison'] = comp
 
@@ -123,7 +130,7 @@ class MultiBandit(hyperopt.Bandit):
                 assert misc['vals'][comp_node_id][0] == val_of_comp[comparison]
                 misc['vals'][comp_node_id][0] = val_of_comp[comp]
 
-                ctrl.inject_results([config_], [result], [misc])
+                ctrl.inject_results([config_], [result], [misc], new_tids=[new_tid])
         assert my_result is not None
         return my_result
 
