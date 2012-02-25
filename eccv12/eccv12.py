@@ -539,13 +539,21 @@ def main_run(dbname):
     B = main_lfw_driver(trials)
     B.run()
 
+def main_show_errors(dbname):
+    trials = hyperopt.mongoexp.MongoTrials('mongo://localhost:44556/%s/jobs'
+                                           % dbname, refresh=False)
+    for doc in trials.handle:
+        if doc['state'] == hyperopt.JOB_STATE_ERROR:
+            print doc['error']
+
 def main_delete_all(dbname):
     trials = hyperopt.mongoexp.MongoTrials('mongo://localhost:44556/%s/jobs'
                                            % dbname)
     B = main_lfw_driver(trials)
     B.delete_all()
 
-def main_fix_injected_tid_bug(dbname):
+if 0:
+  def main_fix_injected_tid_bug(dbname):
     trials = hyperopt.mongoexp.MongoTrials('mongo://localhost:44556/%s/jobs'
                                            % dbname)
     handle = trials.handle
