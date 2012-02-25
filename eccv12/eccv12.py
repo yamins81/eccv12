@@ -34,24 +34,17 @@ except ImportError:
 
 import hyperopt
 import hyperopt.plotting
-from hyperopt import Trials, STATUS_RUNNING, STATUS_NEW, StopExperiment
+from hyperopt import STATUS_RUNNING, STATUS_NEW, StopExperiment
 from hyperopt.mongoexp import MongoTrials, as_mongo_str
 
-from pyll import scope, clone, as_apply
-
-import lfw #XXX: confusing with skdata.lfw
 from .lfw import MultiBandit
-import model_params
 
 from .experiments import SyncBoostingAlgo
 from .experiments import AsyncBoostingAlgoA
 from .experiments import AsyncBoostingAlgoB
 from .experiments import AdaboostMixture
 from .experiments import SimpleMixture
-from .experiments import ParallelAlgo
 from .experiments import InterleaveAlgo
-
-from .model_params import main_param_func
 
 
 def cname(cls):
@@ -60,7 +53,6 @@ def cname(cls):
 
 # -- keep tests running
 class LFWBandit(MultiBandit): pass
-
 
 
 
@@ -426,6 +418,7 @@ class ComparisonExperiment(NestedExperiment):
 
         if run_parallel:
             parallel_exp = MetaExp(
+                    # XXX: Dan where is this class defined?
                     meta_algo_class=ParallelBoostingAlgo,
                     meta_kwargs={"num_procs": ensemble_size},
                     **std_kwargs)
@@ -525,71 +518,7 @@ def main_lfw_driver(trials):
     N.add_exp(add_exps(hyperopt.TreeParzenEstimator, 'ek_tpe'), 'TPE')
     return N
 
+# The driver code for these classes is in scripts/main.py
+#
+#
 
-def main_run(dbname):
-    """
-    This class presents the entire LFW experiment as a BanditAlgo
-    so that it can be started up with 
-    
-    hyperopt-mongo-search --exp_key='' eccv12.lfw.MultiBandit \
-        eccv12.eccv12.WholeExperiment
-    """
-    trials = hyperopt.mongoexp.MongoTrials('mongo://localhost:44556/%s/jobs'
-                                           % dbname)
-    B = main_lfw_driver(trials)
-    B.run()
-
-def main_show_errors(dbname):
-    trials = hyperopt.mongoexp.MongoTrials('mongo://localhost:44556/%s/jobs'
-                                           % dbname, refresh=False)
-    for doc in trials.handle:
-        if doc['state'] == hyperopt.JOB_STATE_ERROR:
-            print doc['error']
-
-def main_validate_from_tids(dbname):
-    trials = hyperopt.mongoexp.MongoTrials('mongo://localhost:44556/%s/jobs'
-                                           % dbname, refresh=False)
-    trials.refresh()
-    tdict = dict([(t['tid'], t) for t in trials])
-    print "TIDS", tdict.keys()
-
-    for tid, t in tdict.items():
-        assert t['misc']['tid'] == tid
-        if 'from_tid' in t['misc']:
-            if t['misc']['from_tid'] not in tdict:
-                print 'WTF gave us', tid, t['misc']['from_tid']
-
-
-def main_delete_all(dbname):
-    assert 0, "go and disable the assertion if you really want to delete all"
-    trials = hyperopt.mongoexp.MongoTrials('mongo://localhost:44556/%s/jobs'
-                                           % dbname)
-    B = main_lfw_driver(trials)
-    B.delete_all()
-
-if 0:
-  def main_fix_injected_tid_bug(dbname):
-    trials = hyperopt.mongoexp.MongoTrials('mongo://localhost:44556/%s/jobs'
-                                           % dbname)
-    handle = trials.handle
-    for doc in trials:
-        misc = doc['misc']
-        tid = misc['tid']
-        fromtid = misc.get('from_tid', None)
-        if fromtid is not None:
-            idxs = misc['idxs']
-            for nid, nidxs in idxs.items():
-                assert len(nidxs) <= 1
-                if nidxs:
-                    assert nidxs[0] in (tid, fromtid)
-                    if nidxs[0] == fromtid:
-                        print 'fixing', tid, nid
-                        nidxs[0] = tid
-        #XXXX VERIFY THAT THIS ACTUALLY UPDATES JUST THE SUBDOCUMENT
-        assert 0
-        handle.coll.update(
-            dict(_id=doc['_id']),
-            {'misc': {'$set': doc['misc']}},
-            safe=True,
-            upsert=False,
-            multi=False)
