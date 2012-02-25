@@ -172,6 +172,9 @@ class NtrialsBanditAlgo(hyperopt.BanditAlgo):
         self.ntrials = ntrials
         self.walltime_cutoff = walltime_cutoff
 
+    def __str__(self):
+        return 'NtrialsBanditAlgo{%i, %s}' % (self.ntrials, self.base_bandit_algo)
+
     def filter_oks(self, trials):
         OKs = [t for t in trials
                           if t['result']['status'] == hyperopt.STATUS_OK]
