@@ -2,11 +2,9 @@
 Experiment classes
 """
 
-import cPickle
-import functools
-import hashlib
-import os
+import logging
 import sys
+logger = logging.getLogger(__name__)
 
 import numpy as np
 import hyperopt
@@ -218,6 +216,7 @@ class InterleaveAlgo(hyperopt.BanditAlgo):
                 hyperopt.JOB_STATE_DONE]
         counts = [st.count_by_state_unsynced(states_that_count)
                 for st in sub_trials]
+        logger.info('counts: %s' % str(counts))
         new_docs = []
         for new_id in new_ids:
             pref = np.argsort(counts)
@@ -233,8 +232,12 @@ class InterleaveAlgo(hyperopt.BanditAlgo):
                     sub_trial.refresh()
                     smth = sub_algo.suggest([new_id], sub_trial)
                     if smth is hyperopt.StopExperiment:
+                        logger.info('stopping experiment (%i: %s)' %
+                                    (active, sub_algo))
                         self.stopped.add(active)
                     elif smth:
+                        logger.info('suggestion %i from (%i: %s)' %
+                                    (new_id, active, sub_algo))
                         new_doc, = smth
                         counts[active] += 1
                         new_docs.append(new_doc)
