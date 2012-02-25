@@ -383,40 +383,46 @@ class ComparisonExperiment(NestedExperiment):
                 ntrials=self.ntrials,
                 trials=self.trials)
 
-        basic_exp = SearchExp(**std_kwargs)
-        self.add_exp(basic_exp, 'basic')
+        if 1:
+            basic_exp = SearchExp(**std_kwargs)
+            self.add_exp(basic_exp, 'basic')
 
-        simple_mix = MixtureExp(
-                mixture_class=SimpleMixture,
-                mixture_kwargs={},
-                ensemble_size=ensemble_size,
-                **std_kwargs)
-        self.add_exp(simple_mix, 'simple_mix')
+        if 0:
+            simple_mix = MixtureExp(
+                    mixture_class=SimpleMixture,
+                    mixture_kwargs={},
+                    ensemble_size=ensemble_size,
+                    **std_kwargs)
+            self.add_exp(simple_mix, 'simple_mix')
 
-        ada_mix = MixtureExp(
-                mixture_class=AdaboostMixture,
-                mixture_kwargs=adamix_kwargs,
-                ensemble_size=ensemble_size,
-                **std_kwargs)
-        self.add_exp(ada_mix, 'ada_mix')
+        if 0:
+            ada_mix = MixtureExp(
+                    mixture_class=AdaboostMixture,
+                    mixture_kwargs=adamix_kwargs,
+                    ensemble_size=ensemble_size,
+                    **std_kwargs)
+            self.add_exp(ada_mix, 'ada_mix')
 
-        syncboost_exp = MetaExp(
-                meta_algo_class=SyncBoostingAlgo,
-                meta_kwargs={"round_len": round_len},
-                **std_kwargs)
-        self.add_exp(syncboost_exp, 'SyncBoost')
+        if 0:
+            syncboost_exp = MetaExp(
+                    meta_algo_class=SyncBoostingAlgo,
+                    meta_kwargs={"round_len": round_len},
+                    **std_kwargs)
+            self.add_exp(syncboost_exp, 'SyncBoost')
 
-        asyncboostA_exp = MetaExp(
-                meta_algo_class=AsyncBoostingAlgoA,
-                meta_kwargs={"round_len": round_len},
-                **std_kwargs)
-        self.add_exp(asyncboostA_exp, 'AsyncBoostA')
+        if 0:
+            asyncboostA_exp = MetaExp(
+                    meta_algo_class=AsyncBoostingAlgoA,
+                    meta_kwargs={"round_len": round_len},
+                    **std_kwargs)
+            self.add_exp(asyncboostA_exp, 'AsyncBoostA')
 
-        asyncboostB_exp = MetaExp(
-                meta_algo_class=AsyncBoostingAlgoB,
-                meta_kwargs={"round_len": round_len},
-                **std_kwargs)
-        self.add_exp(asyncboostB_exp, 'AsyncBoostB')
+        if 1:
+            asyncboostB_exp = MetaExp(
+                    meta_algo_class=AsyncBoostingAlgoB,
+                    meta_kwargs={"round_len": round_len},
+                    **std_kwargs)
+            self.add_exp(asyncboostB_exp, 'AsyncBoostB')
 
         if run_parallel:
             parallel_exp = MetaExp(
@@ -462,13 +468,14 @@ class BudgetExperiment(NestedExperiment):
         save = self.save
         # -- search models sampled from `bandit_func(num_features)`
         #    using search algorithm `bandit_algo_class`
-        control_exp = SearchExp(num_features=num_features,
+        if 0: # XXX bring back later, too slow...
+            control_exp = SearchExp(num_features=num_features,
                       bandit_func=bandit_func,
                       bandit_algo_class=bandit_algo_class,
                       exp_prefix=exp_prefix,
                       ntrials=ntrials,
                       trials=trials)
-        self.add_exp(control_exp, 'control')
+            self.add_exp(control_exp, 'control')
 
         for es in ensemble_sizes:
             #trade off ensemble size for more trials, fixed final feature size
@@ -505,21 +512,21 @@ class BudgetExperiment(NestedExperiment):
 
 def main_lfw_driver(trials):
     def add_exps(bandit_algo_class, exp_prefix):
-        B.add_experiments(
+        B = BudgetExperiment(ntrials=200, save=False, trials=trials,
                 num_features=128 * 10,
                 ensemble_sizes=[10],
                 bandit_func=MultiBandit,
                 bandit_algo_class=bandit_algo_class,
                 exp_prefix=exp_prefix,
                 run_parallel=False) # XXX?
+        return B
+    N = NestedExperiment(trials=trials, ntrials=200, save=False)
+    N.add_exp(add_exps(hyperopt.Random, 'ek_random'), 'random')
+    N.add_exp(add_exps(hyperopt.TreeParzenEstimator, 'ek_tpe'), 'TPE')
+    return N
 
-    B = BudgetExperiment(ntrials=200, save=False, trials=trials)
-    add_exps(hyperopt.Random, 'ek_random')
-    add_exps(hyperopt.TreeParzenEstimator, 'ek_tpe')
-    return B
 
-
-def main():
+def main_run():
     """
     This class presents the entire LFW experiment as a BanditAlgo
     so that it can be started up with 
@@ -531,6 +538,8 @@ def main():
     B = main_lfw_driver(trials)
     B.run()
 
-if __name__ == '__main__':
-    sys.exit(main())
+def main_delete_all():
+    trials = hyperopt.mongoexp.MongoTrials('mongo://localhost:44556/try1/jobs')
+    B = main_lfw_driver(trials)
+    B.delete_all()
 
