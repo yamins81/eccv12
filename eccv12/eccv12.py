@@ -119,6 +119,11 @@ class SearchExp(object):
         turn identifying information into a mongo experiment key
         """
         info = self.get_info()
+        ## XXX THIS hack was made in order to continue experiments that
+        #      were started with the wrong bandit (MultiBandit vs. MarginBandit)
+        #      If experiments are to be restarted, try to remember to
+        #      REMOVE THIS HACK.
+        info['bandit'] = 'eccv12.lfw.MultiBandit'
         tag = '_'.join([k + ':' + str(v) for (k, v) in info.items()])
         return self.exp_prefix + tag
 
@@ -377,24 +382,26 @@ class ComparisonExperiment(NestedExperiment):
     """Compare various approaches to ensemble construction.
     """
     def add_experiments(self, num_features, round_len, ensemble_size,
-                 bandit_func, bandit_algo_class, exp_prefix,
+                 bandit_algo_class, exp_prefix,
                  run_parallel, adamix_kwargs):
 
         std_kwargs = dict(
                 num_features=num_features,
-                bandit_func=bandit_func,
                 bandit_algo_class=bandit_algo_class,
                 exp_prefix=exp_prefix,
                 ntrials=self.ntrials,
                 trials=self.trials)
 
         if 1:
-            basic_exp = SearchExp(**std_kwargs)
+            basic_exp = SearchExp(
+                    bandit_func=MultiBandit,
+                    **std_kwargs)
             self.add_exp(basic_exp, 'basic')
 
         if 0:
             simple_mix = MixtureExp(
                     mixture_class=SimpleMixture,
+                    bandit_func=MultiBandit,
                     mixture_kwargs={},
                     ensemble_size=ensemble_size,
                     **std_kwargs)
@@ -403,6 +410,8 @@ class ComparisonExperiment(NestedExperiment):
         if 0:
             ada_mix = MixtureExp(
                     mixture_class=AdaboostMixture,
+                    # XXX SHOULD THIS BE MARGINBANDIT?
+                    bandit_func=MultiBandit,
                     mixture_kwargs=adamix_kwargs,
                     ensemble_size=ensemble_size,
                     **std_kwargs)
@@ -412,6 +421,7 @@ class ComparisonExperiment(NestedExperiment):
             syncboost_exp = MetaExp(
                     meta_algo_class=SyncBoostingAlgo,
                     meta_kwargs={"round_len": round_len},
+                    bandit_func=MarginBandit,
                     **std_kwargs)
             self.add_exp(syncboost_exp, 'SyncBoost')
 
@@ -419,6 +429,7 @@ class ComparisonExperiment(NestedExperiment):
             asyncboostA_exp = MetaExp(
                     meta_algo_class=AsyncBoostingAlgoA,
                     meta_kwargs={"round_len": round_len},
+                    bandit_func=MarginBandit,
                     **std_kwargs)
             self.add_exp(asyncboostA_exp, 'AsyncBoostA')
 
@@ -426,6 +437,7 @@ class ComparisonExperiment(NestedExperiment):
             asyncboostB_exp = MetaExp(
                     meta_algo_class=AsyncBoostingAlgoB,
                     meta_kwargs={"round_len": round_len},
+                    bandit_func=MarginBandit,
                     **std_kwargs)
             self.add_exp(asyncboostB_exp, 'AsyncBoostB')
 
@@ -434,6 +446,7 @@ class ComparisonExperiment(NestedExperiment):
                     # XXX: Dan where is this class defined?
                     meta_algo_class=ParallelBoostingAlgo,
                     meta_kwargs={"num_procs": ensemble_size},
+                    bandit_func=MarginBandit,
                     **std_kwargs)
             self.add_exp(parallel_exp, 'parallel')
 
@@ -462,7 +475,6 @@ class BudgetExperiment(NestedExperiment):
     """
     def add_experiments(self, num_features,
                    ensemble_sizes,
-                   bandit_func,
                    bandit_algo_class,
                    exp_prefix,
                    trials=None,
@@ -476,7 +488,7 @@ class BudgetExperiment(NestedExperiment):
         #    using search algorithm `bandit_algo_class`
         if 0: # XXX bring back later, too slow...
             control_exp = SearchExp(num_features=num_features,
-                      bandit_func=bandit_func,
+                      bandit_func=MultiBandit,
                       bandit_algo_class=bandit_algo_class,
                       exp_prefix=exp_prefix,
                       ntrials=ntrials,
@@ -492,7 +504,6 @@ class BudgetExperiment(NestedExperiment):
                                round_len=ntrials,
                                save=save,
                                ensemble_size=es,
-                               bandit_func=bandit_func,
                                bandit_algo_class=bandit_algo_class,
                                exp_prefix=exp_prefix,
                                run_parallel=run_parallel,
@@ -508,7 +519,6 @@ class BudgetExperiment(NestedExperiment):
                                num_features=num_features,
                                round_len=ntrials / es,
                                ensemble_size=es,
-                               bandit_func=bandit_func,
                                bandit_algo_class=bandit_algo_class,
                                exp_prefix=exp_prefix,
                                run_parallel=run_parallel,
@@ -521,7 +531,6 @@ def main_lfw_driver(trials):
         B = BudgetExperiment(ntrials=200, save=False, trials=trials,
                 num_features=128 * 10,
                 ensemble_sizes=[10],
-                bandit_func=MultiBandit,
                 bandit_algo_class=bandit_algo_class,
                 exp_prefix=exp_prefix,
                 run_parallel=False) # XXX?
