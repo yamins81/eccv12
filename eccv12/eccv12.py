@@ -38,6 +38,7 @@ from hyperopt import STATUS_RUNNING, STATUS_NEW, StopExperiment
 from hyperopt.mongoexp import MongoTrials, as_mongo_str
 
 from .lfw import MultiBandit
+from .lfw import lfw_result_margin
 
 from .experiments import SyncBoostingAlgo
 from .experiments import AsyncBoostingAlgoA
@@ -54,6 +55,18 @@ def cname(cls):
 # -- keep tests running
 class LFWBandit(MultiBandit): pass
 
+
+class MarginBandit(MultiBandit):
+    """Return margin-loss instead of misclassification
+
+    This class should be used by the Boosting bandits.
+    """
+
+    def loss(self, result, config=None):
+        if 'margin' in result:
+            return result['margin']
+        else:
+            return lfw_result_margin(result)
 
 
 class SearchExp(object):

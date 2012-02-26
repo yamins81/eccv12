@@ -286,6 +286,21 @@ def pairs_cleanup(obj):
     obj[0].delete_files()
 
 
+def lfw_result_margin(result):
+    # -- this function is implemented this way so that
+    #    it can be called on results saved before the 'margin' field.
+    test_mask = np.asarray(result['is_test'])
+    all_labels = np.asarray(result['labels'])
+    all_decisions = np.asarray(result['decisions'])
+    N, = all_labels.shape
+    assert all_decisions.shape == (1, N)
+    assert test_mask.shape == (1, N)
+    margins = test_mask * all_labels * all_decisions
+    hinges = 1 - np.minimum(margins, 1)
+    # -- Compute the mean over test_mask==1 elements
+    return hinges.sum() / test_mask.sum()
+
+
 @scope.define
 def result_binary_classifier_stats_lfw(
         train_data,
@@ -308,12 +323,15 @@ def result_binary_classifier_stats_lfw(
                              np.sign(test_decisions).astype(np.int),
                              [-1, 1])
     result.update(stats)
+    # -- Note that the margin is not computed here
     result['loss'] = float(1 - result['test_accuracy']/100.)
     dec = np.concatenate([train_decisions, test_decisions])
     dec = dec.reshape((1, len(dec)))
     result['decisions'] = dec.tolist()
     result['labels'] = np.concatenate([train_data[1], test_data[1]]).tolist()
     result['is_test'] = np.column_stack([np.zeros((1, 2200)), np.ones((1, 1000))]).tolist()
+
+    result['margin'] = lfw_result_margin(result)
     
     return result
 
