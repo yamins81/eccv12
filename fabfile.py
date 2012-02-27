@@ -20,6 +20,28 @@ import hyperopt
 from hyperopt.mongoexp import MongoTrials
 from eccv12.eccv12 import main_lfw_driver
 
+
+
+exp_keys = {
+    #randomL is for LARGE-output random jobs
+    'randomL': u'ek_randombandit:eccv12.lfw.MultiBandit_num_features:1280_bandit_algo:hyperopt.base.Random',
+    'random': u'ek_randombandit:eccv12.lfw.MultiBandit_num_features:128_bandit_algo:hyperopt.base.Random',
+    'tpeL': u'ek_tpebandit:eccv12.lfw.MultiBandit_num_features:1280_bandit_algo:hyperopt.tpe.TreeParzenEstimator',
+    'tpe': u'ek_tpebandit:eccv12.lfw.MultiBandit_num_features:128_bandit_algo:hyperopt.tpe.TreeParzenEstimator',
+    'tpe_asyncB': u"ek_tpebandit:eccv12.lfw.MultiBandit_num_features:128_meta_algo:eccv12.experiments.AsyncBoostingAlgoB_bandit_algo:hyperopt.tpe.TreeParzenEstimator_meta_kwargs:{'round_len': 200}",
+    'random_asyncB': u"ek_randombandit:eccv12.lfw.MultiBandit_num_features:128_meta_algo:eccv12.experiments.AsyncBoostingAlgoB_bandit_algo:hyperopt.base.Random_meta_kwargs:{'round_len': 200}",
+    'tpe_asyncB_no_inj': "ek_tpeuse_injected:False_bandit:eccv12.lfw.MultiBandit_num_features:128_meta_algo:eccv12.experiments.AsyncBoostingAlgoB_bandit_algo:hyperopt.tpe.TreeParzenEstimator_meta_kwargs:{'round_len': 200}",
+    'tpe_no_inj': "ek_tpeuse_injected:False_bandit:eccv12.lfw.MultiBandit_num_features:128_bandit_algo:hyperopt.tpe.TreeParzenEstimator",
+    }
+
+def _show_keys(docs):
+    keys = set([d['exp_key'] for d in docs])
+    ikeys = dict([(v, k) for k, v in exp_keys.items()])
+    print 'Short Key Names:'
+    for k in keys:
+        print ikeys.get(k, k)
+
+
 def lfw_suggest(dbname):
     """
     This class presents the entire LFW experiment as a BanditAlgo
@@ -79,32 +101,31 @@ def transfer_trials(fromdb, todb):
     to_trials.insert_trial_docs(doc)
 
 
-def snapshot(dbname, tofile):
+def snapshot(dbname):
     print 'fetching trials'
-    ofile = open(tofile, 'w')
     from_trials = MongoTrials('mongo://honeybadger.rowland.org:44556/%s/jobs' % dbname)
     to_trials = hyperopt.base.trials_from_docs(
             from_trials.trials)
-    print 'saving to' , tofile
+    ofile = open(dbname+'.snapshot.pkl', 'w')
     cPickle.dump(to_trials, ofile, -1)
 
 
-exp_keys = {
-    'randomL': u'ek_randombandit:eccv12.lfw.MultiBandit_num_features:1280_bandit_algo:hyperopt.base.Random',
-    'random': u'ek_randombandit:eccv12.lfw.MultiBandit_num_features:128_bandit_algo:hyperopt.base.Random',
-    'tpe': u'ek_tpebandit:eccv12.lfw.MultiBandit_num_features:128_bandit_algo:hyperopt.tpe.TreeParzenEstimator',
-    'tpe_asyncB': u"ek_tpebandit:eccv12.lfw.MultiBandit_num_features:128_meta_algo:eccv12.experiments.AsyncBoostingAlgoB_bandit_algo:hyperopt.tpe.TreeParzenEstimator_meta_kwargs:{'round_len': 200}",
-    'random_asyncB':
-    u"ek_randombandit:eccv12.lfw.MultiBandit_num_features:128_meta_algo:eccv12.experiments.AsyncBoostingAlgoB_bandit_algo:hyperopt.base.Random_meta_kwargs:{'round_len': 200}",
-    }
-
-
-def snapshot_history(tfile, key):
-    trials = cPickle.load(open(tfile))
+def snapshot_history(dbname, key):
+    trials = cPickle.load(open(dbname+'.snapshot.pkl'))
     docs = trials.trials
+    _show_keys(docs)
     kdocs = [d for d in docs if d['exp_key'] == exp_keys[key]]
-    trials = hyperopt.base.trials_from_docs(kdocs)
-    hyperopt.plotting.main_plot_history(trials)
+    hyperopt.plotting.main_plot_history(
+            hyperopt.base.trials_from_docs(
+                [d for d in kdocs if 'from_tid' in d['misc']]),
+            status_colors={'ok': 'r'},
+            do_show=False)
+    hyperopt.plotting.main_plot_history(
+            hyperopt.base.trials_from_docs(
+                [d for d in kdocs if 'from_tid' not in d['misc']]),
+            status_colors={'ok': 'b'},
+            do_show=True)
+
 
 def snapshot_tpe(tfile):
     import matplotlib.pyplot as plt
@@ -125,6 +146,7 @@ def snapshot_tpe(tfile):
             do_show=False)
     plt.ylim(.15, .4)
     plt.show()
+
 
 def snapshot_histories(tfile):
     import matplotlib.pyplot as plt
