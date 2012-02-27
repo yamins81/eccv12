@@ -80,7 +80,7 @@ class SearchExp(object):
     """
     def __init__(self, num_features, bandit_func, bandit_algo_class, exp_prefix,
             trials=None, mongo_opts=None, walltime_cutoff=np.inf,
-            ntrials=None):
+            ntrials=None, use_injected=True):
         # if trials is None, then mongo_opts is used to create a MongoTrials,
         # otherwise it is ignored.
         #
@@ -92,6 +92,7 @@ class SearchExp(object):
         self.walltime_cutoff = walltime_cutoff
         assert ntrials is not None
         self.ntrials = ntrials
+        self.use_injected = use_injected
 
         if trials is None:
             trials = MongoTrials(as_mongo_str(mongo_opts) + '/jobs',
@@ -112,7 +113,8 @@ class SearchExp(object):
         return OrderedDict(
             num_features=self.num_features,
             bandit=cname(self.bandit),
-            bandit_algo=cname(self.bandit_algo)
+            bandit_algo=cname(self.bandit_algo),
+            use_injected=self.use_injected,
             )
 
     def get_exp_key(self):
@@ -125,6 +127,10 @@ class SearchExp(object):
         #      If experiments are to be restarted, try to remember to
         #      REMOVE THIS HACK.
         info['bandit'] = 'eccv12.lfw.MultiBandit'
+        if info.get('use_injected', True):
+            # -- This hack is to keep the exp-key the same for old experiments
+            #    in which use_injected is implicitly True
+            del info['use_injected']
         tag = '_'.join([k + ':' + str(v) for (k, v) in info.items()])
         return self.exp_prefix + tag
 
@@ -150,7 +156,8 @@ class SearchExp(object):
 
     def get_bandit_algo(self):
         rval = NtrialsBanditAlgo(self.bandit_algo, ntrials=self.ntrials,
-                walltime_cutoff=self.walltime_cutoff)
+                walltime_cutoff=self.walltime_cutoff,
+                use_injected=self.use_injected)
         return rval
 
     def save(self):
@@ -177,11 +184,13 @@ class SearchExp(object):
 
 
 class NtrialsBanditAlgo(hyperopt.BanditAlgo):
-    def __init__(self, base_bandit_algo, ntrials, walltime_cutoff, **kwargs):
+    def __init__(self, base_bandit_algo, ntrials, walltime_cutoff,
+                 use_injected=True, **kwargs):
         hyperopt.BanditAlgo.__init__(self, base_bandit_algo.bandit, **kwargs)
         self.base_bandit_algo = base_bandit_algo
         self.ntrials = ntrials
         self.walltime_cutoff = walltime_cutoff
+        self.use_injected = use_injected
 
     def __str__(self):
         return 'NtrialsBanditAlgo{%i, %s}' % (self.ntrials, self.base_bandit_algo)
@@ -195,6 +204,11 @@ class NtrialsBanditAlgo(hyperopt.BanditAlgo):
             wall_time = (t['refresh_time'] - t['book_time']).total_seconds()
             if wall_time > self.walltime_cutoff:
                 OKs.append(t)
+        if not self.use_injected:
+            blen = len(OKs)
+            OKs = [t for t in OKs if 'from_tid' not in t['misc']]
+            alen = len(OKs)
+            logger.info('NTrials Keeping %i of %i jobs' % (alen, blen))
         return OKs
 
     def suggest(self, new_ids, trials):
@@ -384,14 +398,15 @@ class ComparisonExperiment(NestedExperiment):
     """
     def add_experiments(self, num_features, round_len, ensemble_size,
                  bandit_algo_class, exp_prefix,
-                 run_parallel, adamix_kwargs):
+                 run_parallel, adamix_kwargs, use_injected):
 
         std_kwargs = dict(
                 num_features=num_features,
                 bandit_algo_class=bandit_algo_class,
                 exp_prefix=exp_prefix,
                 ntrials=self.ntrials,
-                trials=self.trials)
+                trials=self.trials,
+                use_injected=use_injected)
 
         if 1:
             basic_exp = SearchExp(
@@ -479,7 +494,8 @@ class BudgetExperiment(NestedExperiment):
                    bandit_algo_class,
                    exp_prefix,
                    trials=None,
-                   run_parallel=False):
+                   run_parallel=False,
+                   use_injected=True):
 
         if trials is None:
             trials = self.trials
@@ -493,7 +509,8 @@ class BudgetExperiment(NestedExperiment):
                       bandit_algo_class=bandit_algo_class,
                       exp_prefix=exp_prefix,
                       ntrials=ntrials,
-                      trials=trials)
+                      trials=trials,
+                      use_injected=use_injected)
             self.add_exp(control_exp, 'control')
 
         for es in ensemble_sizes:
@@ -508,7 +525,8 @@ class BudgetExperiment(NestedExperiment):
                                bandit_algo_class=bandit_algo_class,
                                exp_prefix=exp_prefix,
                                run_parallel=run_parallel,
-                               adamix_kwargs={'test_mask':True})
+                               adamix_kwargs={'test_mask':True},
+                               use_injected=use_injected)
             self.add_exp(_C, 'fixed_features_%d' % es)
 
             if 0: # -- bring in later
@@ -523,22 +541,24 @@ class BudgetExperiment(NestedExperiment):
                                bandit_algo_class=bandit_algo_class,
                                exp_prefix=exp_prefix,
                                run_parallel=run_parallel,
-                               adamix_kwargs={'test_mask':True})
+                               adamix_kwargs={'test_mask':True},
+                               use_injected=use_injected)
                 self.add_exp(_C, 'fixed_trials_%d' % es)
 
 
 def main_lfw_driver(trials):
-    def add_exps(bandit_algo_class, exp_prefix):
+    def add_exps(bandit_algo_class, exp_prefix, use_injected):
         B = BudgetExperiment(ntrials=200, save=False, trials=trials,
                 num_features=128 * 10,
                 ensemble_sizes=[10],
                 bandit_algo_class=bandit_algo_class,
                 exp_prefix=exp_prefix,
-                run_parallel=False) # XXX?
+                run_parallel=False,
+                use_injected=use_injected)
         return B
     N = NestedExperiment(trials=trials, ntrials=200, save=False)
-    N.add_exp(add_exps(hyperopt.Random, 'ek_random'), 'random')
-    N.add_exp(add_exps(hyperopt.TreeParzenEstimator, 'ek_tpe'), 'TPE')
+    N.add_exp(add_exps(hyperopt.Random, 'ek_random', use_injected=True), 'random')
+    N.add_exp(add_exps(hyperopt.TreeParzenEstimator, 'ek_tpe', use_injected=False), 'TPE')
     return N
 
 # The driver code for these classes is in scripts/main.py
