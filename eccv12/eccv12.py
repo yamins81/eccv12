@@ -12,11 +12,12 @@ Entry point is to call something like
 * `run_tpe_experiment()`
 
 """
-import cPickle
-import sys
-import matplotlib.pyplot
 import copy
+import cPickle
+import logging
+import sys
 
+logger = logging.getLogger(__name__)
 import numpy as np
 
 try:
@@ -25,7 +26,7 @@ except ImportError:
     print "Python 2.7+ OrderedDict collection not available"
     try:
         from ordereddict import OrderedDict
-        warn("Using backported OrderedDict implementation")
+        logger.warn("Using backported OrderedDict implementation")
     except ImportError:
         raise ImportError("Backported OrderedDict implementation "
                           "not available. To install it: "
@@ -34,35 +35,40 @@ except ImportError:
 
 import hyperopt
 import hyperopt.plotting
-from hyperopt import Trials, STATUS_RUNNING, STATUS_NEW, StopExperiment
+from hyperopt import STATUS_RUNNING, STATUS_NEW, StopExperiment
 from hyperopt.mongoexp import MongoTrials, as_mongo_str
 
-from pyll import scope, clone, as_apply
-
-import lfw
-import model_params
+from .lfw import MultiBandit
+from .lfw import lfw_result_margin
 
 from .experiments import SyncBoostingAlgo
-from .experiments import AsyncBoostingAlgo
+from .experiments import AsyncBoostingAlgoA
+from .experiments import AsyncBoostingAlgoB
 from .experiments import AdaboostMixture
 from .experiments import SimpleMixture
-from .experiments import ParallelAlgo
-from .model_params import main_param_func
+from .experiments import InterleaveAlgo
 
 
 def cname(cls):
     return cls.__class__.__module__ + '.' + cls.__class__.__name__
 
 
-class LFWBandit(lfw.MainBandit):
-    def __init__(self, n_features):
-            self.param_gen = dict(
-            model=model_params.pyll_param_func(n_features),
-            comparison=scope.one_of('mult', 'sqrtabsdiff'),
-            decisions=None,
-            # XXX SVM STUFF?
-            )
-            lfw.MainBandit.__init__(self)
+
+# -- keep tests running
+class LFWBandit(MultiBandit): pass
+
+
+class MarginBandit(MultiBandit):
+    """Return margin-loss instead of misclassification
+
+    This class should be used by the Boosting bandits.
+    """
+
+    def loss(self, result, config=None):
+        if 'margin' in result:
+            return result['margin']
+        else:
+            return lfw_result_margin(result)
 
 
 class SearchExp(object):
@@ -73,22 +79,24 @@ class SearchExp(object):
             deliver this many features.
 
     """
-    def __init__(self, num_features, bandit_func, bandit_algo_class, mongo_opts,
-                 exp_prefix, trials=None, walltime_cutoff=np.inf):
-        # -- N.B.
+    def __init__(self, num_features, bandit_func, bandit_algo_class, exp_prefix,
+            trials=None, mongo_opts=None, walltime_cutoff=np.inf,
+            ntrials=None, use_injected=True):
         # if trials is None, then mongo_opts is used to create a MongoTrials,
         # otherwise it is ignored.
         #
         self.num_features = num_features
         self.bandit_algo_class = bandit_algo_class
         self.bandit = bandit_func(num_features)
-        self.mongo_opts = mongo_opts
         self.init_bandit_algo()
         self.exp_prefix = exp_prefix
         self.walltime_cutoff = walltime_cutoff
+        assert ntrials is not None
+        self.ntrials = ntrials
+        self.use_injected = use_injected
 
         if trials is None:
-            trials = MongoTrials(as_mongo_str(self.mongo_opts) + '/jobs',
+            trials = MongoTrials(as_mongo_str(mongo_opts) + '/jobs',
                                       exp_key=self.get_exp_key())
             #trials = Trials()
 
@@ -106,7 +114,8 @@ class SearchExp(object):
         return OrderedDict(
             num_features=self.num_features,
             bandit=cname(self.bandit),
-            bandit_algo=cname(self.bandit_algo)
+            bandit_algo=cname(self.bandit_algo),
+            use_injected=self.use_injected,
             )
 
     def get_exp_key(self):
@@ -114,6 +123,15 @@ class SearchExp(object):
         turn identifying information into a mongo experiment key
         """
         info = self.get_info()
+        ## XXX THIS hack was made in order to continue experiments that
+        #      were started with the wrong bandit (MultiBandit vs. MarginBandit)
+        #      If experiments are to be restarted, try to remember to
+        #      REMOVE THIS HACK.
+        info['bandit'] = 'eccv12.lfw.MultiBandit'
+        if info.get('use_injected', True):
+            # -- This hack is to keep the exp-key the same for old experiments
+            #    in which use_injected is implicitly True
+            del info['use_injected']
         tag = '_'.join([k + ':' + str(v) for (k, v) in info.items()])
         return self.exp_prefix + tag
 
@@ -127,51 +145,60 @@ class SearchExp(object):
 
     def get_result(self):
         trial_info = self.get_info()
-        trial_info['trials'] = self.trials
+        trial_info['trials'] = self.trials.view(exp_key=self.get_exp_key())
         return trial_info
 
-    def run(self, ntrials):
+    def prepare_trials(self):
         bandit_name = self.get_info()['bandit']
         bandit_args = (self.num_features,)
         bandit_kwargs = {}
         blob = cPickle.dumps((bandit_name, bandit_args, bandit_kwargs))
         self.trials.attachments['bandit_data'] = blob
-        self.trials.refresh()
-        bandit_algo_wrap = NtrialsBanditAlgo(self.bandit_algo,
-                                             ntrials=ntrials,
-                                             walltime_cutoff=self.walltime_cutoff)
-        exp = hyperopt.Experiment(
-                self.trials,
-                bandit_algo_wrap,
-                async=True,
-                max_queue_len=1)   
-        exp.run(sys.maxint, block_until_done=False)
-        self.trials.refresh()
+
+    def get_bandit_algo(self):
+        rval = NtrialsBanditAlgo(self.bandit_algo, ntrials=self.ntrials,
+                walltime_cutoff=self.walltime_cutoff,
+                use_injected=self.use_injected)
+        return rval
 
     def save(self):
         """
         assemble results and save them out to a pkl file
         """
         result = self.get_result()
-        info = self.get_info()
+        self.trials.refresh()
         ntrials = len(self.trials.results)
         cPickle.dump(result, open(self.get_filename(ntrials), 'w'))
 
     def delete_all(self):
         self.trials.delete_all()
 
-    
+    def run(self):
+        """
+        Keeps suggesting jobs from each SearchExp until they are all done.
+        """
+        self.prepare_trials()
+        algo = self.get_bandit_algo()
+        exp = hyperopt.Experiment(self.trials, algo)
+        exp.run(sys.maxint, block_until_done=True)
+
+
 class NtrialsBanditAlgo(hyperopt.BanditAlgo):
-    def __init__(self, base_bandit_algo, ntrials, walltime_cutoff):
-        hyperopt.BanditAlgo.__init__(self, base_bandit_algo.bandit)
+    def __init__(self, base_bandit_algo, ntrials, walltime_cutoff,
+                 use_injected=True, **kwargs):
+        hyperopt.BanditAlgo.__init__(self, base_bandit_algo.bandit, **kwargs)
         self.base_bandit_algo = base_bandit_algo
         self.ntrials = ntrials
         self.walltime_cutoff = walltime_cutoff
-    
+        self.use_injected = use_injected
+
+    def __str__(self):
+        return 'NtrialsBanditAlgo{%i, %s}' % (self.ntrials, self.base_bandit_algo)
+
     def filter_oks(self, trials):
-        OKs = [t for t in trials 
+        OKs = [t for t in trials
                           if t['result']['status'] == hyperopt.STATUS_OK]
-        FAILs = [t for t in trials 
+        FAILs = [t for t in trials
                         if t['result']['status'] == hyperopt.STATUS_FAIL]
         for t in FAILs:
             wall_time = (t['refresh_time'] - t['book_time']).total_seconds()
@@ -191,7 +218,8 @@ class NtrialsBanditAlgo(hyperopt.BanditAlgo):
                 return []
             else:
                 return self.base_bandit_algo.suggest(new_ids, trials)
-                
+
+
 class MixtureExp(SearchExp):
     """
     Mixture version of the class.  (just basically adds mixture info to
@@ -251,21 +279,21 @@ class NestedExperiment(object):
     Basic class for nested experiments.  The purpose of this class is to make
     it possible to run nested-style experiments in whatever order one wants
     and to obtain information about them easily.
-    
-    Derived classes must implement init_experiments method. 
+
+    Derived classes must implement add_experiments method.
     N.B. These methods take name that is a *tuple*.
          The `name` is a list/tuple of strings... these index into a hierarchy
          of nested experiments.
     """
-    def __init__(self, ntrials, save, *args, **kwargs):
+    def __init__(self, trials, ntrials, save, *args, **kwargs):
+        self.trials = trials
         self.experiments = OrderedDict([])
         self.ntrials = ntrials
         self.save = save
-        self.init_experiments(*args, **kwargs)
+        if args or kwargs:
+            self.add_experiments(*args, **kwargs)
 
     def add_exp(self, exp, tag):
-        if not hasattr(exp, 'ntrials'):
-            exp.ntrials = self.ntrials
         self.experiments[tag] = exp
 
     def get_experiment(self, name):
@@ -278,13 +306,32 @@ class NestedExperiment(object):
             else:
                 return e
 
-    def run(self, name=(), ntrials=None):
-        exp = self.get_experiment(name)
-        if isinstance(exp, NestedExperiment):
-            for exp0 in exp.experiments.values():
-                exp0.run(ntrials=exp0.ntrials)
-        else:
-            exp.run(ntrials=exp.ntrials)
+    def flatten(self):
+        rval = []
+        for exp in self.experiments.values():
+            if hasattr(exp, 'flatten'):
+                rval.extend(exp.flatten())
+            else:
+                rval.append(exp)
+        return rval
+
+    def interleaved_algo(self):
+        search_exps = self.flatten()
+        # XXX assert that all search_exps have same bandit
+        search_exps[0].prepare_trials()
+        algos = [se.get_bandit_algo() for se in search_exps]
+        keys = [se.get_exp_key() for se in search_exps]
+        rval = InterleaveAlgo(algos, keys)
+        return rval
+
+    def run(self):
+        """
+        Keeps suggesting jobs from each SearchExp until they are all done.
+        """
+        rval = self.interleaved_algo()
+        exp = hyperopt.Experiment(self.trials, rval)
+        # -- the interleaving algo will break out of this
+        exp.run(sys.maxint, block_until_done=True)
 
     def delete_all(self, name=()):
         exp = self.get_experiment(name)
@@ -313,6 +360,19 @@ class NestedExperiment(object):
         else:
             return exp.get_info()
 
+    def pretty_info(self, name=(), indent=0):
+        exp = self.get_experiment(name)
+        if isinstance(exp, NestedExperiment):
+            for exp0_name in exp.experiments:
+                exp0 = exp.experiments[exp0_name]
+                print ' ' * indent + exp0_name
+                if isinstance(exp0, NestedExperiment):
+                    exp0.pretty_info(indent=indent+2)
+                else:
+                    print ' ' * (indent+2) + str(exp0.get_info())
+        else:
+            print ' ' * indent + str(exp.get_info())
+
     def get_result(self, name=()):
         exp = self.get_experiment(name)
         if isinstance(exp, NestedExperiment):
@@ -331,66 +391,74 @@ class NestedExperiment(object):
 class ComparisonExperiment(NestedExperiment):
     """Compare various approaches to ensemble construction.
     """
-    def init_experiments(self, num_features, round_len, ensemble_size,
-                 bandit_func, bandit_algo_class, mongo_opts, exp_prefix,
-                 run_parallel, look_back, adamix_kwargs):
+    def add_experiments(self, num_features, round_len, ensemble_size,
+                 bandit_algo_class, exp_prefix,
+                 run_parallel, adamix_kwargs, use_injected):
 
-        basic_exp = SearchExp(num_features=num_features,
-                      bandit_func=bandit_func,
-                      bandit_algo_class=bandit_algo_class,
-                      mongo_opts=mongo_opts,
-                      exp_prefix=exp_prefix)
-        self.add_exp(basic_exp, 'basic')
+        std_kwargs = dict(
+                num_features=num_features,
+                bandit_algo_class=bandit_algo_class,
+                exp_prefix=exp_prefix,
+                ntrials=self.ntrials,
+                trials=self.trials,
+                use_injected=use_injected)
 
-        simple_mix = MixtureExp(mixture_class=SimpleMixture,
-                            mixture_kwargs={},
-                            ensemble_size=ensemble_size,
-                            num_features=num_features,
-                            bandit_func=bandit_func,
-                            bandit_algo_class=bandit_algo_class,
-                            mongo_opts=mongo_opts,
-                            exp_prefix=exp_prefix,
-                            trials=basic_exp.trials)
-        self.add_exp(simple_mix, 'simple_mix')
+        if 1:
+            basic_exp = SearchExp(
+                    bandit_func=MultiBandit,
+                    **std_kwargs)
+            self.add_exp(basic_exp, 'basic')
 
-        ada_mix = MixtureExp(mixture_class=AdaboostMixture,
-                            mixture_kwargs=adamix_kwargs,
-                            ensemble_size=ensemble_size,
-                            num_features=num_features,
-                            bandit_func=bandit_func,
-                            bandit_algo_class=bandit_algo_class,
-                            mongo_opts=mongo_opts,
-                            exp_prefix=exp_prefix,
-                            trials=basic_exp.trials)
-        self.add_exp(ada_mix, 'ada_mix')
+        if 0:
+            simple_mix = MixtureExp(
+                    mixture_class=SimpleMixture,
+                    bandit_func=MultiBandit,
+                    mixture_kwargs={},
+                    ensemble_size=ensemble_size,
+                    **std_kwargs)
+            self.add_exp(simple_mix, 'simple_mix')
 
-        syncboost_exp = MetaExp(meta_algo_class=SyncBoostingAlgo,
-                                meta_kwargs={"round_len": round_len},
-                                num_features=num_features,
-                                bandit_func=bandit_func,
-                                bandit_algo_class=bandit_algo_class,
-                                mongo_opts=mongo_opts,
-                                exp_prefix=exp_prefix)
-        self.add_exp(syncboost_exp, 'syncboost')
+        if 0:
+            ada_mix = MixtureExp(
+                    mixture_class=AdaboostMixture,
+                    # XXX SHOULD THIS BE MARGINBANDIT?
+                    bandit_func=MultiBandit,
+                    mixture_kwargs=adamix_kwargs,
+                    ensemble_size=ensemble_size,
+                    **std_kwargs)
+            self.add_exp(ada_mix, 'ada_mix')
 
-        asyncboost_exp = MetaExp(meta_algo_class=AsyncBoostingAlgo,
-                                meta_kwargs={"round_len": round_len,
-                                             "look_back": look_back},
-                                num_features=num_features,
-                                bandit_func=bandit_func,
-                                bandit_algo_class=bandit_algo_class,
-                                mongo_opts=mongo_opts,
-                                exp_prefix=exp_prefix)
-        self.add_exp(asyncboost_exp, 'asyncboost')
+        if 0:
+            syncboost_exp = MetaExp(
+                    meta_algo_class=SyncBoostingAlgo,
+                    meta_kwargs={"round_len": round_len},
+                    bandit_func=MarginBandit,
+                    **std_kwargs)
+            self.add_exp(syncboost_exp, 'SyncBoost')
+
+        if 0:
+            asyncboostA_exp = MetaExp(
+                    meta_algo_class=AsyncBoostingAlgoA,
+                    meta_kwargs={"round_len": round_len},
+                    bandit_func=MarginBandit,
+                    **std_kwargs)
+            self.add_exp(asyncboostA_exp, 'AsyncBoostA')
+
+        if 1:
+            asyncboostB_exp = MetaExp(
+                    meta_algo_class=AsyncBoostingAlgoB,
+                    meta_kwargs={"round_len": round_len},
+                    bandit_func=MarginBandit,
+                    **std_kwargs)
+            self.add_exp(asyncboostB_exp, 'AsyncBoostB')
 
         if run_parallel:
-            parallel_exp = MetaExp(meta_algo_class=ParallelBoostingAlgo,
-                                   meta_kwargs={"num_procs": ensemble_size},
-                                   num_features=num_features,
-                                   bandit_func=bandit_func,
-                                   bandit_algo_class=bandit_algo_class,
-                                   mongo_opts=mongo_opts,
-                                   exp_prefix=exp_prefix)
+            parallel_exp = MetaExp(
+                    # XXX: Dan where is this class defined?
+                    meta_algo_class=ParallelBoostingAlgo,
+                    meta_kwargs={"num_procs": ensemble_size},
+                    bandit_func=MarginBandit,
+                    **std_kwargs)
             self.add_exp(parallel_exp, 'parallel')
 
 
@@ -416,83 +484,79 @@ class BudgetExperiment(NestedExperiment):
     really quite there so no huge loss.
 
     """
-    def init_experiments(self, num_features,
+    def add_experiments(self, num_features,
                    ensemble_sizes,
-                   bandit_func,
                    bandit_algo_class,
                    exp_prefix,
-                   mongo_opts,
-                   look_back,
-                   run_parallel=False):
+                   trials=None,
+                   run_parallel=False,
+                   use_injected=True):
 
+        if trials is None:
+            trials = self.trials
         ntrials = self.ntrials
         save = self.save
         # -- search models sampled from `bandit_func(num_features)`
         #    using search algorithm `bandit_algo_class`
-        control_exp = SearchExp(num_features=num_features,
-                      bandit_func=bandit_func,
+        if 0: # XXX bring back later, too slow...
+            control_exp = SearchExp(num_features=num_features,
+                      bandit_func=MultiBandit,
                       bandit_algo_class=bandit_algo_class,
-                      mongo_opts=mongo_opts,
-                      exp_prefix=exp_prefix)
-        self.add_exp(control_exp, 'control')
+                      exp_prefix=exp_prefix,
+                      ntrials=ntrials,
+                      trials=trials,
+                      use_injected=use_injected)
+            self.add_exp(control_exp, 'control')
 
         for es in ensemble_sizes:
             #trade off ensemble size for more trials, fixed final feature size
             assert num_features % es == 0
-            _C = ComparisonExperiment(ntrials=ntrials * es,
+            _C = ComparisonExperiment(trials=trials,
+                               ntrials=ntrials * es,
                                num_features=num_features / es,
                                round_len=ntrials,
                                save=save,
                                ensemble_size=es,
-                               bandit_func=bandit_func,
                                bandit_algo_class=bandit_algo_class,
-                               mongo_opts=mongo_opts,
                                exp_prefix=exp_prefix,
                                run_parallel=run_parallel,
-                               look_back=look_back,
-                               adamix_kwargs={'test_mask':True})
+                               adamix_kwargs={'test_mask':True},
+                               use_injected=use_injected)
             self.add_exp(_C, 'fixed_features_%d' % es)
 
-            #trade off ensemble size for more features, fixed number of trials
-            _C = ComparisonExperiment(ntrials=ntrials,
+            if 0: # -- bring in later
+                # trade off ensemble size for more features,
+                # fixed number of trials
+                _C = ComparisonExperiment(trials=trials,
+                               ntrials=ntrials,
                                save=save,
                                num_features=num_features,
                                round_len=ntrials / es,
                                ensemble_size=es,
-                               bandit_func=bandit_func,
                                bandit_algo_class=bandit_algo_class,
-                               mongo_opts=mongo_opts,
                                exp_prefix=exp_prefix,
                                run_parallel=run_parallel,
-                               look_back=look_back,
-                               adamix_kwargs={'test_mask':True})
-            self.add_exp(_C, 'fixed_trials_%d' % es)
+                               adamix_kwargs={'test_mask':True},
+                               use_injected=use_injected)
+                self.add_exp(_C, 'fixed_trials_%d' % es)
 
 
-def run_random_experiment():
-    """
-    THIS IS JUST ILLUSTRATIVE of how it WOULD be called
-    """
-    B = BudgetExperiment(num_features=128,
-                       num_trials=100,
-                       ensemble_sizes=[2, 5],
-                       bandit_func=LFWBandit,
-                       bandit_algo_class=hyperopt.Random,
-                       exp_prefix='eccv12_experiments',
-                       mongo_opts='localhost:27017/eccv12',
-                       look_back=1,
-                       run_parallel=False)
-    B.run()
+def main_lfw_driver(trials):
+    def add_exps(bandit_algo_class, exp_prefix, use_injected):
+        B = BudgetExperiment(ntrials=200, save=False, trials=trials,
+                num_features=128 * 10,
+                ensemble_sizes=[10],
+                bandit_algo_class=bandit_algo_class,
+                exp_prefix=exp_prefix,
+                run_parallel=False,
+                use_injected=use_injected)
+        return B
+    N = NestedExperiment(trials=trials, ntrials=200, save=False)
+    N.add_exp(add_exps(hyperopt.Random, 'ek_random', use_injected=True), 'random')
+    N.add_exp(add_exps(hyperopt.TreeParzenEstimator, 'ek_tpe', use_injected=False), 'TPE')
+    return N
 
+# The driver code for these classes is in scripts/main.py
+#
+#
 
-def run_tpe_experiment():
-    B = BudgetExperiment(num_features=128,
-                       num_trials=100,
-                       ensemble_sizes=[2, 5],
-                       bandit_func=LFWBandit,
-                       bandit_algo_class=hyperopt.TreeParzenEstimator,
-                       exp_prefix='eccv12_experiments',
-                       mongo_opts='localhost:27017/eccv12',
-                       look_back=1,
-                       run_parallel=True)
-    B.run()

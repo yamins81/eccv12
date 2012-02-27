@@ -26,17 +26,25 @@ except ImportError:
                           "not available. To install it: "
                           "'pip install -vUI ordereddict'")
 
-@with_mongo_trials
-def test_mixture_initializes(trials):
+
+def test_main_lfw_driver():
+    trials = hyperopt.Trials(exp_key='ek_base')
+    B = exps.main_lfw_driver(trials)
+    B.pretty_info()
+
+
+
+def test_mixture_initializes():
     S = exps.MixtureExp(experiments.AdaboostMixture,
                         {'test_mask': True},
-                        5,
-                        10,
-                        exps.LFWBandit,
-                        hyperopt.Random,
-                        "localhost:22334/test_hyperopt",
-                        "test_stuff")
+                        ensemble_size=5,
+                        num_features=10,
+                        bandit_func=exps.LFWBandit,
+                        bandit_algo_class=hyperopt.Random,
+                        exp_prefix="test_stuff",
+                        trials=hyperopt.Trials())
 
+    print S.get_info()
     assert S.get_info() == OrderedDict([('bandit', 'eccv12.eccv12.LFWBandit'),
                             ('num_features', 10),
                             ('bandit_algo', 'hyperopt.base.Random'),
@@ -47,23 +55,23 @@ def test_mixture_initializes(trials):
     assert S.get_exp_key() == "test_stuffbandit:eccv12.eccv12.LFWBandit_num_features:10_bandit_algo:hyperopt.base.Random_mixture:eccv12.experiments.AdaboostMixture_mixture_kwargs:{'test_mask': True}_ensemble_size:5"
     S = exps.MixtureExp(experiments.SimpleMixture,
                         {},
-                        5,
-                        10,
-                        exps.LFWBandit,
-                        hyperopt.Random,
-                        "localhost:22334/test_hyperopt",
-                        "test_stuff")
+                        ensemble_size=5,
+                        num_features=10,
+                        bandit_func=exps.LFWBandit,
+                        bandit_algo_class=hyperopt.Random,
+                        exp_prefix="test_stuff",
+                        trials=hyperopt.Trials())
 
 
-@with_mongo_trials
-def test_meta_initializes(trials):
+def test_meta_initializes():
+    trials = hyperopt.Trials()
     S = exps.MetaExp(experiments.AsyncBoostingAlgo,
                     {"round_len":5, "look_back":1},
-                    10,
-                    exps.LFWBandit,
-                    hyperopt.Random,
-                    "localhost:22334/test_hyperopt",
-                    "test_stuff")
+                    num_features=10,
+                    bandit_func=exps.LFWBandit,
+                    bandit_algo_class=hyperopt.Random,
+                    exp_prefix="test_stuff",
+                    trials=trials)
 
     assert S.get_info() == OrderedDict([('bandit', 'eccv12.eccv12.LFWBandit'),
                  ('num_features', 10),
@@ -74,11 +82,11 @@ def test_meta_initializes(trials):
 
 @with_mongo_trials
 def test_search_initializes(trials):
-    S = exps.SearchExp(10,
-                       exps.LFWBandit,
-                       hyperopt.Random,
-                       "localhost:22334/test_hyperopt",
-                       "test_stuff")
+    S = exps.SearchExp(num_features=10,
+                       bandit_func=exps.LFWBandit,
+                       bandit_algo_class=hyperopt.Random,
+                       exp_prefix="test_stuff",
+                       trials=hyperopt.Trials())
 
     assert S.get_info() == OrderedDict([('bandit', 'eccv12.eccv12.LFWBandit'),
                ('num_features', 10), ('bandit_algo', 'hyperopt.base.Random')])
@@ -144,19 +152,21 @@ class HighFailureDummyDecisionsBandit(DummyDecisionsBandit):
 @attr('mongo')
 @attr('medium')
 @with_mongo_trials
-@with_worker_threads(3, 'test_hyperopt', timeout=5.0)
+@with_worker_threads(3, 'test_hyperopt', timeout=15.0)
 def test_search_dummy(trials):
-    S = exps.SearchExp(10,
-                       DummyDecisionsBandit,
-                       hyperopt.Random,
-                       "localhost:22334/test_hyperopt",
-                       "test_stuff")
+    S = exps.SearchExp(num_features=10,
+                       bandit_func=DummyDecisionsBandit,
+                       bandit_algo_class=hyperopt.Random,
+                       mongo_opts="localhost:22334/test_hyperopt",
+                       exp_prefix="test_stuff",
+                       ntrials=10)
     S.delete_all()
-    S.run(10)
+    S.run()
     assert len(S.trials.results) == 10 #make sure number of jobs have been run
     assert 1 > np.mean([x['loss'] for x in S.trials.results]) > 0
     T = copy.deepcopy(S.trials.results)
-    S.run(20)
+    S.ntrials = 20
+    S.run()
     assert len(S.trials.results) == 20 #make sure right # of jobs have been run
     assert all([t == s for t, s in zip(T, S.trials.results[:10])])
 
@@ -164,15 +174,16 @@ def test_search_dummy(trials):
 @attr('mongo')
 @attr('medium')
 @with_mongo_trials
-@with_worker_threads(3, 'test_hyperopt', timeout=5.0)
+@with_worker_threads(3, 'test_hyperopt', timeout=15.0)
 def test_search_dummy_failure(trials):
     S = exps.SearchExp(10,
                        FailureDummyDecisionsBandit,
                        hyperopt.Random,
-                       "localhost:22334/test_hyperopt",
-                       "test_stuff")
+                       mongo_opts="localhost:22334/test_hyperopt",
+                       exp_prefix="test_stuff",
+                       ntrials=10)
     S.delete_all()
-    S.run(10)
+    S.run()
     #make sure failure has caused 2 additional trials
     assert len(S.trials) == 15, len(S.trials)
 
@@ -180,15 +191,16 @@ def test_search_dummy_failure(trials):
 @attr('mongo')
 @attr('medium')
 @with_mongo_trials
-@with_worker_threads(3, 'test_hyperopt', timeout=5.0)
+@with_worker_threads(3, 'test_hyperopt', timeout=15.0)
 def test_search_dummy_failure_highprob(trials):
     S = exps.SearchExp(10,
                        HighFailureDummyDecisionsBandit,
                        hyperopt.Random,
-                       "localhost:22334/test_hyperopt",
-                       "test_stuff")
+                       mongo_opts="localhost:22334/test_hyperopt",
+                       exp_prefix="test_stuff",
+                       ntrials=10)
     S.delete_all()
-    S.run(10)
+    S.run()
     #assert higher error prob has caused many more failures
     assert len(S.trials) == 31, len(S.trials)
 
@@ -196,16 +208,17 @@ def test_search_dummy_failure_highprob(trials):
 @attr('mongo')
 @attr('medium')
 @with_mongo_trials
-@with_worker_threads(3, 'test_hyperopt', timeout=5.0)
+@with_worker_threads(3, 'test_hyperopt', timeout=15.0)
 def test_search_dummy_failure_highprob_walltime_cutoff(trials):
     S = exps.SearchExp(10,
                        HighFailureDummyDecisionsBandit,
                        hyperopt.Random,
-                       "localhost:22334/test_hyperopt",
-                       "test_stuff",
-                       walltime_cutoff=0)
+                       mongo_opts="localhost:22334/test_hyperopt",
+                       exp_prefix="test_stuff",
+                       walltime_cutoff=0,
+                       ntrials=10)
     S.delete_all()
-    S.run(10)
+    S.run()
     #assert that even with a lot of failures, a 0 walltime_cutoff
     #means that all status=fail trials are still counted
     assert len(S.trials) == 10
@@ -219,13 +232,14 @@ def test_mix_dummy(trials):
     S = exps.MixtureExp(experiments.AdaboostMixture,
                         {'test_mask': True},
                         5,
-                        10,
-                       DummyDecisionsBandit,
-                       hyperopt.Random,
-                       "localhost:22334/test_hyperopt",
-                       "test_stuff")
+                        num_features=10,
+                        bandit_func=DummyDecisionsBandit,
+                        bandit_algo_class=hyperopt.Random,
+                        mongo_opts="localhost:22334/test_hyperopt",
+                        exp_prefix="test_stuff",
+                        ntrials=20)
     S.delete_all()
-    S.run(20)
+    S.run()
     res = S.get_result()
     assert len(res['mixture_inds']) == 5
     assert res['mixture_weights'].shape == (5, 1)
@@ -241,15 +255,17 @@ def test_meta_dummy(trials):
                     10,
                    DummyDecisionsBandit,
                    hyperopt.Random,
-                   "localhost:22334/test_hyperopt",
-                   "test_stuff")
+                   mongo_opts="localhost:22334/test_hyperopt",
+                   exp_prefix="test_stuff",
+                   ntrials=10)
     S.delete_all()
-    S.run(10)
+    S.run()
     assert len(S.trials.results) == 10
     selected = S.bandit_algo.boosting_best_by_round(S.trials, S.bandit)
     assert len(selected) == 2
     T = copy.deepcopy(S.trials.results)
-    S.run(20)
+    S.ntrials = 20
+    S.run()
     assert len(S.trials.results) == 20
     assert all([t == s for t, s in zip(T, S.trials.results[:10])])
     selected2 = S.bandit_algo.boosting_best_by_round(S.trials, S.bandit)
@@ -261,35 +277,64 @@ def test_meta_dummy(trials):
 @attr('mongo')
 @with_mongo_trials
 # -- I tried timeout of 10, and 1/3 workers timed out mid-experiment
-@with_worker_threads(3, 'test_hyperopt', timeout=15.0)
+@with_worker_threads(3, timeout=15.0)
 def test_budget_experiment(trials):
-    S = exps.BudgetExperiment(ntrials=4,
+    assert trials._exp_key is None
+    S = exps.BudgetExperiment(trials,
+                       ntrials=4,
                        save=False,
                        num_features=10,
                        ensemble_sizes=[2],
                        bandit_func=DummyDecisionsBandit,
                        bandit_algo_class=hyperopt.Random,
                        exp_prefix='test_stuff',
-                       mongo_opts='localhost:22334/test_hyperopt',
-                       look_back=1,
                        run_parallel=False)
-    assert S.get_info() == {'control': OrderedDict([('bandit', 'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 10), ('bandit_algo', 'hyperopt.base.Random')]),
- 'fixed_features_2': {'ada_mix': OrderedDict([('bandit', 'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 5), ('bandit_algo', 'hyperopt.base.Random'), ('mixture', 'eccv12.experiments.AdaboostMixture'), ('mixture_kwargs', {'test_mask': True}), ('ensemble_size', 2)]),
-  'asyncboost': OrderedDict([('bandit', 'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 5), ('meta_algo', 'eccv12.experiments.AsyncBoostingAlgo'), ('bandit_algo', 'hyperopt.base.Random'), ('meta_kwargs', {'look_back': 1, 'round_len': 4})]),
-  'basic': OrderedDict([('bandit', 'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 5), ('bandit_algo', 'hyperopt.base.Random')]),
-  'simple_mix': OrderedDict([('bandit', 'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 5), ('bandit_algo', 'hyperopt.base.Random'), ('mixture', 'eccv12.experiments.SimpleMixture'), ('mixture_kwargs', {}), ('ensemble_size', 2)]),
-  'syncboost': OrderedDict([('bandit', 'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 5), ('meta_algo', 'eccv12.experiments.SyncBoostingAlgo'), ('bandit_algo', 'hyperopt.base.Random'), ('meta_kwargs', {'round_len': 4})])},
- 'fixed_trials_2': {'ada_mix': OrderedDict([('bandit', 'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 10), ('bandit_algo', 'hyperopt.base.Random'), ('mixture', 'eccv12.experiments.AdaboostMixture'), ('mixture_kwargs', {'test_mask': True}), ('ensemble_size', 2)]),
-  'asyncboost': OrderedDict([('bandit', 'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 10), ('meta_algo', 'eccv12.experiments.AsyncBoostingAlgo'), ('bandit_algo', 'hyperopt.base.Random'), ('meta_kwargs', {'look_back': 1, 'round_len': 2})]),
-  'basic': OrderedDict([('bandit', 'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 10), ('bandit_algo', 'hyperopt.base.Random')]),
-  'simple_mix': OrderedDict([('bandit', 'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 10), ('bandit_algo', 'hyperopt.base.Random'), ('mixture', 'eccv12.experiments.SimpleMixture'), ('mixture_kwargs', {}), ('ensemble_size', 2)]),
-  'syncboost': OrderedDict([('bandit', 'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 10), ('meta_algo', 'eccv12.experiments.SyncBoostingAlgo'), ('bandit_algo', 'hyperopt.base.Random'), ('meta_kwargs', {'round_len': 2})])}}
-    S.delete_all()
+
+    print S.get_info()
+    assert S.get_info() == {'control': OrderedDict([('bandit',
+        'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features', 10),
+        ('bandit_algo', 'hyperopt.base.Random')]), 'fixed_features_2':
+        {'simple_mix': OrderedDict([('bandit',
+            'test_eccv12_experiments.DummyDecisionsBandit'), ('num_features',
+                5), ('bandit_algo', 'hyperopt.base.Random'), ('mixture',
+                    'eccv12.experiments.SimpleMixture'), ('mixture_kwargs',
+                        {}), ('ensemble_size', 2)]), 'ada_mix':
+                    OrderedDict([('bandit',
+                        'test_eccv12_experiments.DummyDecisionsBandit'),
+                        ('num_features', 5), ('bandit_algo',
+                            'hyperopt.base.Random'), ('mixture',
+                                'eccv12.experiments.AdaboostMixture'),
+                            ('mixture_kwargs', {'test_mask': True}),
+                            ('ensemble_size', 2)]), 'SyncBoost':
+                    OrderedDict([('bandit',
+                        'test_eccv12_experiments.DummyDecisionsBandit'),
+                        ('num_features', 5), ('meta_algo',
+                            'eccv12.experiments.SyncBoostingAlgo'),
+                        ('bandit_algo', 'hyperopt.base.Random'),
+                        ('meta_kwargs', {'round_len': 4})]), 'AsyncBoostA':
+                    OrderedDict([('bandit',
+                        'test_eccv12_experiments.DummyDecisionsBandit'),
+                        ('num_features', 5), ('meta_algo',
+                            'eccv12.experiments.AsyncBoostingAlgoA'),
+                        ('bandit_algo', 'hyperopt.base.Random'),
+                        ('meta_kwargs', {'round_len': 4})]), 'AsyncBoostB':
+                    OrderedDict([('bandit',
+                        'test_eccv12_experiments.DummyDecisionsBandit'),
+                        ('num_features', 5), ('meta_algo',
+                            'eccv12.experiments.AsyncBoostingAlgoB'),
+                        ('bandit_algo', 'hyperopt.base.Random'),
+                        ('meta_kwargs', {'round_len': 4})]), 'basic':
+                    OrderedDict([('bandit',
+                        'test_eccv12_experiments.DummyDecisionsBandit'),
+                        ('num_features', 5), ('bandit_algo',
+                            'hyperopt.base.Random')])}}
     S.run()
     res = S.get_result()
-    assert res.keys() == ['control', 'fixed_trials_2', 'fixed_features_2']
+    assert res.keys() == ['control',
+            #'fixed_trials_2',
+            'fixed_features_2']
     assert res['control'].keys() == ['bandit', 'num_features', 'bandit_algo', 'trials']
     assert len(res['control']['trials']) == 4
-    assert len(res['fixed_trials_2']['basic']['trials']) == 4
+    #assert len(res['fixed_trials_2']['basic']['trials']) == 4
     assert len(res['fixed_features_2']['basic']['trials']) == 8
 

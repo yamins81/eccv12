@@ -6,10 +6,12 @@ from thoreano.slm import InvalidDescription
 import eccv12.model_params as params
 import pyll.stochastic as stochastic
 import pyll
+import hyperopt
 import hyperopt.base
 import eccv12.lfw as lfw
 import eccv12.bandits as bandits
 import eccv12.experiments as experiments
+import os
 
 test_params = {
     'slm': [[('lnorm', params.lnorm)]],
@@ -122,8 +124,6 @@ def test_mixture_ensembles():
             bandit_algo,
             async=False)
     exp.run(NUM_ROUNDS * ROUND_LEN)
-    results = trials.results
-    specs = trials.specs
 
     simple = experiments.SimpleMixture(trials, bandit)
     simple_specs, simple_weights = simple.mix_models(NUM_ROUNDS)
@@ -151,6 +151,10 @@ def test_mixture_ensembles():
 def test_main_bandit():
     L = lfw.MainBandit()
     config = stochastic.sample(L.template, np.random.RandomState(999))
+    print config['model']['slm'][0]
+    assert np.allclose(
+            config['model']['slm'][0][0][1]['kwargs']['threshold'],
+            16.894686245715995)
     rec = L.evaluate(config, hyperopt.base.Ctrl(None))
     print rec['test_accuracy']
     print rec['train_accuracy']
@@ -159,6 +163,37 @@ def test_main_bandit():
     assert np.allclose(rec['train_accuracy'], 84.9090909091)
     assert np.allclose(rec['loss'], 0.417)
     return rec
+
+
+@attr('slow')
+def test_multi_bandit():
+    bandit = lfw.MultiBandit()
+    algo = hyperopt.Random(bandit)
+    trials = hyperopt.Trials()
+    exp = hyperopt.Experiment(trials, algo)
+    exp.catch_bandit_exceptions = False
+    exp.run(1)
+    assert len(trials) > 1
+    docs = trials.trials
+    assert docs[0]['state'] == docs[1]['state'] == hyperopt.JOB_STATE_DONE
+    assert docs[0]['spec']['model'] == docs[1]['spec']['model']
+    assert docs[0]['spec']['comparison'] != docs[1]['spec']['comparison']
+
+    assert docs[0]['misc']['idxs'] == docs[1]['misc']['idxs']
+    assert docs[0]['misc']['vals'] != docs[1]['misc']['vals']
+
+    assert docs[0]['result']['status'] == docs[1]['result']['status']
+    assert docs[0]['result']['loss'] != docs[1]['result']['loss']
+
+    # -- this is admittedly a little f'd up but the current code makes it like
+    # this and it's not that bad. The trouble is that the attachments are computed
+    # before the newly inserted job is even created, so they must be attached to
+    # the original job. XXX fix this.
+    ctrl = hyperopt.Ctrl(trials, docs[0])
+    assert 'packed_normalized_DevTrain_kernel_mult' in ctrl.attachments
+    assert 'normalized_DevTrainTest_kernel_mult' in ctrl.attachments
+    assert 'packed_normalized_DevTrain_kernel_sqrtabsdiff' in ctrl.attachments
+    assert 'normalized_DevTrainTest_kernel_sqrtabsdiff' in ctrl.attachments
 
 
 class ForInts(object):
@@ -216,4 +251,11 @@ class TestParamFuncFuzz(unittest.TestCase, ForInts):
                 np.random.RandomState(seed))
         fuzz_config(config['model'])
 
+
+@attr('slow') #takes about 30 sec with cpu
+def test_baby_view2():
+    c = config_tiny_rnd0
+    lfw.get_view2_features(c['slm'], c['preproc'], 'mult', '', os.getcwd(),
+                           test=50)
+    return lfw.train_view2([''],[os.getcwd()], test=50)
 

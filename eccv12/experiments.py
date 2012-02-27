@@ -2,11 +2,9 @@
 Experiment classes
 """
 
-import cPickle
-import functools
-import hashlib
-import os
+import logging
 import sys
+logger = logging.getLogger(__name__)
 
 import numpy as np
 import hyperopt
@@ -168,35 +166,96 @@ class AdaboostMixture(SimpleMixture):
 ###PARALLEL###
 ##############
 
-##XXXXXX: filter OKs here in parallel?  I think NOT, given when the search exp
-##meta-banditalgo will do
-
-class ParallelAlgo(hyperopt.BanditAlgo):
+class InterleaveAlgo(hyperopt.BanditAlgo):
     """Interleaves calls to `num_procs` independent Trials sets
 
-    Injects a `proc_num` field into the miscs document for book-keeping.
+    This class is implemented carefully to work around some awkwardness
+    in the design of hyperopt.Trials.  The purpose of this banditalgo is to
+    facilitate running several independent BanditAlgos at once.  You might
+    want to do this if you are trying to compare random search to an optimized
+    search for example.
+
+    Trial documents inserted by this suggest function can be tagged with
+    identifying information, but trial documents inserted in turn by the
+    Bandit.evaluate() functions themselves will not be tagged, except by their
+    experiment key (exp_key). So this class uses the exp_key to keep each
+    experiment distinct.  Every sub_algo passed to the constructor requires a
+    corresponding exp_key. If you want to get tricky, you can combine
+    sub-experiments by giving them identical keys. As a consequence of this
+    strategy, this class REQUIRES AN UNRESTRICTED VIEW of the trials object
+    used to make suggestions, so the trials object CANNOT have an exp_key
+    of its own.
+
+    The InterleaveAlgo works on the basis of growing the sub-experiments at
+    the same pace. On every call to suggest(), this function counts up the
+    number of non-error jobs in each sub-experiment, and asks the sub_algo
+    corresponding to the smallest sub-experiment to propose a new document.
+
+    The InterleaveAlgo stops when all of the sub_algo.suggest methods have
+    returned `hyperopt.StopExperiment`.
+
     """
-    def __init__(self, sub_algo, num_procs):
-        hyperopt.BanditAlgo.__init__(self, sub_algo.bandit)
-        self.sub_algo = sub_algo
-        self.num_procs = num_procs
+    def __init__(self, sub_algos, sub_exp_keys, **kwargs):
+        hyperopt.BanditAlgo.__init__(self, sub_algos[0].bandit, **kwargs)
+        # XXX: assert all bandits are the same
+        self.sub_algos = sub_algos
+        self.sub_exp_keys = sub_exp_keys
+        if len(sub_algos) != len(sub_exp_keys):
+            raise ValueError('algos and keys should have same len')
+        # -- will be rebuilt naturally if experiment is continued
+        self.stopped = set()
 
     def suggest(self, new_ids, trials):
+        assert trials._exp_key is None # -- see explanation above
+        sub_trials = [trials.view(exp_key, refresh=False)
+                for exp_key in self.sub_exp_keys]
+        # -- views are not refreshed
+        states_that_count = [
+                hyperopt.JOB_STATE_NEW,
+                hyperopt.JOB_STATE_RUNNING,
+                hyperopt.JOB_STATE_DONE]
+        counts = [st.count_by_state_unsynced(states_that_count)
+                for st in sub_trials]
+        logger.info('counts: %s' % str(counts))
+        new_docs = []
+        for new_id in new_ids:
+            pref = np.argsort(counts)
+            # -- try to get one of the sub_algos to make a suggestion
+            #    for new_id, in order of sub-experiment size
+            for active in pref:
+                if active not in self.stopped:
+                    sub_algo = self.sub_algos[active]
+                    sub_trial = sub_trials[active]
+                    # XXX This may well transfer data... make sure that's OK
+                    #     In future consider adding a refresh=False
+                    #     to constructor, to prevent this transfer.
+                    sub_trial.refresh()
+                    smth = sub_algo.suggest([new_id], sub_trial)
+                    if smth is hyperopt.StopExperiment:
+                        logger.info('stopping experiment (%i: %s)' %
+                                    (active, sub_algo))
+                        self.stopped.add(active)
+                    elif smth:
+                        logger.info('suggestion %i from (%i: %s)' %
+                                    (new_id, active, sub_algo))
+                        new_doc, = smth
+                        counts[active] += 1
+                        new_docs.append(new_doc)
+                        break
+                    else:
+                        if list(smth) != []:
+                            raise ValueError('bad suggestion',
+                                    (sub_algo, smth))
+        if len(self.stopped) == len(self.sub_algos):
+            return hyperopt.StopExperiment
+        else:
+            return new_docs
 
-        specs, results, miscs = trials.specs, trials.results, trials.miscs
-        num_procs = self.num_procs
-        proc_nums = [s['proc_num'] for s in miscs]
-        proc_counts = np.array([proc_nums.count(j) for j in range(num_procs)])
-        proc_num = int(proc_counts.argmin())
-        proc_nums = np.array(proc_nums)
-        proc_idxs = (proc_nums == proc_num).nonzero()[0]
-        proc_trial_docs = [trials.trials[idx] for idx in proc_idxs]
-        proc_trials = trials_from_docs(proc_trial_docs, exp_key=trials._exp_key)
-        new_docs = self.sub_algo.suggest(new_ids, proc_trials)
-        for doc in new_docs:
-            assert 'proc_num' not in doc['misc']
-            doc['misc']['proc_num'] = proc_num
-        return new_docs
+
+def ParallelAlgo(sub_algo, num_progs, **kwargs):
+    sub_algos = [sub_algo] * num_progs
+    sub_keys = ['EK_%i' % i for i in range(num_progs)]
+    return InterleaveAlgo(sub_algos, sub_keys, **kwargs)
 
 
 ##############
@@ -219,14 +278,14 @@ class BoostingAlgoBase(hyperopt.BanditAlgo):
         all trials that continue trial tid.
         """
         rval = [idx for idx, misc in enumerate(miscs)
-                if misc['boosting']['continues'] == tid]
+                if continues(miscs, misc) == tid]
         return rval
 
     @staticmethod
     def boosting_best_by_round(trials, bandit):
         specs, results, miscs = filter_ok_trials(trials)
         losses = np.array(map(bandit.loss, results, specs))
-        rounds = np.array([m['boosting']['round'] for m in miscs])
+        rounds = np.array([round_of(trials.miscs, m) for m in miscs])
         urounds = np.unique(rounds)
         urounds.sort()
         assert urounds.tolist() == range(urounds.max() + 1)
@@ -247,12 +306,28 @@ class BoostingAlgoBase(hyperopt.BanditAlgo):
         assert None not in losses
         cur_idx = np.argmin(losses)
         reversed_members_idxs = [cur_idx]
-        while miscs[cur_idx]['boosting']['continues'] != None:
+        while continues(trials.miscs, miscs[cur_idx]) != None:
             cur_idx = [m['tid'] for m in miscs].index(
-                    miscs[cur_idx]['boosting']['continues'])
+                    continues(trials.miscs, miscs[cur_idx]))
             reversed_members_idxs.append(cur_idx)
         rval = [miscs[ii]['tid'] for ii in reversed(reversed_members_idxs)]
         return rval
+
+def round_of(miscs, misc):
+    try:
+        return misc['boosting']['round']
+    except KeyError:
+        fromtid = misc['from_tid']
+        fm = [t for t in miscs if t['tid'] == fromtid][0]
+        return fm['boosting']['round']
+
+def continues(miscs, misc):
+    try:
+        return misc['boosting']['continues']
+    except KeyError:
+        fromtid = misc['from_tid']
+        fm = [t for t in miscs if t['tid'] == fromtid][0]
+        return fm['boosting']['continues']
 
 
 class AsyncBoostingAlgo(BoostingAlgoBase):
@@ -268,8 +343,8 @@ class AsyncBoostingAlgo(BoostingAlgoBase):
         3 ...
 
     """
-    def __init__(self, sub_algo, round_len, look_back):
-        hyperopt.BanditAlgo.__init__(self, sub_algo.bandit)
+    def __init__(self, sub_algo, round_len, look_back, **kwargs):
+        hyperopt.BanditAlgo.__init__(self, sub_algo.bandit, **kwargs)
         self.sub_algo = sub_algo
         self.round_len = round_len
         self.look_back = look_back
@@ -293,7 +368,7 @@ class AsyncBoostingAlgo(BoostingAlgoBase):
 
         if miscs:
             # -- pick a trial to continue
-            rounds_counts = np.bincount([m['boosting']['round']
+            rounds_counts = np.bincount([round_of(miscs, m)
                 for m in miscs])
             assert np.all(rounds_counts > 0)
             assert np.all(rounds_counts[:-1] >= round_len)
@@ -305,7 +380,7 @@ class AsyncBoostingAlgo(BoostingAlgoBase):
             horizon = my_round - look_back
             consider_continuing = [idx
                     for idx, misc in enumerate(miscs)
-                    if horizon <= misc['boosting']['round'] < my_round]
+                    if horizon <= round_of(miscs, misc) < my_round]
 
             #print 'losses', np.array(map(self.bandit.loss, results, specs))
 
@@ -352,33 +427,32 @@ class AsyncBoostingAlgo(BoostingAlgoBase):
 
 
 class AsyncBoostingAlgoA(AsyncBoostingAlgo):
-    def __init__(self, bandit_algo, round_len):
+    def __init__(self, bandit_algo, round_len, **kwargs):
         AsyncBoostingAlgo.__init__(self, bandit_algo, round_len,
-                look_back=1)
+                look_back=1, **kwargs)
 
 
 class AsyncBoostingAlgoB(AsyncBoostingAlgo):
-    def __init__(self, bandit_algo, round_len):
+    def __init__(self, bandit_algo, round_len, **kwargs):
         AsyncBoostingAlgo.__init__(self, bandit_algo, round_len,
-                look_back=sys.maxint)
+                look_back=sys.maxint, **kwargs)
 
 
 class SyncBoostingAlgo(BoostingAlgoBase):
-    def __init__(self, sub_algo, round_len):
-        hyperopt.BanditAlgo.__init__(self, sub_algo.bandit)
+    def __init__(self, sub_algo, round_len, **kwargs):
+        hyperopt.BanditAlgo.__init__(self, sub_algo.bandit, **kwargs)
         self.sub_algo = sub_algo
         self.round_len = round_len
 
     def suggest(self, new_ids, trials):
-
         round_len = self.round_len
 
         specs, results, miscs = filter_ok_trials(trials)
 
         if miscs:
-            rounds = [m['boosting']['round'] for m in miscs]
+            rounds = [round_of(miscs, m) for m in miscs]
             # -- actually the rounds of completed trials
-            complete_rounds = [m['boosting']['round']
+            complete_rounds = [round_of(miscs, m)
                     for m, r in zip(miscs, results) if 'loss' in r]
 
             max_round = max(rounds)
@@ -395,7 +469,7 @@ class SyncBoostingAlgo(BoostingAlgoBase):
 
             round_decs = [[s['decisions']
                 for m, s in zip(miscs, specs)
-                if m['boosting']['round'] == j] for j in urounds]
+                if round_of(miscs, m) == j] for j in urounds]
             assert all([all([_rd == rd[0]
                 for _rd in rd]) for rd in round_decs])
             round_decs = [rd[0] for rd in round_decs]
@@ -404,12 +478,12 @@ class SyncBoostingAlgo(BoostingAlgoBase):
                 my_round = max_round + 1
                 last_specs = [s
                         for s, m in zip(specs, miscs)
-                        if m['boosting']['round'] == max_round]
+                        if round_of(miscs, m) == max_round]
                 last_results = [s
                         for s, m in zip(results, miscs)
-                        if m['boosting']['round'] == max_round]
+                        if round_of(miscs, m) == max_round]
                 last_miscs = [m for m in miscs
-                        if m['boosting']['round'] == max_round]
+                        if round_of(miscs, m) == max_round]
                 losses = np.array(map(self.bandit.loss, last_results, last_specs))
                 last_best = losses.argmin()
                 decisions = last_results[last_best]['decisions']
@@ -417,14 +491,14 @@ class SyncBoostingAlgo(BoostingAlgoBase):
             else:
                 my_round = max_round
                 decisions = round_decs[-1]
-                decisions_src = miscs[-1]['boosting']['continues']
+                decisions_src = continues(miscs, miscs[-1])
         else:
             decisions = None
             my_round = 0
             decisions_src = None
 
         selected_trial_docs = [t for t in trials
-                                  if t['misc']['boosting']['round'] == my_round]        
+                                  if round_of(miscs, t['misc']) == my_round]        
         selected_trials = trials_from_docs(selected_trial_docs,
                                                   exp_key=trials._exp_key)
         new_trial_docs = self.sub_algo.suggest(new_ids, selected_trials)

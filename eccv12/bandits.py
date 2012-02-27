@@ -1,7 +1,6 @@
 """
 put bandits here
 """
-import cPickle
 
 import numpy as np
 import hyperopt
