@@ -5,7 +5,7 @@
 #cat ${PBS_GPUFILE} >> /dev/stderr
 #wc -l ${PBS_GPUFILE} >> /dev/stderr
 
-if [[ " " -eq "${PBS_GPUFILE} " ]] ; then
+if [ " " = "${PBS_GPUFILE} " ] ; then
     echo Not running under PBS >> /dev/stderr
     exit 0
 else
@@ -14,7 +14,7 @@ else
 fi
 
 # GO !
-if [[ ! ${N_GPUS} -eq 1 ]]; then
+if [ ! ${N_GPUS} = 1 ] ; then
     echo "WRONG NUMBER OF GPUS!!!!" >> /dev/stderr
     echo " "  # return something for caller not to hang
     exit 1;

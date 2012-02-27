@@ -1,7 +1,11 @@
+import copy
 import cPickle
+import logging
+logger = logging.getLogger(__name__)
 import os
 
 from thoreano.slm import SLMFunction
+import hyperopt
 
 from skdata import larray
 import skdata.utils
@@ -14,15 +18,12 @@ from pyll import scope
 import model_params
 import comparisons
 
-from .bandits import BaseBandit
+from .bandits import BaseBandit, validate_config, validate_result
 from .utils import ImgLoaderResizer
 from .classifier import get_result
 
-###TODO: move code from .toyproblem to "real" modules
-### --> probably mostly to classifier.py
-from .toyproblem import normalize_Xcols
-from .toyproblem import train_svm
-from .toyproblem import run_all
+# -- register symbols in pyll.scope
+import toyproblem
 
 
 class FG11Bandit(BaseBandit):
@@ -44,9 +45,10 @@ class FG11Bandit(BaseBandit):
 
 
 class MainBandit(BaseBandit):
+    comparison = scope.one_of('mult', 'sqrtabsdiff')
     param_gen = dict(
             model=model_params.pyll_param_func(),
-            comparison=scope.one_of('mult', 'sqrtabsdiff'),
+            comparison=comparison,
             decisions=None,
             # XXX SVM STUFF?
             )
@@ -57,6 +59,84 @@ class MainBandit(BaseBandit):
         comparison = config['comparison']
         decisions = config.get('decisions')
         return get_performance(slm, decisions, preproc, comparison)
+
+
+class MultiBandit(hyperopt.Bandit):
+    def __init__(self, n_features=None):
+        # if n-features is given, it will set the number of filters
+        # in the top-most layer
+        self.comparison = scope.one_of('mult', 'sqrtabsdiff')
+        template = dict(
+                model=model_params.pyll_param_func(n_features),
+                comparison=self.comparison,
+                decisions=None,
+                # XXX SVM STUFF?
+                )
+        hyperopt.Bandit.__init__(self, template)
+
+    def evaluate(self, config, ctrl):
+        validate_config(config)
+        slm = config['model']['slm']
+        preproc = config['model']['preproc']
+        comparison = config['comparison']
+        decisions = config.get('decisions')
+
+        # -- hackity hack (move to hyperopt)
+        #    This computes the key for the self.comparison choice
+        #    in the idxs/vals for this Bandit.
+        algo = hyperopt.Random(self)
+        cloned_comp = algo.template_clone_memo[self.comparison]
+        cloned_comp_choice = algo.vh.choice_memo[cloned_comp]
+        comp_node_id = algo.vh.node_id[cloned_comp_choice]
+        # -- now make sure we've got it right...
+        ##print algo.vh.node_id.values()
+        ##print ctrl.current_trial['misc']['vals'].keys()
+        compval = ctrl.current_trial['misc']['vals'][comp_node_id]
+        # -- the each key indexes its position in the "one_of" in MainBandit
+        val_of_comp = {'mult':0, 'sqrtabsdiff':1}
+        assert compval == [val_of_comp[comparison]]
+
+        cmp_results = get_performance(slm, decisions, preproc,
+                                      comparison=None,
+                                      return_multi=True,
+                                      ctrl=ctrl)
+        my_result = None
+        # XXX This logic is tightly coupled to get_performance
+        #     in order to not break tests and other code using get_performance
+        #     however, before adding SVM parameters and other things to this
+        #     loop, consider reorganizing to simplify.
+        for comp, result in cmp_results:
+            result.setdefault('status', hyperopt.STATUS_OK)
+            if result['status'] == hyperopt.STATUS_OK:
+                validate_result(result, config)
+            if comp == comparison:
+                # -- store this to the db the normal way
+                my_result = result
+            else:
+                # -- inject this to the trials db directly
+                new_tid, = ctrl.trials.new_trial_ids(1)
+                my_trial = ctrl.current_trial
+                new_misc = dict(tid=new_tid,
+                            idxs=copy.deepcopy(my_trial['misc']['idxs']),
+                            vals=copy.deepcopy(my_trial['misc']['vals']))
+                for nid, nid_idxs in new_misc['idxs'].items():
+                    assert len(nid_idxs) <= 1
+                    if nid_idxs:
+                        assert nid_idxs[0] == my_trial['tid']
+                        nid_idxs[0] = new_tid
+                new_config = copy.deepcopy(config)
+                new_config['comparison'] = comp
+
+                # -- modify the vals corresponding to the comparison function
+                assert len(new_misc['vals'][comp_node_id]) == 1
+                assert new_misc['vals'][comp_node_id][0] == val_of_comp[comparison]
+                new_misc['vals'][comp_node_id][0] = val_of_comp[comp]
+                logger.info('injecting %i from %i (exp_key=%s)' % (
+                    new_tid, my_trial['tid'], ctrl.trials._exp_key))
+                ctrl.inject_results([new_config], [result], [new_misc],
+                                    new_tids=[new_tid])
+        assert my_result is not None
+        return my_result
 
 
 class TestBandit(MainBandit):
@@ -115,7 +195,7 @@ def _verification_pairs_helper(all_paths, lpaths, rpaths):
 
 
 @scope.define
-def verification_pairs(split):
+def verification_pairs(split, test=None):
     """
     Return three integer arrays: lidxs, ridxs, match.
 
@@ -127,18 +207,23 @@ def verification_pairs(split):
     all_paths = dataset.raw_classification_task()[0]
     lpaths, rpaths, matches = dataset.raw_verification_task(split=split)
     lidxs, ridxs = _verification_pairs_helper(all_paths, lpaths, rpaths)
-    return lidxs, ridxs, (matches * 2 - 1)
+    if test is None:
+        return lidxs, ridxs, (matches * 2 - 1)
+    else:
+        return lidxs[:test], ridxs[:test],  (matches[:test] * 2 - 1)
 
 
 @scope.define
-def slm_memmap(desc, X, name):
+def slm_memmap(desc, X, name, basedir=None):
     """
     Return a cache_memmap object representing the features of the entire
     set of images.
     """
+    if basedir is None:
+        basedir = os.getcwd()
     feat_fn = SLMFunction(desc, X.shape[1:])
     feat = larray.lmap(feat_fn, X)
-    rval = larray.cache_memmap(feat, name, basedir=os.getcwd())
+    rval = larray.cache_memmap(feat, name, basedir=basedir)
     return rval
 
 
@@ -159,6 +244,8 @@ class PairFeaturesFn(object):
     that maps tensor pairs (of image features) to a 1-D flattened
     feature vector.
     """
+
+    # -- mimic how function objects are named
     __name__  = 'PairFeaturesFn'
 
     def __init__(self, X, fn_name):
@@ -177,22 +264,25 @@ class PairFeaturesFn(object):
     def __call__(self, li, ri):
         lx = self.X[li]
         rx = self.X[ri]
-        return self.fn(lx, rx)
+        rval = self.fn(lx, rx)
+        return rval
 
 
 @scope.define_info(o_len=2)
-def pairs_memmap(pair_labels, X, comparison_name, name):
+def pairs_memmap(pair_labels, X, comparison_name, name, basedir=None):
     """
     pair_labels    - something like comes out of verification_pairs
     X              - feature vectors to be combined
     combination_fn - some lambda X[i], X[j]: features1D
     """
+    if basedir is None:
+        basedir = os.getcwd()
     lidxs, ridxs, matches = pair_labels
     pf = larray.lmap(
             PairFeaturesFn(X, comparison_name),
             lidxs,
             ridxs)
-    pf_cache = larray.cache_memmap(pf, name, basedir=os.getcwd())
+    pf_cache = larray.cache_memmap(pf, name, basedir=basedir)
     return pf_cache, np.asarray(matches)
 
 @scope.define
@@ -201,6 +291,21 @@ def pairs_cleanup(obj):
     Pass in the rval from pairs_memmap to clean up the memmap
     """
     obj[0].delete_files()
+
+
+def lfw_result_margin(result):
+    # -- this function is implemented this way so that
+    #    it can be called on results saved before the 'margin' field.
+    test_mask = np.asarray(result['is_test'])
+    all_labels = np.asarray(result['labels'])
+    all_decisions = np.asarray(result['decisions'])
+    N, = all_labels.shape
+    assert all_decisions.shape == (1, N)
+    assert test_mask.shape == (1, N)
+    margins = test_mask * all_labels * all_decisions
+    hinges = 1 - np.minimum(margins, 1)
+    # -- Compute the mean over test_mask==1 elements
+    return hinges.sum() / test_mask.sum()
 
 
 @scope.define
@@ -225,12 +330,15 @@ def result_binary_classifier_stats_lfw(
                              np.sign(test_decisions).astype(np.int),
                              [-1, 1])
     result.update(stats)
+    # -- Note that the margin is not computed here
     result['loss'] = float(1 - result['test_accuracy']/100.)
     dec = np.concatenate([train_decisions, test_decisions])
     dec = dec.reshape((1, len(dec)))
     result['decisions'] = dec.tolist()
     result['labels'] = np.concatenate([train_data[1], test_data[1]]).tolist()
     result['is_test'] = np.column_stack([np.zeros((1, 2200)), np.ones((1, 1000))]).tolist()
+
+    result['margin'] = lfw_result_margin(result)
     
     return result
 
@@ -239,18 +347,37 @@ def result_binary_classifier_stats_lfw(
 def svm_decisions_lfw(svm, Xyd):
     X, y, d = Xyd
     inc = svm.decision_function(X)
-    return d + inc
+    rval = d + inc
+    return rval
 
 
-def screening_program(slm_desc, decisions, comparison, preproc, namebase):
-    image_features = scope.slm_memmap(
+@scope.define
+def attach_feature_kernels(train_Xyd, test_Xyd, ctrl, comp):
+    X, y, d = train_Xyd
+    XX = np.dot(X, X.T)
+    packed = []
+    for i, xx_i in enumerate(XX):
+        packed.extend(xx_i[i:])
+    blob = cPickle.dumps(np.asarray(packed), -1)
+    key = 'packed_normalized_DevTrain_kernel_%s' % comp
+    assert key not in ctrl.attachments
+    ctrl.attachments[key] = blob
+
+    K2 = np.dot(X, test_Xyd[0].T)
+    blob = cPickle.dumps(K2, -1)
+    ctrl.attachments['normalized_DevTrainTest_kernel_%s' % comp] = blob
+
+    return train_Xyd
+
+
+def screening_program(slm_desc, decisions, comparison, preproc, namebase,
+                      image_features=None, ctrl=None):
+    if image_features is None:
+        image_features = scope.slm_memmap(
                 desc=slm_desc,
                 X=scope.get_images('float32', preproc=preproc),
                 name=namebase + '_img_feat')
     # XXX: check that float32 images lead to correct features
-
-    # XXX: check that it's right that DevTrain has only 2200 verification
-    # pairs!? How we supposed to train a good model?!
 
     # XXX: make sure namebase takes a different value for each process
     #      because it's important that the memmaps don't interfere on disk
@@ -275,7 +402,15 @@ def screening_program(slm_desc, decisions, comparison, preproc, namebase):
         (train_X, train_y, train_d,),
         (test_X, test_y, test_d,))
 
-    svm = scope.train_svm(train_Xyd_n, l2_regularization=1e-3, max_observations=20000)
+    if 0 and ctrl is not None:
+        print >> sys.stderr, "SKIPPING FEATURE KERNEL"
+        train_Xyd_n = scope.attach_feature_kernels(train_Xyd_n, test_Xyd_n,
+                ctrl, comparison)
+
+    ### TODO: put consts in config, possibly loop over them in MultiBandit
+    svm = scope.train_svm(train_Xyd_n,
+            l2_regularization=1e-3,
+            max_observations=20000)
 
     new_d_train = scope.svm_decisions_lfw(svm, train_Xyd_n)
     new_d_test = scope.svm_decisions_lfw(svm, test_Xyd_n)
@@ -298,7 +433,8 @@ def screening_program(slm_desc, decisions, comparison, preproc, namebase):
 
 
 def get_performance(slm, decisions, preproc, comparison,
-                    namebase=None, progkey='result_w_cleanup'):
+                    namebase=None, progkey='result_w_cleanup',
+                    return_multi=False, ctrl=None):
     if decisions is None:
         decisions = np.zeros((1, 3200))
     else:
@@ -306,13 +442,109 @@ def get_performance(slm, decisions, preproc, comparison,
     assert decisions.shape == (1, 3200)
     if namebase is None:
         namebase = 'memmap_' + str(np.random.randint(1e8))
-    prog = screening_program(
-            slm_desc=slm,
-            preproc=preproc,
-            comparison=comparison,
-            namebase=namebase,
-            decisions=decisions)[1]
-    
-    rval = pyll.rec_eval(prog[progkey])
-    return rval
+    image_features = scope.slm_memmap(
+            desc=slm,
+            X=scope.get_images('float32', preproc=preproc),
+            name=namebase + '_img_feat')
+    if return_multi:
+        comps = ['mult', 'sqrtabsdiff']
+    else:
+        comps = [comparison]
+    cmp_progs = []
+    for comp in comps:
+        sresult = screening_program(
+                    slm_desc=slm,
+                    preproc=preproc,
+                    comparison=comp,
+                    namebase=namebase,
+                    decisions=decisions,
+                    image_features=image_features,
+                    ctrl=ctrl)[1][progkey]
+        cmp_progs.append([comp, sresult])
+    cmp_results = pyll.rec_eval(cmp_progs)
+    if return_multi:
+        return cmp_results
+    else:
+        return cmp_results[0][1]
 
+
+def view2_filename(namebase, split_num):
+    return namebase + '_pairs_view2_fold_%d' % split_num
+   
+   
+def get_view2_features(slm_desc, preproc, comparison, namebase, basedir,
+                       test=None):
+    image_features = slm_memmap(
+            desc=slm_desc,
+            X=get_images('float32', preproc=preproc),
+            name=namebase + '_img_feat_view2',
+            basedir=basedir)
+    for split_num in range(10):
+        print ('extracting fold %d' % split_num)
+        pf, matches = pairs_memmap(
+                verification_pairs('fold_%d' % split_num, test=test),
+                image_features,
+                comparison_name=comparison,
+                name=view2_filename(namebase, split_num),
+                basedir=basedir
+                )
+        pf[:]
+
+
+def predictions_from_decisions(decisions):
+    return np.sign(decisions)
+
+                                                 
+def train_view2(namebases, basedirs, test=None):
+    pair_features = [[larray.cache_memmap(None,
+                                   name=view2_filename(nb, snum),
+                                   basedir=bdir) for snum in range(10)]             
+                      for nb, bdir in zip(namebases, basedirs)]
+
+    split_data = [verification_pairs('fold_%d' % split_num, test=test) for split_num in range(10)]
+    
+    train_errs = []
+    test_errs = []
+    
+    for ind in range(10):
+        train_inds = [_ind for _ind in range(10) if _ind != ind]
+        print ('Constructing stuff for split %d ...' % ind)
+        test_X = np.hstack([pf[ind][:] for pf in pair_features])
+        test_y = split_data[ind][2]
+        train_X = np.hstack([np.vstack([pf[_ind][:] for _ind in train_inds])
+                             for pf in pair_features])
+        train_y = np.concatenate([split_data[_ind][2] for _ind in train_inds])
+        
+        train_decisions = np.zeros(len(train_y))
+        test_decisions = np.zeros(len(test_y))
+        train_Xyd_n, test_Xyd_n = toyproblem.normalize_Xcols(
+            (train_X, train_y, train_decisions,),
+            (test_X, test_y, test_decisions,))
+
+        print ('Training split %d ...' % ind)
+        svm = toyproblem.train_svm(train_Xyd_n,
+            l2_regularization=1e-3,
+            max_observations=20000)
+
+        train_decisions = svm_decisions_lfw(svm, train_Xyd_n)
+        test_decisions = svm_decisions_lfw(svm, test_Xyd_n)
+        
+        train_predictions = predictions_from_decisions(train_decisions)
+        test_predictions = predictions_from_decisions(test_decisions)
+        
+        train_err = (train_predictions != train_y).mean()
+        test_err = (test_predictions != test_y).mean()
+
+        print 'split %d train err %f' % (ind, train_err)
+        print 'split %d test err %f' % (ind, test_err)
+        
+        train_errs.append(train_err)
+        test_errs.append(test_err)
+        
+    train_err_mean = np.mean(train_errs)
+    print 'train err mean', train_err_mean
+    test_err_mean = np.mean(test_errs)
+    print 'test err mean', test_err_mean
+    
+    return train_err_mean, test_err_mean
+    
