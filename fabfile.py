@@ -9,7 +9,13 @@ $ fab list_errors:try2
 """
 from fabric.api import run  # -- shutup pyflakes, we need this
 
+import logging
+import sys
+
+logging.basicConfig(stream=sys.stdout, level=logging.INFO)
+
 import copy
+import cPickle
 import hyperopt
 from hyperopt.mongoexp import MongoTrials
 from eccv12.eccv12 import main_lfw_driver
@@ -67,6 +73,88 @@ def transfer_trials(fromdb, todb):
     for doc in from_docs:
         del doc['_id']
     to_trials.insert_trial_docs(doc)
+
+
+def snapshot(dbname, tofile):
+    print 'fetching trials'
+    ofile = open(tofile, 'w')
+    from_trials = MongoTrials('mongo://honeybadger.rowland.org:44556/%s/jobs' % dbname)
+    to_trials = hyperopt.base.trials_from_docs(
+            from_trials.trials)
+    print 'saving to' , tofile
+    cPickle.dump(to_trials, ofile, -1)
+
+
+exp_keys = {
+    'random': u'ek_randombandit:eccv12.lfw.MultiBandit_num_features:128_bandit_algo:hyperopt.base.Random',
+    'tpe': u'ek_tpebandit:eccv12.lfw.MultiBandit_num_features:128_bandit_algo:hyperopt.tpe.TreeParzenEstimator',
+    'tpe_asyncB': u"ek_tpebandit:eccv12.lfw.MultiBandit_num_features:128_meta_algo:eccv12.experiments.AsyncBoostingAlgoB_bandit_algo:hyperopt.tpe.TreeParzenEstimator_meta_kwargs:{'round_len': 200}",
+    'random_asyncB':
+    u"ek_randombandit:eccv12.lfw.MultiBandit_num_features:128_meta_algo:eccv12.experiments.AsyncBoostingAlgoB_bandit_algo:hyperopt.base.Random_meta_kwargs:{'round_len': 200}",
+    }
+
+
+def plot_history(tfile, key):
+    trials = cPickle.load(open(tfile))
+    docs = trials.trials
+    kdocs = [d for d in docs if d['exp_key'] == exp_keys[key]]
+    trials = hyperopt.base.trials_from_docs(kdocs)
+    hyperopt.plotting.main_plot_history(trials)
+
+def plot_tpe(tfile):
+    import matplotlib.pyplot as plt
+    trials = cPickle.load(open(tfile))
+    m_docs = [d for d in trials.trials
+            if d['exp_key'] == exp_keys['tpe'] and d['spec']['comparison'] == 'mult']
+    s_docs = [d for d in trials.trials
+            if d['exp_key'] == exp_keys['tpe'] and d['spec']['comparison'] != 'mult']
+
+    plt.subplot(1, 2, 1)
+    hyperopt.plotting.main_plot_history(
+            hyperopt.base.trials_from_docs(m_docs),
+            do_show=False)
+    plt.ylim(.15, .4)
+    plt.subplot(1, 2, 2)
+    hyperopt.plotting.main_plot_history(
+            hyperopt.base.trials_from_docs(s_docs),
+            do_show=False)
+    plt.ylim(.15, .4)
+    plt.show()
+
+def plot_histories(tfile):
+    import matplotlib.pyplot as plt
+    plt.subplot(2, 2, 1)
+    plt.ylim(.15, .5)
+
+    trials = cPickle.load(open(tfile))
+    docs = trials.trials
+    r_docs = [d for d in docs if d['exp_key'] == exp_keys['random']]
+    t_docs = [d for d in docs if d['exp_key'] == exp_keys['tpe']]
+    rB_docs = [d for d in docs if d['exp_key'] == exp_keys['random_asyncB']]
+    tB_docs = [d for d in docs if d['exp_key'] == exp_keys['tpe_asyncB']]
+
+    hyperopt.plotting.main_plot_history(
+            hyperopt.base.trials_from_docs(r_docs),
+            do_show=False)
+
+    plt.ylim(.15, .5)
+    plt.subplot(2, 2, 2)
+
+    hyperopt.plotting.main_plot_history(
+            hyperopt.base.trials_from_docs(t_docs),
+            do_show=False)
+    plt.ylim(.15, .5)
+    plt.subplot(2, 2, 3)
+    hyperopt.plotting.main_plot_history(
+            hyperopt.base.trials_from_docs(rB_docs),
+            do_show=False)
+    plt.ylim(.15, .5)
+    plt.subplot(2, 2, 4)
+    hyperopt.plotting.main_plot_history(
+            hyperopt.base.trials_from_docs(tB_docs),
+            do_show=False)
+    plt.ylim(.15, .5)
+    plt.show()
 
 
 if 0: # -- NOT SURE IF THIS IS CORRECT YET

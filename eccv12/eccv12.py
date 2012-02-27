@@ -12,11 +12,12 @@ Entry point is to call something like
 * `run_tpe_experiment()`
 
 """
-import cPickle
-import sys
-import matplotlib.pyplot
 import copy
+import cPickle
+import logging
+import sys
 
+logger = logging.getLogger(__name__)
 import numpy as np
 
 try:
@@ -25,7 +26,7 @@ except ImportError:
     print "Python 2.7+ OrderedDict collection not available"
     try:
         from ordereddict import OrderedDict
-        warn("Using backported OrderedDict implementation")
+        logger.warn("Using backported OrderedDict implementation")
     except ImportError:
         raise ImportError("Backported OrderedDict implementation "
                           "not available. To install it: "
