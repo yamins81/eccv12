@@ -165,7 +165,6 @@ class SearchExp(object):
         assemble results and save them out to a pkl file
         """
         result = self.get_result()
-        info = self.get_info()
         self.trials.refresh()
         ntrials = len(self.trials.results)
         cPickle.dump(result, open(self.get_filename(ntrials), 'w'))
@@ -204,11 +203,6 @@ class NtrialsBanditAlgo(hyperopt.BanditAlgo):
             wall_time = (t['refresh_time'] - t['book_time']).total_seconds()
             if wall_time > self.walltime_cutoff:
                 OKs.append(t)
-        if not self.use_injected:
-            blen = len(OKs)
-            OKs = [t for t in OKs if 'from_tid' not in t['misc']]
-            alen = len(OKs)
-            logger.info('NTrials Keeping %i of %i jobs' % (alen, blen))
         return OKs
 
     def suggest(self, new_ids, trials):
