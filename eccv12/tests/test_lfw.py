@@ -11,6 +11,7 @@ import hyperopt.base
 import eccv12.lfw as lfw
 import eccv12.bandits as bandits
 import eccv12.experiments as experiments
+import os
 
 test_params = {
     'slm': [[('lnorm', params.lnorm)]],
@@ -250,4 +251,11 @@ class TestParamFuncFuzz(unittest.TestCase, ForInts):
                 np.random.RandomState(seed))
         fuzz_config(config['model'])
 
+
+@attr('slow') #takes about 30 sec with cpu
+def test_baby_view2():
+    c = config_tiny_rnd0
+    lfw.get_view2_features(c['slm'], c['preproc'], 'mult', '', os.getcwd(),
+                           test=50)
+    return lfw.train_view2([''],[os.getcwd()], test=50)
 
