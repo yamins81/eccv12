@@ -57,8 +57,12 @@ def validate_from_tids(dbname):
 
 def delete_all(dbname):
     # TODO: replace this with an input() y/n type thing
-    assert 0, "go and disable the assertion if you really want to delete all"
-    trials = MongoTrials('mongo://localhost:44556/%s/jobs' % dbname)
+    y, n = 'y', 'n'
+    db = 'mongo://localhost:44556/%s/jobs' % dbname
+    print 'Are you sure you want to delete ALL trials from %s?' % db
+    if input() != y:
+        return
+    trials = MongoTrials(db)
     B = main_lfw_driver(trials)
     B.delete_all()
 
@@ -86,6 +90,7 @@ def snapshot(dbname, tofile):
 
 
 exp_keys = {
+    'randomL': u'ek_randombandit:eccv12.lfw.MultiBandit_num_features:1280_bandit_algo:hyperopt.base.Random',
     'random': u'ek_randombandit:eccv12.lfw.MultiBandit_num_features:128_bandit_algo:hyperopt.base.Random',
     'tpe': u'ek_tpebandit:eccv12.lfw.MultiBandit_num_features:128_bandit_algo:hyperopt.tpe.TreeParzenEstimator',
     'tpe_asyncB': u"ek_tpebandit:eccv12.lfw.MultiBandit_num_features:128_meta_algo:eccv12.experiments.AsyncBoostingAlgoB_bandit_algo:hyperopt.tpe.TreeParzenEstimator_meta_kwargs:{'round_len': 200}",
@@ -94,14 +99,14 @@ exp_keys = {
     }
 
 
-def plot_history(tfile, key):
+def snapshot_history(tfile, key):
     trials = cPickle.load(open(tfile))
     docs = trials.trials
     kdocs = [d for d in docs if d['exp_key'] == exp_keys[key]]
     trials = hyperopt.base.trials_from_docs(kdocs)
     hyperopt.plotting.main_plot_history(trials)
 
-def plot_tpe(tfile):
+def snapshot_tpe(tfile):
     import matplotlib.pyplot as plt
     trials = cPickle.load(open(tfile))
     m_docs = [d for d in trials.trials
@@ -121,7 +126,7 @@ def plot_tpe(tfile):
     plt.ylim(.15, .4)
     plt.show()
 
-def plot_histories(tfile):
+def snapshot_histories(tfile):
     import matplotlib.pyplot as plt
     plt.subplot(2, 2, 1)
     plt.ylim(.15, .5)
