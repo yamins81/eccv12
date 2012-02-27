@@ -109,6 +109,10 @@ def train_svm(Xyd, l2_regularization, max_observations):
     if train_X.ndim != 2:
         raise ValueError('train_X must be matrix')
     assert len(train_X) == len(train_y) == len(decisions)
+    # doctor the decisions so that there is always something to learn
+    margin = train_y * decisions
+    margin_mean = margin.mean()
+    decisions = decisions - margin_mean * train_y
     svm = MarginBinaryASGD(
         n_features=train_X.shape[1],
         l2_regularization=l2_regularization,
