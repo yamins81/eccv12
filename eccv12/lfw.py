@@ -195,7 +195,7 @@ def _verification_pairs_helper(all_paths, lpaths, rpaths):
 
 
 @scope.define
-def verification_pairs(split):
+def verification_pairs(split, test=None):
     """
     Return three integer arrays: lidxs, ridxs, match.
 
@@ -207,18 +207,23 @@ def verification_pairs(split):
     all_paths = dataset.raw_classification_task()[0]
     lpaths, rpaths, matches = dataset.raw_verification_task(split=split)
     lidxs, ridxs = _verification_pairs_helper(all_paths, lpaths, rpaths)
-    return lidxs, ridxs, (matches * 2 - 1)
+    if test is None:
+        return lidxs, ridxs, (matches * 2 - 1)
+    else:
+        return lidxs[:test], ridxs[:test],  (matches[:test] * 2 - 1)
 
 
 @scope.define
-def slm_memmap(desc, X, name):
+def slm_memmap(desc, X, name, basedir=None):
     """
     Return a cache_memmap object representing the features of the entire
     set of images.
     """
+    if basedir is None:
+        basedir = os.getcwd()
     feat_fn = SLMFunction(desc, X.shape[1:])
     feat = larray.lmap(feat_fn, X)
-    rval = larray.cache_memmap(feat, name, basedir=os.getcwd())
+    rval = larray.cache_memmap(feat, name, basedir=basedir)
     return rval
 
 
@@ -264,18 +269,20 @@ class PairFeaturesFn(object):
 
 
 @scope.define_info(o_len=2)
-def pairs_memmap(pair_labels, X, comparison_name, name):
+def pairs_memmap(pair_labels, X, comparison_name, name, basedir=None):
     """
     pair_labels    - something like comes out of verification_pairs
     X              - feature vectors to be combined
     combination_fn - some lambda X[i], X[j]: features1D
     """
+    if basedir is None:
+        basedir = os.getcwd()
     lidxs, ridxs, matches = pair_labels
     pf = larray.lmap(
             PairFeaturesFn(X, comparison_name),
             lidxs,
             ridxs)
-    pf_cache = larray.cache_memmap(pf, name, basedir=os.getcwd())
+    pf_cache = larray.cache_memmap(pf, name, basedir=basedir)
     return pf_cache, np.asarray(matches)
 
 @scope.define
@@ -460,3 +467,84 @@ def get_performance(slm, decisions, preproc, comparison,
     else:
         return cmp_results[0][1]
 
+
+def view2_filename(namebase, split_num):
+    return namebase + '_pairs_view2_fold_%d' % split_num
+   
+   
+def get_view2_features(slm_desc, preproc, comparison, namebase, basedir,
+                       test=None):
+    image_features = slm_memmap(
+            desc=slm_desc,
+            X=get_images('float32', preproc=preproc),
+            name=namebase + '_img_feat_view2',
+            basedir=basedir)
+    for split_num in range(10):
+        print ('extracting fold %d' % split_num)
+        pf, matches = pairs_memmap(
+                verification_pairs('fold_%d' % split_num, test=test),
+                image_features,
+                comparison_name=comparison,
+                name=view2_filename(namebase, split_num),
+                basedir=basedir
+                )
+        pf[:]
+
+
+def predictions_from_decisions(decisions):
+    return np.sign(decisions)
+
+                                                 
+def train_view2(namebases, basedirs, test=None):
+    pair_features = [[larray.cache_memmap(None,
+                                   name=view2_filename(nb, snum),
+                                   basedir=bdir) for snum in range(10)]             
+                      for nb, bdir in zip(namebases, basedirs)]
+
+    split_data = [verification_pairs('fold_%d' % split_num, test=test) for split_num in range(10)]
+    
+    train_errs = []
+    test_errs = []
+    
+    for ind in range(10):
+        train_inds = [_ind for _ind in range(10) if _ind != ind]
+        print ('Constructing stuff for split %d ...' % ind)
+        test_X = np.hstack([pf[ind][:] for pf in pair_features])
+        test_y = split_data[ind][2]
+        train_X = np.hstack([np.vstack([pf[_ind][:] for _ind in train_inds])
+                             for pf in pair_features])
+        train_y = np.concatenate([split_data[_ind][2] for _ind in train_inds])
+        
+        train_decisions = np.zeros(len(train_y))
+        test_decisions = np.zeros(len(test_y))
+        train_Xyd_n, test_Xyd_n = toyproblem.normalize_Xcols(
+            (train_X, train_y, train_decisions,),
+            (test_X, test_y, test_decisions,))
+
+        print ('Training split %d ...' % ind)
+        svm = toyproblem.train_svm(train_Xyd_n,
+            l2_regularization=1e-3,
+            max_observations=20000)
+
+        train_decisions = svm_decisions_lfw(svm, train_Xyd_n)
+        test_decisions = svm_decisions_lfw(svm, test_Xyd_n)
+        
+        train_predictions = predictions_from_decisions(train_decisions)
+        test_predictions = predictions_from_decisions(test_decisions)
+        
+        train_err = (train_predictions != train_y).mean()
+        test_err = (test_predictions != test_y).mean()
+
+        print 'split %d train err %f' % (ind, train_err)
+        print 'split %d test err %f' % (ind, test_err)
+        
+        train_errs.append(train_err)
+        test_errs.append(test_err)
+        
+    train_err_mean = np.mean(train_errs)
+    print 'train err mean', train_err_mean
+    test_err_mean = np.mean(test_errs)
+    print 'test err mean', test_err_mean
+    
+    return train_err_mean, test_err_mean
+    
