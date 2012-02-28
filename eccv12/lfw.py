@@ -20,7 +20,7 @@ import comparisons
 
 from .bandits import BaseBandit, validate_config, validate_result
 from .utils import ImgLoaderResizer
-from .classifier import get_result
+from .classifier import get_result, train_scikits
 
 # -- register symbols in pyll.scope
 import toyproblem
@@ -209,8 +209,11 @@ def verification_pairs(split, test=None):
     lidxs, ridxs = _verification_pairs_helper(all_paths, lpaths, rpaths)
     if test is None:
         return lidxs, ridxs, (matches * 2 - 1)
-    else:
+    elif isinstance(test, int):
         return lidxs[:test], ridxs[:test],  (matches[:test] * 2 - 1)
+    else:
+        assert all([isinstance(_t, int) for _t in test])
+        return lidxs[test], ridxs[test], (matches[test] * 2 - 1)
 
 
 @scope.define
@@ -523,7 +526,12 @@ def train_view2(namebases, basedirs, test=None, use_libsvm=False):
 
         print ('Training split %d ...' % ind)
         if use_libsvm:
-            pass
+            svm, _ = train_scikits(train_Xyd_n,
+                                labelset=[-1, 1],
+                                model_type='svm.SVC',
+                                model_kwargs={'kernel': 'linear'},
+                                normalization=False
+                                )
         else:
             svm = toyproblem.train_svm(train_Xyd_n,
                 l2_regularization=1e-3,

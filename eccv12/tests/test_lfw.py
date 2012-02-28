@@ -259,3 +259,12 @@ def test_baby_view2():
                            test=50)
     return lfw.train_view2([''],[os.getcwd()], test=50)
 
+
+@attr('slow') #takes about 30 sec with cpu
+def test_baby_view2_libsvm():
+    c = config_tiny_rnd0
+    test_set = range(20) + range(500, 520)
+    lfw.get_view2_features(c['slm'], c['preproc'], 'mult', 'libsvm', os.getcwd(),
+                           test=test_set)
+    return lfw.train_view2(['libsvm'],[os.getcwd()],
+                           test=test_set, use_libsvm=True)
