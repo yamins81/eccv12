@@ -283,19 +283,11 @@ class BoostingAlgoBase(hyperopt.BanditAlgo):
     # as stateless-ly as possible so that it can work on new trials objects.
 
     @staticmethod
-    def idxs_continuing(miscs, tid):
-        """Return the positions in the trials object of
-        all trials that continue trial tid.
-        """
-        rval = [idx for idx, misc in enumerate(miscs)
-                if continues(miscs, misc) == tid]
-        return rval
-
-    @staticmethod
     def boosting_best_by_round(trials, bandit):
+        helper = BoostHelper(trials.trials)
         specs, results, miscs = filter_ok_trials(trials)
         losses = np.array(map(bandit.loss, results, specs))
-        rounds = np.array([round_of(trials.miscs, m) for m in miscs])
+        rounds = np.array(map(helper.round_of, trials.trials))
         urounds = np.unique(rounds)
         urounds.sort()
         assert urounds.tolist() == range(urounds.max() + 1)
@@ -311,33 +303,52 @@ class BoostingAlgoBase(hyperopt.BanditAlgo):
         """
         Return the list of tids of members selected by the boosting algorithm.
         """
+        helper = BoostHelper(trials.trials)
         specs, results, miscs = filter_ok_trials(trials)
         losses = np.array(map(bandit.loss, results, specs))
         assert None not in losses
         cur_idx = np.argmin(losses)
         reversed_members_idxs = [cur_idx]
-        while continues(trials.miscs, miscs[cur_idx]) != None:
+        while helper.continues(miscs[cur_idx]) != None:
             cur_idx = [m['tid'] for m in miscs].index(
-                    continues(trials.miscs, miscs[cur_idx]))
+                    helper.continues(miscs[cur_idx]))
             reversed_members_idxs.append(cur_idx)
         rval = [miscs[ii]['tid'] for ii in reversed(reversed_members_idxs)]
         return rval
 
-def round_of(miscs, misc):
-    try:
-        return misc['boosting']['round']
-    except KeyError:
-        fromtid = misc['from_tid']
-        fm = [t for t in miscs if t['tid'] == fromtid][0]
-        return fm['boosting']['round']
+class BoostHelper(object):
+    def __init__(self, docs):
+        self.doc_by_tid = dict([(d['tid'], d) for d in docs])
 
-def continues(miscs, misc):
-    try:
-        return misc['boosting']['continues']
-    except KeyError:
-        fromtid = misc['from_tid']
-        fm = [t for t in miscs if t['tid'] == fromtid][0]
-        return fm['boosting']['continues']
+    def round_of(self, doc):
+        # -- hack to support `doc` that is a misc sub-doc
+        doc = self.doc_by_tid[doc['tid']]
+        try:
+            return doc['misc']['boosting']['round']
+        except KeyError:
+            return self.round_of(
+                self.doc_by_tid[doc['misc']['from_tid']])
+
+    def continues(self, doc):
+        """Returns tid (or None) of the trial whose decisions `doc` built on.
+        """
+        # -- hack to support `doc` that is a misc sub-doc
+        doc = self.doc_by_tid[doc['tid']]
+        try:
+            return doc['misc']['boosting']['continues']
+        except KeyError:
+            return self.continues(
+                self.doc_by_tid[doc['misc']['from_tid']])
+
+    def continuing(self, doc):
+        """Returns all docs whose decisions were built on `doc`.
+        """
+        if doc is None:
+            my_tid = None
+        else:
+            my_tid = doc.get('tid')
+        return [d for d in self.doc_by_tid.values()
+                if self.continues(d) == my_tid]
 
 
 class AsyncBoostingAlgo(BoostingAlgoBase):
@@ -360,13 +371,17 @@ class AsyncBoostingAlgo(BoostingAlgoBase):
         self.look_back = look_back
 
     def suggest(self, new_ids, trials):
-        specs, results, miscs = trials.specs, trials.results, trials.miscs
-
-        assert len(specs) == len(results) == len(miscs)
         if len(new_ids) > 1:
             raise NotImplementedError()
 
-        specs, results, miscs = filter_oks(specs, results, miscs)
+        tids = set(trials.tids)
+        STATUS_OK = hyperopt.STATUS_OK
+        docs = [d for d in trials
+                if self.bandit.status(d['result'], d['spec']) == STATUS_OK
+                and d['misc'].get('from_tid', d['tid']) in tids]
+
+        helper = BoostHelper(docs)
+        round_of = helper.round_of
 
         round_len = self.round_len
         look_back = self.look_back
@@ -374,12 +389,11 @@ class AsyncBoostingAlgo(BoostingAlgoBase):
         my_round = 0
         cont_decisions = None
         cont_tid = None
-        others = []
+        continuing_trials_docs = []
 
-        if miscs:
+        if docs:
             # -- pick a trial to continue
-            rounds_counts = np.bincount([round_of(miscs, m)
-                for m in miscs])
+            rounds_counts = np.bincount(map(round_of, docs))
             assert np.all(rounds_counts > 0)
             assert np.all(rounds_counts[:-1] >= round_len)
             # -- this is the round of the trial we're going to suggest
@@ -389,28 +403,24 @@ class AsyncBoostingAlgo(BoostingAlgoBase):
                 my_round = len(rounds_counts) - 1
             horizon = my_round - look_back
             consider_continuing = [idx
-                    for idx, misc in enumerate(miscs)
-                    if horizon <= round_of(miscs, misc) < my_round]
+                    for idx, doc in enumerate(docs)
+                    if horizon <= round_of(doc) < my_round]
 
             #print 'losses', np.array(map(self.bandit.loss, results, specs))
 
             if consider_continuing:
-                cc_specs = [specs[idx] for idx in consider_continuing]
-                cc_results = [results[idx] for idx in consider_continuing]
-                cc_miscs = [miscs[idx] for idx in consider_continuing]
+                cc = [docs[idx] for idx in consider_continuing]
 
-                cc_losses = np.array(map(self.bandit.loss, cc_results, cc_specs))
-                cont_idx = cc_losses.argmin()
+                cc_losses = hyperopt.trials_from_docs(cc).losses(self.bandit)
+                cont_idx = np.argmin(cc_losses)
 
-                cont_decisions = cc_results[cont_idx]['decisions']
-                cont_tid = cc_miscs[cont_idx]['tid']
+                cont_decisions = cc[cont_idx]['result']['decisions']
+                cont_tid = cc[cont_idx]['tid']
                 assert cont_tid != None
-                others = self.idxs_continuing(miscs, cont_tid)
+                continuing_trials_docs = helper.continuing(cc[cont_idx])
             else:
-                others = self.idxs_continuing(miscs, None)
+                continuing_trials_docs = helper.continuing(None)
 
-
-        continuing_trials_docs = [trials.trials[idx] for idx in others]
         continuing_trials = trials_from_docs(continuing_trials_docs,
                                                      exp_key=trials._exp_key)
 
@@ -456,13 +466,14 @@ class SyncBoostingAlgo(BoostingAlgoBase):
 
     def suggest(self, new_ids, trials):
         round_len = self.round_len
+        helper = BoostHelper(trials.trials)
 
         specs, results, miscs = filter_ok_trials(trials)
 
         if miscs:
-            rounds = [round_of(miscs, m) for m in miscs]
+            rounds = [helper.round_of(m) for m in miscs]
             # -- actually the rounds of completed trials
-            complete_rounds = [round_of(miscs, m)
+            complete_rounds = [helper.round_of(m)
                     for m, r in zip(miscs, results) if 'loss' in r]
 
             max_round = max(rounds)
@@ -479,7 +490,7 @@ class SyncBoostingAlgo(BoostingAlgoBase):
 
             round_decs = [[s['decisions']
                 for m, s in zip(miscs, specs)
-                if round_of(miscs, m) == j] for j in urounds]
+                if helper.round_of(m) == j] for j in urounds]
             assert all([all([_rd == rd[0]
                 for _rd in rd]) for rd in round_decs])
             round_decs = [rd[0] for rd in round_decs]
@@ -488,12 +499,12 @@ class SyncBoostingAlgo(BoostingAlgoBase):
                 my_round = max_round + 1
                 last_specs = [s
                         for s, m in zip(specs, miscs)
-                        if round_of(miscs, m) == max_round]
+                        if helper.round_of(m) == max_round]
                 last_results = [s
                         for s, m in zip(results, miscs)
-                        if round_of(miscs, m) == max_round]
+                        if helper.round_of(m) == max_round]
                 last_miscs = [m for m in miscs
-                        if round_of(miscs, m) == max_round]
+                        if helper.round_of(m) == max_round]
                 losses = np.array(map(self.bandit.loss, last_results, last_specs))
                 last_best = losses.argmin()
                 decisions = last_results[last_best]['decisions']
@@ -501,14 +512,14 @@ class SyncBoostingAlgo(BoostingAlgoBase):
             else:
                 my_round = max_round
                 decisions = round_decs[-1]
-                decisions_src = continues(miscs, miscs[-1])
+                decisions_src = helper.continues(miscs[-1])
         else:
             decisions = None
             my_round = 0
             decisions_src = None
 
         selected_trial_docs = [t for t in trials
-                                  if round_of(miscs, t['misc']) == my_round]        
+                                  if helper.round_of(t) == my_round]        
         selected_trials = trials_from_docs(selected_trial_docs,
                                                   exp_key=trials._exp_key)
         new_trial_docs = self.sub_algo.suggest(new_ids, selected_trials)
