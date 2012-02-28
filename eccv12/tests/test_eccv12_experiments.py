@@ -337,4 +337,3 @@ def test_budget_experiment(trials):
     assert len(res['control']['trials']) == 4
     #assert len(res['fixed_trials_2']['basic']['trials']) == 4
     assert len(res['fixed_features_2']['basic']['trials']) == 8
-
