@@ -86,6 +86,8 @@ def lfw_view2_randomL(host, dbname):
     losses = local_trials.losses()
     best_doc = docs[np.argmin(losses)]
 
+    #XXX: Potentially affected by the tid/injected jobs bug,
+    #     but unlikely. Rerun just in case once dual svm solver is in.
     print best_doc['spec']
     namebase = '%s_randomL_%s' % (dbname, best_doc['tid'])
 
@@ -122,6 +124,9 @@ def lfw_view2_random_SimpleMixture(host, dbname, A):
         #    reused by AdaboostMixture and
         #    SimpleMixtures of different 
         #    sizes
+
+        #XXX: Potentially affected by the tid/injected jobs bug,
+        #     but unlikely. Rerun just in case once dual svm solver is in.
         namebase = '%s_%s' % (dbname, tid)
         namebases.append(namebase)
 
@@ -149,6 +154,8 @@ def lfw_view2_random_AdaboostMixture(host, dbname, A):
             refresh=True)
     bandit = MultiBandit()
     mix = AdaboostMixture(trials, bandit, test_mask=True)
+    # XXX: Should the weights be used? I don't think so, we're basically
+    #      doing LPBoost at this point
     specs, weights, tids = mix.mix_models(int(A), ret_tids=True)
     assert len(specs) == len(tids)
     namebases = []
@@ -157,6 +164,9 @@ def lfw_view2_random_AdaboostMixture(host, dbname, A):
         #    reused by AdaboostMixture and
         #    SimpleMixtures of different 
         #    sizes
+
+        #XXX: Potentially affected by the tid/injected jobs bug,
+        #     but unlikely. Rerun just in case once dual svm solver is in.
         namebase = '%s_%s' % (dbname, tid)
         namebases.append(namebase)
 
@@ -164,6 +174,37 @@ def lfw_view2_random_AdaboostMixture(host, dbname, A):
                 slm_desc=spec['model']['slm'],
                 preproc=spec['model']['preproc'],
                 comparison=spec['comparison'],
+                namebase=namebase,
+                basedir=os.getcwd(),
+                )
+
+    basedirs = [os.getcwd()] * len(namebases)
+
+    train_view2(namebases=namebases, basedirs=basedirs)
+
+
+def lfw_view2_random_AsyncB(host, dbname, A):
+    trials = MongoTrials(
+            'mongo://%s:44556/%s/jobs' % (host, dbname),
+            exp_key=exp_keys['random_asyncB'],
+            refresh=True)
+    helper = BoostHelper(trials.trials)
+    # XXX: Should the weights be used? I don't think so, we're basically
+    #      doing LPBoost at this point
+    members = helper.ensemble_members(MultiBandit())[:int(A)]
+    for ii, dd in enumerate(members):
+        ccc = helper.continues(dd)
+        print ii, dd['_id'], dd['tid'], dd['result']['loss'],
+        print (ccc['_id'] if ccc else None)
+    namebases = []
+    for doc in members:
+        namebase = '%s_%s' % (dbname, doc['_id'])
+        namebases.append(namebase)
+
+        get_view2_features(
+                slm_desc=doc['spec']['model']['slm'],
+                preproc=doc['spec']['model']['preproc'],
+                comparison=doc['spec']['comparison'],
                 namebase=namebase,
                 basedir=os.getcwd(),
                 )
