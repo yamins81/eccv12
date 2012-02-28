@@ -320,14 +320,18 @@ class BoostHelper(object):
     def __init__(self, docs):
         self.doc_by_tid = dict([(d['tid'], d) for d in docs])
 
+        # -- assert that every document has a unique tid
+        assert len(self.doc_by_tid) == len(docs)
+
     def round_of(self, doc):
         # -- hack to support `doc` that is a misc sub-doc
         doc = self.doc_by_tid[doc['tid']]
         try:
             return doc['misc']['boosting']['round']
         except KeyError:
-            return self.round_of(
-                self.doc_by_tid[doc['misc']['from_tid']])
+            from_doc = self.doc_by_tid[doc['misc']['from_tid']]
+            assert from_doc != doc
+            return self.round_of(from_doc)
 
     def continues(self, doc):
         """Returns tid (or None) of the trial whose decisions `doc` built on.
@@ -402,9 +406,8 @@ class AsyncBoostingAlgo(BoostingAlgoBase):
             else:
                 my_round = len(rounds_counts) - 1
             horizon = my_round - look_back
-            consider_continuing = [idx
-                    for idx, doc in enumerate(docs)
-                    if horizon <= round_of(doc) < my_round]
+            consider_continuing = [d for d in docs
+                    if horizon <= round_of(d) < my_round]
 
             #print 'losses', np.array(map(self.bandit.loss, results, specs))
 
@@ -417,6 +420,7 @@ class AsyncBoostingAlgo(BoostingAlgoBase):
                 cont_decisions = cc[cont_idx]['result']['decisions']
                 cont_tid = cc[cont_idx]['tid']
                 assert cont_tid != None
+                assert new_ids[0] != cont_tid
                 continuing_trials_docs = helper.continuing(cc[cont_idx])
             else:
                 continuing_trials_docs = helper.continuing(None)
@@ -438,6 +442,7 @@ class AsyncBoostingAlgo(BoostingAlgoBase):
 
             misc = trial['misc']
             assert 'boosting' not in misc
+            assert trial['tid'] != cont_tid
             misc['boosting'] = {
                     'variant': 'sync',
                     'round': my_round,
