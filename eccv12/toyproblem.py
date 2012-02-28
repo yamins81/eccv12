@@ -108,7 +108,8 @@ def train_svm(Xyd, l2_regularization, max_observations):
     train_X, train_y, decisions = Xyd
     if train_X.ndim != 2:
         raise ValueError('train_X must be matrix')
-    assert len(train_X) == len(train_y) == len(decisions)
+    assert len(train_X) == len(train_y), (len(train_X), len(train_y))
+    assert len(train_X) == len(decisions), (len(train_X), len(decisions))
     # doctor the decisions so that there is always something to learn
     margin = train_y * decisions
     margin_mean = margin.mean()
