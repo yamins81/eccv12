@@ -681,7 +681,7 @@ class TestAsyncError(unittest.TestCase):
     #
 
     def test_parallel_algo_0(self):
-        self.algo = experiments.ParallelAlgo(self.sub_algo, num_procs=5)
+        self.algo = experiments.ParallelAlgo(self.sub_algo, 5)
         push, do_ok, do_fail, do_err, assert_counts = self.get_cmds()
 
         # -- test that even if some of the first set of jobs are done async
@@ -718,7 +718,7 @@ class TestAsyncError(unittest.TestCase):
         assert_counts(6, 0, 4, 0)
 
     def test_parallel_algo_1(self):
-        self.algo = experiments.ParallelAlgo(self.sub_algo, num_procs=5)
+        self.algo = experiments.ParallelAlgo(self.sub_algo, 5)
         push, do_ok, do_fail, do_err, assert_counts = self.get_cmds()
 
         push(0, [])

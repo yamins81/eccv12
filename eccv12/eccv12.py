@@ -307,28 +307,35 @@ class NestedExperiment(object):
                 return e
 
     def flatten(self):
-        rval = []
-        for exp in self.experiments.values():
+        exps = []
+        names = []
+        for expname, exp in self.experiments.items():
             if hasattr(exp, 'flatten'):
-                rval.extend(exp.flatten())
+                names0, exps0 = exp.flatten()
+                exps.extend(exps0)
+                names.extend([expname + '.' + n for n in names0])
             else:
-                rval.append(exp)
-        return rval
+                exps.append(exp)
+                names.append(expname)
+        return names, exps
 
-    def interleaved_algo(self):
-        search_exps = self.flatten()
+    def interleaved_algo(self, priorities=None):
+        search_names, search_exps = self.flatten()
+        if priorities is None:
+            priorities = dict([(n, 1) for n in search_names])
+        priorities = [priorities.get(name, 0) for name in search_names]
         # XXX assert that all search_exps have same bandit
         search_exps[0].prepare_trials()
         algos = [se.get_bandit_algo() for se in search_exps]
         keys = [se.get_exp_key() for se in search_exps]
-        rval = InterleaveAlgo(algos, keys)
+        rval = InterleaveAlgo(algos, keys, priorities=priorities)
         return rval
 
-    def run(self):
+    def run(self, priorities=None):
         """
         Keeps suggesting jobs from each SearchExp until they are all done.
         """
-        rval = self.interleaved_algo()
+        rval = self.interleaved_algo(priorities=priorities)
         exp = hyperopt.Experiment(self.trials, rval)
         # -- the interleaving algo will break out of this
         exp.run(sys.maxint, block_until_done=True)
