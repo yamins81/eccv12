@@ -526,10 +526,22 @@ def train_view2(namebases, basedirs, test=None, use_libsvm=False):
 
         print ('Training split %d ...' % ind)
         if use_libsvm:
-            svm, _ = train_scikits(train_Xyd_n,
+            if hasattr(use_libsvm, 'keys'):
+                kernel_choice = use_libsvm.get('kernel_choice', 'linear')
+            else:
+                kernel_choice = 'linear'
+            if kernel_choice == 'precomputed':
+                (_X, _y, _d) = train_Xyd_n
+                print ('Computing kernel ...')
+                K = np.dot(_X, _X.T)
+                print ('... computed kernel of shape', K.shape)
+                train_data = (K, _y, _d)
+            else:
+                train_data = train_Xyd_n
+            svm, _ = train_scikits(train_data,
                                 labelset=[-1, 1],
                                 model_type='svm.SVC',
-                                model_kwargs={'kernel': 'linear'},
+                                model_kwargs={'kernel': kernel_choice},
                                 normalization=False
                                 )
         else:
