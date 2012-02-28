@@ -74,11 +74,13 @@ class AdaboostMixture(SimpleMixture):
     Uses AdaBoost to select an ensemble from among completed trials.
     """
 
-    def __init__(self, bandit, bandit_algo, test_mask):
+    def __init__(self, trials, bandit, test_mask):
         """
         test_mask - a BOOLEAN, True means use a test_mask
         """
-        SimpleMixture.__init__(self, bandit, bandit_algo)
+        SimpleMixture.__init__(self, trials, bandit)
+        if not type(test_mask) == bool:
+            raise TypeError('test_mask should be bool', test_mask)
         self.test_mask = test_mask
 
     def fetch_labels(self):

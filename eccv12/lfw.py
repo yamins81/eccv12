@@ -510,11 +510,11 @@ def train_view2(namebases, basedirs, test=None):
         train_inds = [_ind for _ind in range(10) if _ind != ind]
         print ('Constructing stuff for split %d ...' % ind)
         test_X = np.hstack([pf[ind][:] for pf in pair_features])
+
         test_y = split_data[ind][2]
         train_X = np.hstack([np.vstack([pf[_ind][:] for _ind in train_inds])
                              for pf in pair_features])
         train_y = np.concatenate([split_data[_ind][2] for _ind in train_inds])
-        
         train_decisions = np.zeros(len(train_y))
         test_decisions = np.zeros(len(test_y))
         train_Xyd_n, test_Xyd_n = toyproblem.normalize_Xcols(
