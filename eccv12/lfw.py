@@ -20,7 +20,7 @@ import comparisons
 
 from .bandits import BaseBandit, validate_config, validate_result
 from .utils import ImgLoaderResizer
-from .classifier import get_result
+from .classifier import get_result, train_scikits
 
 # -- register symbols in pyll.scope
 import toyproblem
@@ -209,8 +209,11 @@ def verification_pairs(split, test=None):
     lidxs, ridxs = _verification_pairs_helper(all_paths, lpaths, rpaths)
     if test is None:
         return lidxs, ridxs, (matches * 2 - 1)
-    else:
+    elif isinstance(test, int):
         return lidxs[:test], ridxs[:test],  (matches[:test] * 2 - 1)
+    else:
+        assert all([isinstance(_t, int) for _t in test])
+        return lidxs[test], ridxs[test], (matches[test] * 2 - 1)
 
 
 @scope.define
@@ -495,7 +498,7 @@ def predictions_from_decisions(decisions):
     return np.sign(decisions)
 
                                                  
-def train_view2(namebases, basedirs, test=None):
+def train_view2(namebases, basedirs, test=None, use_libsvm=False):
     pair_features = [[larray.cache_memmap(None,
                                    name=view2_filename(nb, snum),
                                    basedir=bdir) for snum in range(10)]             
@@ -522,9 +525,17 @@ def train_view2(namebases, basedirs, test=None):
             (test_X, test_y, test_decisions,))
 
         print ('Training split %d ...' % ind)
-        svm = toyproblem.train_svm(train_Xyd_n,
-            l2_regularization=1e-3,
-            max_observations=20000)
+        if use_libsvm:
+            svm, _ = train_scikits(train_Xyd_n,
+                                labelset=[-1, 1],
+                                model_type='svm.SVC',
+                                model_kwargs={'kernel': 'linear'},
+                                normalization=False
+                                )
+        else:
+            svm = toyproblem.train_svm(train_Xyd_n,
+                l2_regularization=1e-3,
+                max_observations=20000)
 
         train_decisions = svm_decisions_lfw(svm, train_Xyd_n)
         test_decisions = svm_decisions_lfw(svm, test_Xyd_n)
