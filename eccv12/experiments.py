@@ -50,19 +50,23 @@ class SimpleMixture(object):
 
         if len(results) < A:
             raise NotEnoughTrialsError(A, len(results))
-        specs = self.trials.specs
         losses = np.array(map(self.bandit.loss, results, specs))
         s = losses.argsort()
         return s[:A], np.ones((A,)) / float(A)
 
-    def mix_models(self, A, **kwargs):
+    def mix_models(self, A, ret_tids=False, **kwargs):
         """Identify the top `A` trials.
 
         Return list of specs, list of weights.
         """
         specs, results, miscs = filter_ok_trials(self.trials)
         inds, weights = self.mix_inds(A, **kwargs)
-        return [specs[ind] for ind in inds], weights
+        rspecs = [specs[ind] for ind in inds]
+        if ret_tids:
+            tids = [miscs[ind]['tid'] for ind in inds]
+            return rspecs, weights, tids
+        else:
+            return rspecs, weights
 
 
 class AdaboostMixture(SimpleMixture):
