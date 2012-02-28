@@ -50,17 +50,26 @@ def _show_keys(docs):
         print ikeys.get(k, k)
 
 
-def lfw_suggest(dbname):
+def lfw_suggest(dbname, port=44556, **kwargs):
     """
     This class presents the entire LFW experiment as a BanditAlgo
     so that it can be started up with
 
     hyperopt-mongo-search --exp_key='' eccv12.lfw.MultiBandit \
         eccv12.eccv12.WholeExperiment
+        
+    fab lfw_suggest:test_hyperopt,port=22334,random=.5,TPE=.5
     """
-    trials = MongoTrials('mongo://localhost:44556/%s/jobs' % dbname)
+    port = int(port)
+    if len(kwargs) > 0:
+        priorities = {}
+        for k in kwargs:
+            priorities[k] = float(kwargs[k])
+    else:
+        priorities = None
+    trials = MongoTrials('mongo://localhost:%d/%s/jobs' % (port, dbname))
     B = main_lfw_driver(trials)
-    B.run()
+    B.run(priorities=priorities)
 
 
 def lfw_view2_randomL(host, dbname):

@@ -146,7 +146,7 @@ class FailureDummyDecisionsBandit(DummyDecisionsBandit):
 
 
 class HighFailureDummyDecisionsBandit(DummyDecisionsBandit):
-    fail_prob = 0.5
+    fail_prob = 0.8
 
 
 @attr('mongo')
@@ -185,7 +185,7 @@ def test_search_dummy_failure(trials):
     S.delete_all()
     S.run()
     #make sure failure has caused 2 additional trials
-    assert len(S.trials) == 12 
+    assert len(S.trials) == 15, len(S.trials)
 
 
 @attr('mongo')
@@ -202,7 +202,7 @@ def test_search_dummy_failure_highprob(trials):
     S.delete_all()
     S.run()
     #assert higher error prob has caused many more failures
-    assert len(S.trials) == 21
+    assert len(S.trials) == 31, len(S.trials)
 
 
 @attr('mongo')
@@ -337,4 +337,3 @@ def test_budget_experiment(trials):
     assert len(res['control']['trials']) == 4
     #assert len(res['fixed_trials_2']['basic']['trials']) == 4
     assert len(res['fixed_features_2']['basic']['trials']) == 8
-
