@@ -534,7 +534,7 @@ def train_view2(namebases, basedirs, test=None, use_libsvm=False):
                 kernel = use_libsvm.get('kernel', 'linear')
             else:
                 kernel = 'linear'
-            if kernel_choice == 'precomputed':
+            if kernel == 'precomputed':
                 (_X, _y, _d) = train_Xyd_n
                 print ('Computing kernel ...')
                 K = np.dot(_X, _X.T)
