@@ -195,7 +195,15 @@ class InterleaveAlgo(hyperopt.BanditAlgo):
     returned `hyperopt.StopExperiment`.
 
     """
-    def __init__(self, sub_algos, sub_exp_keys, **kwargs):
+    def __init__(self, sub_algos, sub_exp_keys, priorities=None, **kwargs):
+        if priorities is None:
+            priorities = np.ones(len(sub_algos))
+        else:
+            priorities = np.array(priorities)
+        assert (priorities >= 0).all()
+        priorities = priorities.astype('float32') / priorities.sum()
+        self.priorities = priorities
+        
         hyperopt.BanditAlgo.__init__(self, sub_algos[0].bandit, **kwargs)
         # XXX: assert all bandits are the same
         self.sub_algos = sub_algos
@@ -218,8 +226,10 @@ class InterleaveAlgo(hyperopt.BanditAlgo):
                 for st in sub_trials]
         logger.info('counts: %s' % str(counts))
         new_docs = []
+        priorities = self.priorities
         for new_id in new_ids:
-            pref = np.argsort(counts)
+            weighted_counts = np.array(counts) / priorities
+            pref = np.argsort(weighted_counts)
             # -- try to get one of the sub_algos to make a suggestion
             #    for new_id, in order of sub-experiment size
             for active in pref:
