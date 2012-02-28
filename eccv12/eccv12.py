@@ -549,18 +549,17 @@ class BudgetExperiment(NestedExperiment):
 
 
 def main_lfw_driver(trials):
-    def add_exps(bandit_algo_class, exp_prefix, use_injected):
+    def add_exps(bandit_algo_class, exp_prefix):
         B = BudgetExperiment(ntrials=200, save=False, trials=trials,
                 num_features=128 * 10,
                 ensemble_sizes=[10],
                 bandit_algo_class=bandit_algo_class,
                 exp_prefix=exp_prefix,
-                run_parallel=False,
-                use_injected=use_injected)
+                run_parallel=False)
         return B
     N = NestedExperiment(trials=trials, ntrials=200, save=False)
-    N.add_exp(add_exps(hyperopt.Random, 'ek_random', use_injected=True), 'random')
-    N.add_exp(add_exps(hyperopt.TreeParzenEstimator, 'ek_tpe', use_injected=False), 'TPE')
+    N.add_exp(add_exps(hyperopt.Random, 'ek_random'), 'random')
+    N.add_exp(add_exps(hyperopt.TreeParzenEstimator, 'ek_tpe'), 'TPE')
     return N
 
 # The driver code for these classes is in scripts/main.py
