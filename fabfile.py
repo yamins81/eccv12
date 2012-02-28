@@ -9,16 +9,24 @@ $ fab list_errors:try2
 """
 from fabric.api import run  # -- shutup pyflakes, we need this
 
+import copy
+import cPickle
 import logging
+import os
 import sys
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
-import copy
-import cPickle
+import numpy as np
+
 import hyperopt
 from hyperopt.mongoexp import MongoTrials
 from eccv12.eccv12 import main_lfw_driver
+from eccv12.lfw import get_view2_features
+from eccv12.lfw import train_view2
+from eccv12.lfw import MultiBandit
+from eccv12.experiments import SimpleMixture
+from eccv12.experiments import AdaboostMixture
 
 
 
@@ -45,14 +53,114 @@ def _show_keys(docs):
 def lfw_suggest(dbname):
     """
     This class presents the entire LFW experiment as a BanditAlgo
-    so that it can be started up with 
-    
+    so that it can be started up with
+
     hyperopt-mongo-search --exp_key='' eccv12.lfw.MultiBandit \
         eccv12.eccv12.WholeExperiment
     """
     trials = MongoTrials('mongo://localhost:44556/%s/jobs' % dbname)
     B = main_lfw_driver(trials)
     B.run()
+
+
+def lfw_view2_randomL(host, dbname):
+    trials = MongoTrials('mongo://%s:44556/%s/jobs' % (host, dbname),
+            refresh=False)
+    #B = main_lfw_driver(trials)
+    #E = B.get_experiment(name=('random', 'foo'))
+    mongo_trials = trials.view(exp_key=exp_keys['randomL'], refresh=True)
+
+    docs = [d for d in mongo_trials.trials
+            if d['result']['status'] == hyperopt.STATUS_OK]
+    local_trials = hyperopt.trials_from_docs(docs)
+    losses = local_trials.losses()
+    best_doc = docs[np.argmin(losses)]
+
+    print best_doc['spec']
+    namebase = '%s_randomL_%s' % (dbname, best_doc['tid'])
+
+    get_view2_features(
+            slm_desc=best_doc['spec']['model']['slm'],
+            preproc=best_doc['spec']['model']['preproc'],
+            comparison=best_doc['spec']['comparison'],
+            namebase=namebase,
+            basedir=os.getcwd(),
+            )
+
+    namebases = [namebase]
+    basedirs = [os.getcwd()] * len(namebases)
+
+    train_view2(namebases=namebases, basedirs=basedirs)
+    # running on the try2 database
+    # finds id 1674
+    #train err mean 0.0840740740741
+    #test err mean 0.199666666667
+
+
+def lfw_view2_random_SimpleMixture(host, dbname, A):
+    trials = MongoTrials(
+            'mongo://%s:44556/%s/jobs' % (host, dbname),
+            exp_key=exp_keys['random'],
+            refresh=True)
+    bandit = MultiBandit()
+    mix = SimpleMixture(trials, bandit)
+    specs, weights, tids = mix.mix_models(int(A), ret_tids=True)
+    assert len(specs) == len(tids)
+    namebases = []
+    for spec, tid in zip(specs, tids):
+        # -- allow this feature cache to be
+        #    reused by AdaboostMixture and
+        #    SimpleMixtures of different 
+        #    sizes
+        namebase = '%s_%s' % (dbname, tid)
+        namebases.append(namebase)
+
+        get_view2_features(
+                slm_desc=spec['model']['slm'],
+                preproc=spec['model']['preproc'],
+                comparison=spec['comparison'],
+                namebase=namebase,
+                basedir=os.getcwd(),
+                )
+
+    basedirs = [os.getcwd()] * len(namebases)
+
+    train_view2(namebases=namebases, basedirs=basedirs)
+    # running on the try2 database
+    # finds id 1674
+    # train err mean 0.049037037037
+    # test err mean 0.1565
+
+
+def lfw_view2_random_AdaboostMixture(host, dbname, A):
+    trials = MongoTrials(
+            'mongo://%s:44556/%s/jobs' % (host, dbname),
+            exp_key=exp_keys['random'],
+            refresh=True)
+    bandit = MultiBandit()
+    mix = AdaboostMixture(trials, bandit, test_mask=True)
+    specs, weights, tids = mix.mix_models(int(A), ret_tids=True)
+    assert len(specs) == len(tids)
+    namebases = []
+    for spec, tid in zip(specs, tids):
+        # -- allow this feature cache to be
+        #    reused by AdaboostMixture and
+        #    SimpleMixtures of different 
+        #    sizes
+        namebase = '%s_%s' % (dbname, tid)
+        namebases.append(namebase)
+
+        get_view2_features(
+                slm_desc=spec['model']['slm'],
+                preproc=spec['model']['preproc'],
+                comparison=spec['comparison'],
+                namebase=namebase,
+                basedir=os.getcwd(),
+                )
+
+    basedirs = [os.getcwd()] * len(namebases)
+
+    train_view2(namebases=namebases, basedirs=basedirs)
 
 
 def list_errors(dbname):
@@ -115,37 +223,7 @@ def snapshot_history(dbname, key):
     docs = trials.trials
     _show_keys(docs)
     kdocs = [d for d in docs if d['exp_key'] == exp_keys[key]]
-    hyperopt.plotting.main_plot_history(
-            hyperopt.base.trials_from_docs(
-                [d for d in kdocs if 'from_tid' in d['misc']]),
-            status_colors={'ok': 'r'},
-            do_show=False)
-    hyperopt.plotting.main_plot_history(
-            hyperopt.base.trials_from_docs(
-                [d for d in kdocs if 'from_tid' not in d['misc']]),
-            status_colors={'ok': 'b'},
-            do_show=True)
-
-
-def snapshot_tpe(tfile):
-    import matplotlib.pyplot as plt
-    trials = cPickle.load(open(tfile))
-    m_docs = [d for d in trials.trials
-            if d['exp_key'] == exp_keys['tpe'] and d['spec']['comparison'] == 'mult']
-    s_docs = [d for d in trials.trials
-            if d['exp_key'] == exp_keys['tpe'] and d['spec']['comparison'] != 'mult']
-
-    plt.subplot(1, 2, 1)
-    hyperopt.plotting.main_plot_history(
-            hyperopt.base.trials_from_docs(m_docs),
-            do_show=False)
-    plt.ylim(.15, .4)
-    plt.subplot(1, 2, 2)
-    hyperopt.plotting.main_plot_history(
-            hyperopt.base.trials_from_docs(s_docs),
-            do_show=False)
-    plt.ylim(.15, .4)
-    plt.show()
+    hyperopt.plotting.main_plot_history(hyperopt.base.trials_from_docs(kdocs))
 
 
 def snapshot_histories(tfile):
