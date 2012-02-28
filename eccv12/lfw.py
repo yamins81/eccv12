@@ -495,7 +495,7 @@ def predictions_from_decisions(decisions):
     return np.sign(decisions)
 
                                                  
-def train_view2(namebases, basedirs, test=None):
+def train_view2(namebases, basedirs, test=None, use_libsvm=False):
     pair_features = [[larray.cache_memmap(None,
                                    name=view2_filename(nb, snum),
                                    basedir=bdir) for snum in range(10)]             
@@ -522,9 +522,12 @@ def train_view2(namebases, basedirs, test=None):
             (test_X, test_y, test_decisions,))
 
         print ('Training split %d ...' % ind)
-        svm = toyproblem.train_svm(train_Xyd_n,
-            l2_regularization=1e-3,
-            max_observations=20000)
+        if use_libsvm:
+            pass
+        else:
+            svm = toyproblem.train_svm(train_Xyd_n,
+                l2_regularization=1e-3,
+                max_observations=20000)
 
         train_decisions = svm_decisions_lfw(svm, train_Xyd_n)
         test_decisions = svm_decisions_lfw(svm, test_Xyd_n)
