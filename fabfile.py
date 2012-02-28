@@ -27,6 +27,7 @@ from eccv12.lfw import train_view2
 from eccv12.lfw import MultiBandit
 from eccv12.experiments import SimpleMixture
 from eccv12.experiments import AdaboostMixture
+from eccv12.experiments import BoostHelper
 
 
 
