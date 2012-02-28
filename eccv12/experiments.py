@@ -378,11 +378,19 @@ class AsyncBoostingAlgo(BoostingAlgoBase):
         if len(new_ids) > 1:
             raise NotImplementedError()
 
-        tids = set(trials.tids)
         STATUS_OK = hyperopt.STATUS_OK
         docs = [d for d in trials
-                if self.bandit.status(d['result'], d['spec']) == STATUS_OK
-                and d['misc'].get('from_tid', d['tid']) in tids]
+                if self.bandit.status(d['result'], d['spec']) == STATUS_OK]
+        # -- This suggest() implementation requires that there are no dangling
+        #    from_tid pointers, so this loop strips them out of the docs list.
+        while True:
+            tids = set([d['tid'] for d in docs])
+            docs_ = [d for d in docs
+                    if d['misc'].get('from_tid', d['tid']) in tids]
+            if len(docs_) == len(docs):
+                break
+            else:
+                docs = docs_
 
         helper = BoostHelper(docs)
         round_of = helper.round_of
@@ -412,9 +420,10 @@ class AsyncBoostingAlgo(BoostingAlgoBase):
             #print 'losses', np.array(map(self.bandit.loss, results, specs))
 
             if consider_continuing:
-                cc = [docs[idx] for idx in consider_continuing]
-
-                cc_losses = hyperopt.trials_from_docs(cc).losses(self.bandit)
+                cc = consider_continuing
+                cc_losses = map(self.bandit.loss,
+                                [d['result'] for d in consider_continuing],
+                                [d['spec']   for d in consider_continuing])
                 cont_idx = np.argmin(cc_losses)
 
                 cont_decisions = cc[cont_idx]['result']['decisions']
@@ -425,8 +434,10 @@ class AsyncBoostingAlgo(BoostingAlgoBase):
             else:
                 continuing_trials_docs = helper.continuing(None)
 
+        # -- validate=False makes this a lot faster
         continuing_trials = trials_from_docs(continuing_trials_docs,
-                                                     exp_key=trials._exp_key)
+                                            exp_key=trials._exp_key,
+                                            validate=False)
 
         new_trial_docs = self.sub_algo.suggest(new_ids, continuing_trials)
 
