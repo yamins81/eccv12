@@ -499,6 +499,10 @@ def predictions_from_decisions(decisions):
 
                                                  
 def train_view2(namebases, basedirs, test=None, use_libsvm=False):
+    """To use use precomputed kernels with libsvm, do
+    use_libsvm = {'kernel': 'precomputed'}
+    otherwise, use_libsvm = True will use 'linear'
+    """
     pair_features = [[larray.cache_memmap(None,
                                    name=view2_filename(nb, snum),
                                    basedir=bdir) for snum in range(10)]             
@@ -527,9 +531,9 @@ def train_view2(namebases, basedirs, test=None, use_libsvm=False):
         print ('Training split %d ...' % ind)
         if use_libsvm:
             if hasattr(use_libsvm, 'keys'):
-                kernel_choice = use_libsvm.get('kernel_choice', 'linear')
+                kernel = use_libsvm.get('kernel', 'linear')
             else:
-                kernel_choice = 'linear'
+                kernel = 'linear'
             if kernel_choice == 'precomputed':
                 (_X, _y, _d) = train_Xyd_n
                 print ('Computing kernel ...')
@@ -541,7 +545,7 @@ def train_view2(namebases, basedirs, test=None, use_libsvm=False):
             svm, _ = train_scikits(train_data,
                                 labelset=[-1, 1],
                                 model_type='svm.SVC',
-                                model_kwargs={'kernel': kernel_choice},
+                                model_kwargs={'kernel': kernel},
                                 normalization=False
                                 )
         else:

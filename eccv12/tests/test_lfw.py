@@ -277,4 +277,4 @@ def test_baby_view2_libsvm_kernel():
     lfw.get_view2_features(c['slm'], c['preproc'], 'mult', 'libsvm', os.getcwd(),
                            test=test_set)
     return lfw.train_view2(['libsvm'],[os.getcwd()],
-                           test=test_set, use_libsvm={'kernel_choice': 'precomputed'})
+                           test=test_set, use_libsvm={'kernel': 'precomputed'})
