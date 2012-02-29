@@ -518,23 +518,25 @@ def train_view2(namebases, basedirs, test=None, use_libsvm=False,
     for ind in range(10):
         train_inds = [_ind for _ind in range(10) if _ind != ind]
         print ('Constructing stuff for split %d ...' % ind)
-        test_X = np.hstack([pf[ind][:] for pf in pair_features])
+        test_X = [pf[ind][:] for pf in pair_features]
 
         test_y = split_data[ind][2]
-        train_X = np.hstack([np.vstack([pf[_ind][:] for _ind in train_inds])
-                             for pf in pair_features])
+        train_X = [np.vstack([pf[_ind][:] for _ind in train_inds])
+                             for pf in pair_features]
         train_y = np.concatenate([split_data[_ind][2] for _ind in train_inds])
         train_decisions = np.zeros(len(train_y))
         test_decisions = np.zeros(len(test_y))
         
         #train_Xyd_n, test_Xyd_n = toyproblem.normalize_Xcols(
-        #    (train_X, train_y, train_decisions,),
-        #    (test_X, test_y, test_decisions,))
+        #    (np.hstack(train_X), train_y, train_decisions,),
+        #    (np.hstack(test_X), test_y, test_decisions,))
         
-        train_X, test_X, _m, _s, _tr = dan_normalize((train_X, test_X),
-                                         trace_normalize=trace_normalize,
-                                         data=None)
-
+        normalized = [dan_normalize((t0, t1),
+                       trace_normalize=trace_normalize,
+                       data=None) for t0, t1 in zip(train_X, test_X)]
+        train_X = np.hstack([n[0] for n in normalized])
+        test_X = np.hstack([n[1] for n in normalized])
+        
         train_Xyd_n = (train_X, train_y, train_decisions)
         test_Xyd_n = (test_X, test_y, test_decisions)
         
