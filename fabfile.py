@@ -384,7 +384,3 @@ def lfw_view2_final_get_mix(host='honeybadger.rowland.org',
     ada_mix_trials =  ada_mix.mix_trials(int(A))    
     
     return simple_mix_trials, ada_mix_trials
-
-
-    
-    
