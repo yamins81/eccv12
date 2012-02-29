@@ -19,3 +19,6 @@
 [submodule "pythor3"]
 	path = pythor3
 	url = git@github.com:nsf-ri-ubicv/pythor3.git
+[submodule "scikit-learn"]
+	path = scikit-learn
+	url = git://github.com/yamins81/scikit-learn.git
