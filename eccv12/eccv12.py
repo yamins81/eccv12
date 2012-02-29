@@ -550,7 +550,7 @@ class BudgetExperiment(NestedExperiment):
 
 def main_lfw_driver(trials):
     def add_exps(bandit_algo_class, exp_prefix):
-        B = BudgetExperiment(ntrials=200, save=False, trials=trials,
+        B = BudgetExperiment(ntrials=1000, save=False, trials=trials,
                 num_features=128 * 10,
                 ensemble_sizes=[10],
                 bandit_algo_class=bandit_algo_class,
