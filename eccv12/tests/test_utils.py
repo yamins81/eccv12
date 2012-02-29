@@ -9,14 +9,14 @@ def test_linear_kernel():
         B = np.dot(X, Y.T)
 
         assert A.shape == B.shape
-        assert np.allclose(A, B)
+        assert np.allclose(A, B), (A, B)
 
         # there is special code for symmetric case in linear_kernel
         A = linear_kernel(X, X, use_theano=use_theano)
         B = np.dot(X, X.T)
 
         assert A.shape == B.shape
-        assert np.allclose(A, B)
+        assert np.allclose(A, B), (A, B)
 
     foo((10, 5), (10, 5), True)
     foo((10, 5), (10, 5), False)
