@@ -500,7 +500,7 @@ def predictions_from_decisions(decisions):
 
                                                  
 def train_view2(namebases, basedirs, test=None, use_libsvm=False,
-                trace_normalize=False):
+                trace_normalize=False, model_kwargs=None):
     """To use use precomputed kernels with libsvm, do
     use_libsvm = {'kernel': 'precomputed'}
     otherwise, use_libsvm = True will use 'linear'
@@ -514,6 +514,8 @@ def train_view2(namebases, basedirs, test=None, use_libsvm=False,
     
     train_errs = []
     test_errs = []
+    if model_kwargs is None:
+        model_kwargs = {}
     
     for ind in range(10):
         train_inds = [_ind for _ind in range(10) if _ind != ind]
@@ -559,10 +561,11 @@ def train_view2(namebases, basedirs, test=None, use_libsvm=False,
                 print ('... computed testtrain kernel of shape', Ktest.shape)
                 test_Xyd_n = (Ktest, _ytest, _dtest)
 
+            model_kwargs['kernel'] = kernel
             svm, _ = train_scikits(train_Xyd_n,
                                 labelset=[-1, 1],
                                 model_type='svm.SVC',
-                                model_kwargs={'kernel': kernel},
+                                model_kwargs=model_kwargs,
                                 normalization=False
                                 )
         else:
