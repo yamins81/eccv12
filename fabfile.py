@@ -22,6 +22,8 @@ import numpy as np
 import hyperopt
 from hyperopt.mongoexp import MongoTrials
 from eccv12.eccv12 import main_lfw_driver
+from eccv12.eccv12 import BudgetExperiment
+from eccv12.eccv12 import NestedExperiment
 from eccv12.lfw import get_view2_features
 from eccv12.lfw import train_view2
 from eccv12.lfw import MultiBandit
@@ -74,6 +76,34 @@ def lfw_suggest(dbname, port=44556, **kwargs):
     exp = hyperopt.Experiment(B.trials, algo, max_queue_len=2)
     # -- the interleaving algo will break out of this
     exp.run(sys.maxint, block_until_done=True)
+
+
+def lfw_suggest_parallel_tpe():
+    dbname = 'feb29_par_tpe'
+    port = 44556
+    port = int(port)
+    trials = MongoTrials('mongo://localhost:%d/%s/jobs' % (port, dbname),
+                        refresh=False)
+    #### trials.handle.delete_all()
+    def add_exps(bandit_algo_class, exp_prefix):
+        B = BudgetExperiment(ntrials=500, save=False, trials=trials,
+                num_features=128 * 10,
+                ensemble_sizes=[10],
+                bandit_algo_class=bandit_algo_class,
+                exp_prefix=exp_prefix,
+                run_parallel=False)
+        return B
+    N = NestedExperiment(trials=trials, ntrials=500, save=False)
+    priorities = {}
+    for i in range(10):
+        N.add_exp(add_exps(hyperopt.TreeParzenEstimator, 'ek_tpe%i' % i),
+                'TPE%i' % i)
+        priorities['TPE%i.fixed_features_10.AsyncBoostB' % i] = 1
+    algo = N.interleaved_algo(priorities=priorities)
+    exp = hyperopt.Experiment(trials, algo, poll_interval_secs=.1)
+    # -- the interleaving algo will break out of this
+    exp.run(sys.maxint, block_until_done=True)
+
 
 
 def lfw_view2_randomL(host, dbname):
