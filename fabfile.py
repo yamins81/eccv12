@@ -21,9 +21,13 @@ import numpy as np
 
 import hyperopt
 from hyperopt.mongoexp import MongoTrials
+from eccv12 import toyproblem
+from eccv12 import utils
 from eccv12.eccv12 import main_lfw_driver
 from eccv12.lfw import get_view2_features
 from eccv12.lfw import train_view2
+from eccv12.lfw import verification_pairs
+from eccv12.lfw import MainBandit
 from eccv12.lfw import MultiBandit
 from eccv12.experiments import SimpleMixture
 from eccv12.experiments import AdaboostMixture
@@ -58,7 +62,7 @@ def lfw_suggest(dbname, port=44556, **kwargs):
 
     hyperopt-mongo-search --exp_key='' eccv12.lfw.MultiBandit \
         eccv12.eccv12.WholeExperiment
-        
+
     fab lfw_suggest:test_hyperopt,port=22334,random=.5,TPE=.5
     """
     port = int(port)
@@ -82,7 +86,7 @@ def lfw_view2_randomL(host, dbname):
 
     docs = [d for d in mongo_trials.trials
             if d['result']['status'] == hyperopt.STATUS_OK]
-    local_trials = hyperopt.trials_from_docs(docs)
+    local_trials = hyperopt.trials_from_docs(docs, validate=False)
     losses = local_trials.losses()
     best_doc = docs[np.argmin(losses)]
 
@@ -115,15 +119,20 @@ def lfw_view2_randomL(host, dbname):
     #test err mean 0.183166666667
 
 
-def lfw_view2_random_SimpleMixture(host, dbname, A):
+def lfw_view2_random_SimpleMixture(host, dbname, key, A):
     trials = MongoTrials(
             'mongo://%s:44556/%s/jobs' % (host, dbname),
-            exp_key=exp_keys['random'],
+            exp_key=exp_keys[key],
             refresh=True)
     bandit = MultiBandit()
     mix = SimpleMixture(trials, bandit)
     specs, weights, tids = mix.mix_models(int(A), ret_tids=True)
     assert len(specs) == len(tids)
+    print 'SimpleMixture Members:'
+    print '======================'
+    for ii, tid in enumerate(tids):
+        dd = [d for d in trials.trials if d['tid'] == tid][0]
+        print ii, dd['_id'], dd['tid'], dd['result']['loss']
     namebases = []
     for spec, tid in zip(specs, tids):
         # -- allow this feature cache to be
@@ -146,7 +155,9 @@ def lfw_view2_random_SimpleMixture(host, dbname, A):
 
     basedirs = [os.getcwd()] * len(namebases)
 
-    train_view2(namebases=namebases, basedirs=basedirs)
+    #running with libsvm:
+    train_view2(namebases=namebases, basedirs=basedirs,
+                use_libsvm={'kernel':'precomputed'})
     # running on the try2 database
     # finds id 1674
     # train err mean 0.049037037037
@@ -189,6 +200,40 @@ def lfw_view2_random_AdaboostMixture(host, dbname, A):
     train_view2(namebases=namebases, basedirs=basedirs)
 
 
+def lfw_view2_by_id(host, dbname, _id):
+    trials = MongoTrials(
+            'mongo://%s:44556/%s/jobs' % (host, dbname),
+            #exp_key=exp_keys['random_asyncB'],
+            refresh=True)
+    doc = [t for t in trials.trials if str(t['_id']) == _id][0]
+    namebase = '%s_%s' % (dbname, doc['_id'])
+
+    get_view2_features(
+            slm_desc=doc['spec']['model']['slm'],
+            preproc=doc['spec']['model']['preproc'],
+            comparison=doc['spec']['comparison'],
+            namebase=namebase,
+            basedir=os.getcwd(),
+            )
+    train_view2(namebases=[namebase], basedirs=[os.getcwd()],
+                use_libsvm={'kernel':'precomputed'},
+                )
+
+def lfw_view1_by_id(host, dbname, _id):
+    trials = MongoTrials(
+            'mongo://%s:44556/%s/jobs' % (host, dbname),
+            #exp_key=exp_keys['random_asyncB'],
+            refresh=True)
+    doc = [t for t in trials.trials if str(t['_id']) == _id][0]
+    namebase = '%s_%s' % (dbname, doc['_id'])
+
+    bandit = MainBandit()
+    r = bandit.evaluate(doc['spec'], None)
+    print 'loss', r['loss']
+    print 'margin', r['margin']
+    import pdb; pdb.set_trace()
+
+
 def lfw_view2_random_AsyncB(host, dbname, A):
     trials = MongoTrials(
             'mongo://%s:44556/%s/jobs' % (host, dbname),
@@ -217,7 +262,83 @@ def lfw_view2_random_AsyncB(host, dbname, A):
 
     basedirs = [os.getcwd()] * len(namebases)
 
-    train_view2(namebases=namebases, basedirs=basedirs)
+    train_view2(namebases=namebases, basedirs=basedirs,
+                use_libsvm={'kernel':'precomputed'})
+
+
+def top_results(host, dbname, key, N):
+    trials = MongoTrials(
+            'mongo://%s:44556/%s/jobs' % (host, dbname),
+            exp_key=exp_keys[key],
+            refresh=False)
+    # XXX: Does not use bandit.loss
+    docs = list(trials.handle.jobs.find(
+        {'exp_key': exp_keys[key], 'result.status': hyperopt.STATUS_OK},
+        {'_id': 1, 'result.loss': 1}))
+    losses_ids = [(d['result']['loss'], d['_id']) for d in docs]
+    losses_ids.sort()
+    for l, i in losses_ids[:int(N)]:
+        print l, i
+
+
+def lfw_view2_fold_kernels_by_id(host, dbname, _id):
+    import bson
+    trials = MongoTrials(
+            'mongo://%s:44556/%s/jobs' % (host, dbname),
+            refresh=False)
+    doc = trials.handle.jobs.find_one({'_id': bson.objectid.ObjectId(_id)})
+    print 'TRIAL:', doc['_id']
+    print 'SPEC :', doc['spec']
+    print 'LOSS :', doc['result']['loss']
+    namebase = '%s_%s' % (dbname, doc['_id'])
+    image_features, pair_features = get_view2_features(
+            slm_desc=doc['spec']['model']['slm'],
+            preproc=doc['spec']['model']['preproc'],
+            comparison=doc['spec']['comparison'],
+            namebase=namebase,
+            basedir=os.getcwd(),
+            )
+
+    split_data = [verification_pairs('fold_%d' % fold, subset=None)
+            for fold in range(10)]
+
+    for test_fold in range(10):
+        print ('FOLD %i' % test_fold)
+        test_X = pair_features[test_fold][:]
+        test_y = split_data[test_fold][2]
+
+        train_inds = [_ind for _ind in range(10) if _ind != test_fold]
+        train_X = np.vstack([pair_features[ii][:] for ii in train_inds])
+        print train_X.shape
+        train_y = np.concatenate([split_data[_ind][2] for _ind in train_inds])
+
+        train_Xyd_n, test_Xyd_n = toyproblem.normalize_Xcols(
+            (train_X, train_y, None,),
+            (test_X, test_y, None,))
+
+        print ('Computing training kernel ...')
+        (_Xtrain, _ytrain, _dtrain) = train_Xyd_n
+        Ktrain = utils.linear_kernel(_Xtrain, _Xtrain, use_theano=True)
+        print ('... computed training kernel of shape', Ktrain.shape)
+
+        print ('Computing testtrain kernel ...')
+        (_Xtest, _ytest, _dtest) = test_Xyd_n
+        Ktest = utils.linear_kernel(_Xtest, _Xtrain, use_theano=True)
+        print ('... computed testtrain kernel of shape', Ktest.shape)
+
+        np.save(namebase + '_fold_%i_Ktrain.npy' % test_fold, Ktrain)
+        np.save(namebase + '_fold_%i_Ktest.npy' % test_fold, Ktest)
+
+
+def asdf(array_id = None):
+    import cPickle
+    # -- load index from PBS_ARRAYID
+    if array_id is None:
+        array_id = os.getenv('PBS_ARRAYID')
+    filename = '/home/dyamins/eccv12/boosted_hyperopt_eccv12/Temp/simple_mix_id_nf.pkl'
+    array_ids = cPickle.load(open(filename))
+    print array_ids
+
 
 
 def list_errors(dbname):
@@ -270,9 +391,50 @@ def snapshot(dbname):
     print 'fetching trials'
     from_trials = MongoTrials('mongo://honeybadger.rowland.org:44556/%s/jobs' % dbname)
     to_trials = hyperopt.base.trials_from_docs(
-            from_trials.trials)
+            from_trials.trials,
+            # -- effing slow, but required for un-pickling??
+            validate=True)
     ofile = open(dbname+'.snapshot.pkl', 'w')
     cPickle.dump(to_trials, ofile, -1)
+
+def history(host, dbname, key=None):
+    exp_key = None if key is None else exp_keys[key]
+    trials = MongoTrials(
+            'mongo://%s:44556/%s/jobs' % (host, dbname),
+            refresh=False)
+    # XXX: Does not use bandit.loss
+    query = {'result.status': hyperopt.STATUS_OK}
+    if exp_key is not None:
+        query['exp_key'] = exp_key
+    docs = list(trials.handle.jobs.find( query,
+        {'tid': 1, 'result.loss': 1}))
+    tids_losses = [(d['tid'], d['result']['loss']) for d in docs]
+    tids_losses.sort()
+    losses = [tl[1] for tl in tids_losses]
+    print 'min', min(losses)
+    import matplotlib.pyplot as plt
+    plt.scatter(range(len(losses)), losses)
+    plt.show()
+
+def hist(host, dbname, key=None):
+    # XXX REFACTOR WITH ABOVE
+    exp_key = None if key is None else exp_keys[key]
+    trials = MongoTrials(
+            'mongo://%s:44556/%s/jobs' % (host, dbname),
+            refresh=False)
+    # XXX: Does not use bandit.loss
+    query = {'result.status': hyperopt.STATUS_OK}
+    if exp_key is not None:
+        query['exp_key'] = exp_key
+    docs = list(trials.handle.jobs.find( query,
+        {'tid': 1, 'result.loss': 1}))
+    tids_losses = [(d['tid'], d['result']['loss']) for d in docs]
+    tids_losses.sort()
+    losses = [tl[1] for tl in tids_losses]
+    print 'min', min(losses)
+    import matplotlib.pyplot as plt
+    plt.hist(losses)
+    plt.show()
 
 
 def snapshot_history(dbname, key):
@@ -280,7 +442,8 @@ def snapshot_history(dbname, key):
     docs = trials.trials
     _show_keys(docs)
     kdocs = [d for d in docs if d['exp_key'] == exp_keys[key]]
-    hyperopt.plotting.main_plot_history(hyperopt.base.trials_from_docs(kdocs))
+    hyperopt.plotting.main_plot_history(
+            hyperopt.base.trials_from_docs(kdocs, validate=False))
 
 
 def snapshot_histories(tfile):
@@ -296,24 +459,24 @@ def snapshot_histories(tfile):
     tB_docs = [d for d in docs if d['exp_key'] == exp_keys['tpe_asyncB']]
 
     hyperopt.plotting.main_plot_history(
-            hyperopt.base.trials_from_docs(r_docs),
+            hyperopt.base.trials_from_docs(r_docs, validate=False),
             do_show=False)
 
     plt.ylim(.15, .5)
     plt.subplot(2, 2, 2)
 
     hyperopt.plotting.main_plot_history(
-            hyperopt.base.trials_from_docs(t_docs),
+            hyperopt.base.trials_from_docs(t_docs, validate=False),
             do_show=False)
     plt.ylim(.15, .5)
     plt.subplot(2, 2, 3)
     hyperopt.plotting.main_plot_history(
-            hyperopt.base.trials_from_docs(rB_docs),
+            hyperopt.base.trials_from_docs(rB_docs, validate=False),
             do_show=False)
     plt.ylim(.15, .5)
     plt.subplot(2, 2, 4)
     hyperopt.plotting.main_plot_history(
-            hyperopt.base.trials_from_docs(tB_docs),
+            hyperopt.base.trials_from_docs(tB_docs, validate=False),
             do_show=False)
     plt.ylim(.15, .5)
     plt.show()
