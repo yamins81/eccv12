@@ -531,7 +531,7 @@ def train_view2(namebases, basedirs, test=None, use_libsvm=False,
         #    (train_X, train_y, train_decisions,),
         #    (test_X, test_y, test_decisions,))
         
-        train_X, test_X, _m, _s, _tr = dan_normalize((train_X, train_Y),
+        train_X, test_X, _m, _s, _tr = dan_normalize((train_X, test_X),
                                          trace_normalize=trace_normalize,
                                          data=None)
 
