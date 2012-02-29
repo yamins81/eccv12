@@ -535,14 +535,19 @@ def train_view2(namebases, basedirs, test=None, use_libsvm=False):
             else:
                 kernel = 'linear'
             if kernel == 'precomputed':
-                (_X, _y, _d) = train_Xyd_n
-                print ('Computing kernel ...')
-                K = np.dot(_X, _X.T)
-                print ('... computed kernel of shape', K.shape)
-                train_data = (K, _y, _d)
-            else:
-                train_data = train_Xyd_n
-            svm, _ = train_scikits(train_data,
+                (_Xtrain, _ytrain, _dtrain) = train_Xyd_n
+                print ('Computing training kernel ...')
+                Ktrain = np.dot(_Xtrain, _Xtrain.T)
+                print ('... computed training kernel of shape', Ktrain.shape)
+                train_Xyd_n = (Ktrain, _ytrain, _dtrain)
+                train_data = (Ktrain, _ytrain, _dtrain)
+                print ('Computing testtrain kernel ...')
+                (_Xtest, _ytest, _dtest) = test_Xyd_n
+                Ktest = np.dot(_Xtest, _Xtrain.T)
+                print ('... computed testtrain kernel of shape', Ktest.shape)
+                test_Xyd_n = (Ktest, _ytest, _dtest)
+
+            svm, _ = train_scikits(train_Xyd_n,
                                 labelset=[-1, 1],
                                 model_type='svm.SVC',
                                 model_kwargs={'kernel': kernel},
@@ -553,12 +558,14 @@ def train_view2(namebases, basedirs, test=None, use_libsvm=False):
                 l2_regularization=1e-3,
                 max_observations=20000)
 
-        train_decisions = svm_decisions_lfw(svm, train_Xyd_n)
-        test_decisions = svm_decisions_lfw(svm, test_Xyd_n)
+        #train_decisions = svm_decisions_lfw(svm, train_Xyd_n)
+        #test_decisions = svm_decisions_lfw(svm, test_Xyd_n)
         
-        train_predictions = predictions_from_decisions(train_decisions)
-        test_predictions = predictions_from_decisions(test_decisions)
-        
+        #train_predictions = predictions_from_decisions(train_decisions)
+        #test_predictions = predictions_from_decisions(test_decisions)
+
+        train_predictions = svm.predict(train_Xyd_n[0])
+        test_predictions = svm.predict(test_Xyd_n[0])
         train_err = (train_predictions != train_y).mean()
         test_err = (test_predictions != test_y).mean()
 
