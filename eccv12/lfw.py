@@ -21,6 +21,7 @@ import comparisons
 from .bandits import BaseBandit, validate_config, validate_result
 from .utils import ImgLoaderResizer
 from .classifier import get_result, train_scikits
+from .classifier import normalize as dan_normalize
 
 # -- register symbols in pyll.scope
 import toyproblem
@@ -498,7 +499,8 @@ def predictions_from_decisions(decisions):
     return np.sign(decisions)
 
                                                  
-def train_view2(namebases, basedirs, test=None, use_libsvm=False):
+def train_view2(namebases, basedirs, test=None, use_libsvm=False,
+                trace_normalize=False):
     """To use use precomputed kernels with libsvm, do
     use_libsvm = {'kernel': 'precomputed'}
     otherwise, use_libsvm = True will use 'linear'
@@ -524,10 +526,18 @@ def train_view2(namebases, basedirs, test=None, use_libsvm=False):
         train_y = np.concatenate([split_data[_ind][2] for _ind in train_inds])
         train_decisions = np.zeros(len(train_y))
         test_decisions = np.zeros(len(test_y))
-        train_Xyd_n, test_Xyd_n = toyproblem.normalize_Xcols(
-            (train_X, train_y, train_decisions,),
-            (test_X, test_y, test_decisions,))
+        
+        #train_Xyd_n, test_Xyd_n = toyproblem.normalize_Xcols(
+        #    (train_X, train_y, train_decisions,),
+        #    (test_X, test_y, test_decisions,))
+        
+        train_X, test_X, _m, _s, _tr = dan_normalize((train_X, train_Y),
+                                         trace_normalize=trace_normalize,
+                                         data=None)
 
+        train_Xyd_n = (train_X, train_y, train_decisions)
+        test_Xyd_n = (test_X, test_y, test_decisions)
+        
         print ('Training split %d ...' % ind)
         if use_libsvm:
             if hasattr(use_libsvm, 'keys'):
