@@ -25,6 +25,7 @@ from eccv12.eccv12 import main_lfw_driver
 from eccv12.lfw import get_view2_features
 from eccv12.lfw import train_view2
 from eccv12.lfw import MultiBandit
+from eccv12.lfw import get_model_shape
 from eccv12.experiments import SimpleMixture
 from eccv12.experiments import AdaboostMixture
 from eccv12.experiments import BoostHelper
@@ -345,3 +346,41 @@ if 0: # -- NOT SURE IF THIS IS CORRECT YET
             safe=True,
             upsert=False,
             multi=False)
+
+
+import pymongo as pm
+
+def insert_consolidated_feature_shapes():
+    conn = pm.Connection('honeybadger.rowland.org',44556)
+    Jobs = conn['final_random']['jobs']
+    for (_ind, j) in enumerate(Jobs.find(fields=['spec','result.num_features'],
+                               timeout=False).sort('_id')):
+        print (_ind, j['_id'])
+        if 'num_features' not in j['result']:
+            shp = list(get_model_shape(j['spec']['model']))
+            num_features = int(np.prod(shp))
+            Jobs.update({'_id': j['_id']}, 
+                        {'$set':{'result.shape': shp,
+                                 'result.num_features': num_features}},
+                        upsert=False, safe=True, multi=False)
+                        
+                        
+def lfw_view2_final_get_mix(host='honeybadger.rowland.edu',
+                            dbname='final_random',
+                            A=100):
+    trials = MongoTrials(
+            'mongo://%s:44556/%s/jobs' % (host, dbname),
+            exp_key=exp_keys['random'],
+            refresh=False)
+    return trials
+    bandit = MultiBandit()
+    simple_mix = SimpleMixture(trials, bandit)
+    simple_mix_trials =  simple_mix.mix_trials(int(A))
+    ada_mix = AdaboostMixture(trials, bandit)
+    ada_mix_trials =  ada_mix.mix_trials(int(A))    
+    
+    return simple_mix_trials, ada_mix_trials
+
+
+    
+    
