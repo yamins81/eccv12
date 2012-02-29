@@ -63,7 +63,7 @@ def slice_Xyd(Xy, decisions, idxs):
 
 
 @scope.define_info(o_len=2)
-def normalize_Xcols(train_Xyd, test_Xyd):
+def normalize_Xcols(train_Xyd, test_Xyd, inplace=False):
     X_train, y_train, d_train = train_Xyd
     X_test, y_test, d_test = test_Xyd
 
@@ -73,9 +73,14 @@ def normalize_Xcols(train_Xyd, test_Xyd):
     Xm = X_train.mean(axis=0)
     Xs = np.maximum(X_train.std(axis=0), 1e-8)
 
-    # think and add tests before working in-place here
-    X_train = (X_train - Xm) / Xs
-    X_test = (X_test - Xm) / Xs
+    if inplace:
+        X_train -= Xm
+        X_test -= Xm
+        X_train /= Xs
+        X_test /= Xs
+    else:
+        X_train = (X_train - Xm) / Xs
+        X_test = (X_test - Xm) / Xs
 
     return [
             (X_train, y_train, d_train),
