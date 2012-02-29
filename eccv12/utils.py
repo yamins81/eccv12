@@ -1,3 +1,4 @@
+import sys
 import numpy as np
 import Image
 
@@ -61,18 +62,77 @@ class ImgLoaderResizer(object):
         return rval
 
 
-def linear_kernel(X, Y, use_theano):
+def chunked_linear_kernel(Xs, Ys, use_theano, symmetric):
     """Compute a linear kernel in blocks so that it can use a GPU with limited
-    memory
+    memory.
+
+    Xs is a list of feature matrices
+    Ys ia  list of feature matrices
+
+    This function computes the kernel matrix with
+        \sum_i len(Xs[i]) rows
+        \sum_j len(Ys[j]) cols
     """
+
+    dtype = Xs[0].dtype
 
     if use_theano:
         import theano
-        sX = theano.tensor.matrix(dtype=X.dtype)
-        sY = theano.tensor.matrix(dtype=X.dtype)
+        sX = theano.tensor.matrix(dtype=dtype)
+        sY = theano.tensor.matrix(dtype=dtype)
         dot = theano.function([sX, sY], theano.tensor.dot(sX, sY))
     else:
         dot = np.dot
+
+    R = sum([len(X) for X in Xs])
+    C = sum([len(Y) for Y in Ys])
+
+    rval = np.zeros((R, C), dtype=dtype)
+
+    if symmetric:
+        assert R == C
+
+    print 'Computing gram matrix',
+
+    ii0 = 0
+    for ii, X_i in enumerate(Xs):
+        sys.stdout.write('.')
+        sys.stdout.flush()
+        ii1 = ii0 + len(X_i) # -- upper bound of X block
+
+        jj0 = 0
+        for jj, Y_j in enumerate(Ys):
+            jj1 = jj0 + len(Y_j) # -- upper bound of Y block
+
+            r_ij = rval[ii0:ii1, jj0:jj1]
+
+            if symmetric and jj < ii:
+                r_ji = rval[jj0:jj1, ii0:ii1]
+                r_ij[:] = r_ji.T
+            else:
+                r_ij[:] = dot(X_i, Y_j.T)
+
+            jj0 = jj1
+
+        ii0 = ii1
+
+    print 'done!'
+
+    return rval
+
+
+def linear_kernel(X, Y, use_theano):
+    """Compute a linear kernel in blocks so that it can use a GPU with limited
+    memory.
+
+    Xs is a list of feature matrices
+    Ys ia  list of feature matrices
+
+    This function computes the kernel matrix with
+        \sum_i len(Xs[i]) rows
+        \sum_j len(Ys[j]) cols
+    """
+
 
     n_blocks = 10
     if len(X) % n_blocks:
@@ -82,24 +142,9 @@ def linear_kernel(X, Y, use_theano):
     x_block_size = len(X) / n_blocks
     y_block_size = len(Y) / n_blocks
 
-    rval = np.zeros((len(X), len(Y)), dtype=X.dtype)
-
-    for ii in range(n_blocks):
-        x_i = X[ii * x_block_size : (ii + 1) * x_block_size]
-
-        for jj in range(n_blocks):
-            r_ij = rval[ii * x_block_size : (ii + 1) * x_block_size,
-                    jj * y_block_size : (jj + 1) * y_block_size]
-
-            y_j = Y[jj * y_block_size : (jj + 1) * y_block_size]
-
-            if jj >= ii or (X is not Y):
-                r_ij[:] = dot(x_i, y_j.T)
-            else:
-                # compute a SYRK
-                r_ji = rval[jj * y_block_size : (jj + 1) * y_block_size,
-                        ii * x_block_size : (ii + 1) * x_block_size]
-                r_ij[:] = r_ji.T
-
-    return rval
+    Xs = [X[ii * x_block_size : (ii + 1) * x_block_size]
+            for ii in range(n_blocks)]
+    Ys = [Y[ii * y_block_size : (ii + 1) * y_block_size]
+            for ii in range(n_blocks)]
+    return chunked_linear_kernel(Xs, Ys, use_theano, symmetric=(X is Y))
 
