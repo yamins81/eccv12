@@ -482,6 +482,7 @@ def get_view2_features(slm_desc, preproc, comparison, namebase, basedir,
             X=get_images('float32', preproc=preproc),
             name=namebase + '_img_feat_view2',
             basedir=basedir)
+    pfs = []
     for split_num in range(10):
         print ('extracting fold %d' % split_num)
         pf, matches = pairs_memmap(
@@ -492,6 +493,8 @@ def get_view2_features(slm_desc, preproc, comparison, namebase, basedir,
                 basedir=basedir
                 )
         pf[:] # -- this little guy here computes all the features
+        pfs.append(pf)
+    return image_features, pfs
 
 
 def predictions_from_decisions(decisions):
