@@ -499,6 +499,10 @@ def predictions_from_decisions(decisions):
 
                                                  
 def train_view2(namebases, basedirs, test=None, use_libsvm=False):
+    """To use use precomputed kernels with libsvm, do
+    use_libsvm = {'kernel': 'precomputed'}
+    otherwise, use_libsvm = True will use 'linear'
+    """
     pair_features = [[larray.cache_memmap(None,
                                    name=view2_filename(nb, snum),
                                    basedir=bdir) for snum in range(10)]             
@@ -526,10 +530,27 @@ def train_view2(namebases, basedirs, test=None, use_libsvm=False):
 
         print ('Training split %d ...' % ind)
         if use_libsvm:
+            if hasattr(use_libsvm, 'keys'):
+                kernel = use_libsvm.get('kernel', 'linear')
+            else:
+                kernel = 'linear'
+            if kernel == 'precomputed':
+                (_Xtrain, _ytrain, _dtrain) = train_Xyd_n
+                print ('Computing training kernel ...')
+                Ktrain = np.dot(_Xtrain, _Xtrain.T)
+                print ('... computed training kernel of shape', Ktrain.shape)
+                train_Xyd_n = (Ktrain, _ytrain, _dtrain)
+                train_data = (Ktrain, _ytrain, _dtrain)
+                print ('Computing testtrain kernel ...')
+                (_Xtest, _ytest, _dtest) = test_Xyd_n
+                Ktest = np.dot(_Xtest, _Xtrain.T)
+                print ('... computed testtrain kernel of shape', Ktest.shape)
+                test_Xyd_n = (Ktest, _ytest, _dtest)
+
             svm, _ = train_scikits(train_Xyd_n,
                                 labelset=[-1, 1],
                                 model_type='svm.SVC',
-                                model_kwargs={'kernel': 'linear'},
+                                model_kwargs={'kernel': kernel},
                                 normalization=False
                                 )
         else:
@@ -537,12 +558,14 @@ def train_view2(namebases, basedirs, test=None, use_libsvm=False):
                 l2_regularization=1e-3,
                 max_observations=20000)
 
-        train_decisions = svm_decisions_lfw(svm, train_Xyd_n)
-        test_decisions = svm_decisions_lfw(svm, test_Xyd_n)
+        #train_decisions = svm_decisions_lfw(svm, train_Xyd_n)
+        #test_decisions = svm_decisions_lfw(svm, test_Xyd_n)
         
-        train_predictions = predictions_from_decisions(train_decisions)
-        test_predictions = predictions_from_decisions(test_decisions)
-        
+        #train_predictions = predictions_from_decisions(train_decisions)
+        #test_predictions = predictions_from_decisions(test_decisions)
+
+        train_predictions = svm.predict(train_Xyd_n[0])
+        test_predictions = svm.predict(test_Xyd_n[0])
         train_err = (train_predictions != train_y).mean()
         test_err = (test_predictions != test_y).mean()
 

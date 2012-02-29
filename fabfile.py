@@ -102,11 +102,17 @@ def lfw_view2_randomL(host, dbname):
     namebases = [namebase]
     basedirs = [os.getcwd()] * len(namebases)
 
-    train_view2(namebases=namebases, basedirs=basedirs)
+    #train_view2(namebases=namebases, basedirs=basedirs)
     # running on the try2 database
     # finds id 1674
     #train err mean 0.0840740740741
     #test err mean 0.199666666667
+
+    #running with libsvm:
+    train_view2(namebases=namebases, basedirs=basedirs,
+                use_libsvm={'kernel':'precomputed'})
+    #train err mean 0.0
+    #test err mean 0.183166666667
 
 
 def lfw_view2_random_SimpleMixture(host, dbname, A):
