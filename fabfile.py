@@ -365,13 +365,13 @@ def insert_consolidated_feature_shapes():
                         upsert=False, safe=True, multi=False)
                         
                         
-def lfw_view2_final_get_mix(host='honeybadger.rowland.edu',
+def lfw_view2_final_get_mix(host='honeybadger.rowland.org',
                             dbname='final_random',
                             A=100):
     trials = MongoTrials(
             'mongo://%s:44556/%s/jobs' % (host, dbname),
             exp_key=exp_keys['random'],
-            refresh=False)
+            refresh=True)
     return trials
     bandit = MultiBandit()
     simple_mix = SimpleMixture(trials, bandit)
