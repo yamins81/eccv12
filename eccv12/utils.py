@@ -60,3 +60,46 @@ class ImgLoaderResizer(object):
         assert rval.shape == self._shape
         return rval
 
+
+def linear_kernel(X, Y, use_theano):
+    """Compute a linear kernel in blocks so that it can use a GPU with limited
+    memory
+    """
+
+    if use_theano:
+        import theano
+        sX = theano.tensor.matrix(dtype=X.dtype)
+        sY = theano.tensor.matrix(dtype=X.dtype)
+        dot = theano.function([sX, sY], theano.tensor.dot(sX, sY))
+    else:
+        dot = np.dot
+
+    n_blocks = 10
+    if len(X) % n_blocks:
+        raise NotImplementedError()
+    if len(Y) % n_blocks:
+        raise NotImplementedError()
+    x_block_size = len(X) / n_blocks
+    y_block_size = len(Y) / n_blocks
+
+    rval = np.zeros((len(X), len(Y)), dtype=X.dtype)
+
+    for ii in range(n_blocks):
+        x_i = X[ii * x_block_size : (ii + 1) * x_block_size]
+
+        for jj in range(n_blocks):
+            r_ij = rval[ii * x_block_size : (ii + 1) * x_block_size,
+                    jj * y_block_size : (jj + 1) * y_block_size]
+
+            y_j = Y[jj * y_block_size : (jj + 1) * y_block_size]
+
+            if jj >= ii or (X is not Y):
+                r_ij[:] = dot(x_i, y_j.T)
+            else:
+                # compute a SYRK
+                r_ji = rval[jj * y_block_size : (jj + 1) * y_block_size,
+                        ii * x_block_size : (ii + 1) * x_block_size]
+                r_ij[:] = r_ji.T
+
+    return rval
+

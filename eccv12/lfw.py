@@ -19,7 +19,7 @@ import model_params
 import comparisons
 
 from .bandits import BaseBandit, validate_config, validate_result
-from .utils import ImgLoaderResizer
+from .utils import ImgLoaderResizer, linear_kernel
 from .classifier import get_result, train_scikits
 
 # -- register symbols in pyll.scope
@@ -537,13 +537,13 @@ def train_view2(namebases, basedirs, test=None, use_libsvm=False):
             if kernel == 'precomputed':
                 (_Xtrain, _ytrain, _dtrain) = train_Xyd_n
                 print ('Computing training kernel ...')
-                Ktrain = np.dot(_Xtrain, _Xtrain.T)
+                Ktrain = linear_kernel(_Xtrain, _Xtrain, use_theano=True)
                 print ('... computed training kernel of shape', Ktrain.shape)
                 train_Xyd_n = (Ktrain, _ytrain, _dtrain)
                 train_data = (Ktrain, _ytrain, _dtrain)
                 print ('Computing testtrain kernel ...')
                 (_Xtest, _ytest, _dtest) = test_Xyd_n
-                Ktest = np.dot(_Xtest, _Xtrain.T)
+                Ktest = linear_kernel(_Xtest, _Xtrain, use_theano=True)
                 print ('... computed testtrain kernel of shape', Ktest.shape)
                 test_Xyd_n = (Ktest, _ytest, _dtest)
 
