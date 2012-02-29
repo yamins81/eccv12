@@ -301,3 +301,37 @@ if 0: # -- NOT SURE IF THIS IS CORRECT YET
             safe=True,
             upsert=False,
             multi=False)
+
+
+def consolidate_random_jobs():
+    final = hyperopt.mongoexp.MongoTrials(
+            'mongo://localhost:44556/final_random/jobs',
+            refresh=False)
+
+    print 'FINAL RAW COUNT', final.handle.jobs.count()
+    if final.handle.jobs.count() > 0:
+        raise NotImplementedError()
+
+    all_docs = dict()
+    all_len = 0
+    for othername in 'try2', 'feb28_1', 'march1_1':
+        other = hyperopt.mongoexp.MongoTrials(
+                'mongo://localhost:44556/%s/jobs' % othername,
+                exp_key=exp_keys['random'],
+                refresh=True)
+        other_oks = [d for d in other
+                     if d['result']['status'] == hyperopt.STATUS_OK]
+        all_len += len(other_oks)
+        print 'OTHER COUNT', len(other_oks)
+        for d in other_oks:
+            assert d["_id"] not in all_docs
+            all_docs[d['_id']] = d
+            d['misc']['consolidate_src'] = (othername, d['_id'])
+            del d['_id'] # --need to remove it to re-insert
+
+    assert len(all_docs) == all_len
+    print 'Inserting %i jobs' % len(all_docs)
+    for old_id, doc in all_docs.items():
+        final.handle.jobs.insert(doc, safe=True)
+
+
