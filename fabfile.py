@@ -350,13 +350,17 @@ if 0: # -- NOT SURE IF THIS IS CORRECT YET
 
 import pymongo as pm
 
-def insert_consolidated_feature_shapes():
+def insert_consolidated_feature_shapes(trials=None):
     conn = pm.Connection('honeybadger.rowland.org',44556)
     Jobs = conn['final_random']['jobs']
-    for (_ind, j) in enumerate(Jobs.find(fields=['spec','result.num_features'],
-                               timeout=False).sort('_id')):
+    if trials is None:
+        triallist = enumerate(Jobs.find(fields=['spec','result.num_features'],
+                                        timeout=False).sort('_id'))
+    else:
+        triallist = enumerate(trials)
+    for (_ind, j) in triallist:
         print (_ind, j['_id'])
-        if 'num_features' not in j['result']:
+        if 'num_features' not in j.get('result', {}):
             shp = list(get_model_shape(j['spec']['model']))
             num_features = int(np.prod(shp))
             Jobs.update({'_id': j['_id']}, 
