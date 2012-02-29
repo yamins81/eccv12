@@ -238,13 +238,13 @@ def normalize(feats, trace_normalize=False, data=None):
     """
 
     if data is None:
-        train_f = feats[0]
+        train_f = np.asarray(feats[0])
         m = train_f.mean(axis=0)
         s = np.maximum(train_f.std(axis=0), 1e-8)
     else:
         m = data['train_mean']
         s = data['train_std']
-    feats = [(f - m) / s for f in feats]
+    feats = [(np.asarray(f) - m) / s for f in feats]
     if trace_normalize:
         if data is None:
             train_f = feats[0]
