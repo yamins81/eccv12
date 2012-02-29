@@ -67,9 +67,13 @@ def lfw_suggest(dbname, port=44556, **kwargs):
             priorities[k] = float(kwargs[k])
     else:
         priorities = None
-    trials = MongoTrials('mongo://localhost:%d/%s/jobs' % (port, dbname))
+    trials = MongoTrials('mongo://localhost:%d/%s/jobs' % (port, dbname),
+                        refresh=False)
     B = main_lfw_driver(trials)
-    B.run(priorities=priorities)
+    algo = B.interleaved_algo(priorities=priorities)
+    exp = hyperopt.Experiment(B.trials, algo, max_queue_len=2)
+    # -- the interleaving algo will break out of this
+    exp.run(sys.maxint, block_until_done=True)
 
 
 def lfw_view2_randomL(host, dbname):
