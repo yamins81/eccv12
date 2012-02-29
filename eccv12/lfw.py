@@ -21,6 +21,7 @@ import comparisons
 from .bandits import BaseBandit, validate_config, validate_result
 from .utils import ImgLoaderResizer, linear_kernel
 from .classifier import get_result, train_scikits
+from .classifier import normalize as dan_normalize
 
 # -- register symbols in pyll.scope
 import toyproblem
@@ -305,10 +306,10 @@ def lfw_result_margin(result):
     N, = all_labels.shape
     assert all_decisions.shape == (1, N)
     assert test_mask.shape == (1, N)
-    margins = test_mask * all_labels * all_decisions
+    margins = all_labels * all_decisions
     hinges = 1 - np.minimum(margins, 1)
     # -- Compute the mean over test_mask==1 elements
-    return hinges.sum() / test_mask.sum()
+    return (hinges * test_mask).sum() / test_mask.sum()
 
 
 @scope.define
@@ -501,36 +502,49 @@ def predictions_from_decisions(decisions):
     return np.sign(decisions)
 
 
-def train_view2(namebases, basedirs, test=None, use_libsvm=False):
+def train_view2(namebases, basedirs, test=None, use_libsvm=False,
+                trace_normalize=False, model_kwargs=None):
     """To use use precomputed kernels with libsvm, do
     use_libsvm = {'kernel': 'precomputed'}
     otherwise, use_libsvm = True will use 'linear'
     """
     pair_features = [[larray.cache_memmap(None,
                                    name=view2_filename(nb, snum),
-                                   basedir=bdir) for snum in range(10)]             
+                                   basedir=bdir) for snum in range(10)]
                       for nb, bdir in zip(namebases, basedirs)]
 
     split_data = [verification_pairs('fold_%d' % split_num, subset=test) for split_num in range(10)]
 
     train_errs = []
     test_errs = []
+    if model_kwargs is None:
+        model_kwargs = {}
 
     for ind in range(10):
         train_inds = [_ind for _ind in range(10) if _ind != ind]
         print ('Constructing stuff for split %d ...' % ind)
-        test_X = np.hstack([pf[ind][:] for pf in pair_features])
+        test_X = [pf[ind][:] for pf in pair_features]
 
         test_y = split_data[ind][2]
-        train_X = np.hstack([np.vstack([pf[_ind][:] for _ind in train_inds])
-                             for pf in pair_features])
+        train_X = [np.vstack([pf[_ind][:] for _ind in train_inds])
+                             for pf in pair_features]
         train_y = np.concatenate([split_data[_ind][2] for _ind in train_inds])
         train_decisions = np.zeros(len(train_y))
         test_decisions = np.zeros(len(test_y))
-        train_Xyd_n, test_Xyd_n = toyproblem.normalize_Xcols(
-            (train_X, train_y, train_decisions,),
-            (test_X, test_y, test_decisions,))
-
+        
+        #train_Xyd_n, test_Xyd_n = toyproblem.normalize_Xcols(
+        #    (np.hstack(train_X), train_y, train_decisions,),
+        #    (np.hstack(test_X), test_y, test_decisions,))
+        
+        normalized = [dan_normalize((t0, t1),
+                       trace_normalize=trace_normalize,
+                       data=None) for t0, t1 in zip(train_X, test_X)]
+        train_X = np.hstack([n[0] for n in normalized])
+        test_X = np.hstack([n[1] for n in normalized])
+        
+        train_Xyd_n = (train_X, train_y, train_decisions)
+        test_Xyd_n = (test_X, test_y, test_decisions)
+        
         print ('Training split %d ...' % ind)
         if use_libsvm:
             if hasattr(use_libsvm, 'keys'):
@@ -550,10 +564,11 @@ def train_view2(namebases, basedirs, test=None, use_libsvm=False):
                 print ('... computed testtrain kernel of shape', Ktest.shape)
                 test_Xyd_n = (Ktest, _ytest, _dtest)
 
+            model_kwargs['kernel'] = kernel
             svm, _ = train_scikits(train_Xyd_n,
                                 labelset=[-1, 1],
                                 model_type='svm.SVC',
-                                model_kwargs={'kernel': kernel},
+                                model_kwargs=model_kwargs,
                                 normalization=False
                                 )
         else:

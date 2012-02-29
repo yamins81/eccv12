@@ -7,7 +7,9 @@ L=$SCIKIT_DATA/lfw/aligned
 mkdir -p $L
 rsync -a ~/.skdata/lfw/aligned/ $L/
 
+DBNAME=feb29_par_tpe
+
 . VENV/eccv12/bin/activate
 VENV/eccv12/src/eccv12/hyperopt/bin/hyperopt-mongo-worker \
-    --mongo=honeybadger:44556/feb28_1 \
+    --mongo=honeybadger:44556/$DBNAME \
     --workdir=/scratch_local/eccv12.workdir

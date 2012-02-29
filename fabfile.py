@@ -24,6 +24,8 @@ from hyperopt.mongoexp import MongoTrials
 from eccv12 import toyproblem
 from eccv12 import utils
 from eccv12.eccv12 import main_lfw_driver
+from eccv12.eccv12 import BudgetExperiment
+from eccv12.eccv12 import NestedExperiment
 from eccv12.lfw import get_view2_features
 from eccv12.lfw import train_view2
 from eccv12.lfw import verification_pairs
@@ -72,9 +74,41 @@ def lfw_suggest(dbname, port=44556, **kwargs):
             priorities[k] = float(kwargs[k])
     else:
         priorities = None
-    trials = MongoTrials('mongo://localhost:%d/%s/jobs' % (port, dbname))
+    trials = MongoTrials('mongo://localhost:%d/%s/jobs' % (port, dbname),
+                        refresh=False)
     B = main_lfw_driver(trials)
-    B.run(priorities=priorities)
+    algo = B.interleaved_algo(priorities=priorities)
+    exp = hyperopt.Experiment(B.trials, algo, max_queue_len=2)
+    # -- the interleaving algo will break out of this
+    exp.run(sys.maxint, block_until_done=True)
+
+
+def lfw_suggest_parallel_tpe():
+    dbname = 'feb29_par_tpe'
+    port = 44556
+    port = int(port)
+    trials = MongoTrials('mongo://localhost:%d/%s/jobs' % (port, dbname),
+                        refresh=False)
+    #### trials.handle.delete_all()
+    def add_exps(bandit_algo_class, exp_prefix):
+        B = BudgetExperiment(ntrials=500, save=False, trials=trials,
+                num_features=128 * 10,
+                ensemble_sizes=[10],
+                bandit_algo_class=bandit_algo_class,
+                exp_prefix=exp_prefix,
+                run_parallel=False)
+        return B
+    N = NestedExperiment(trials=trials, ntrials=500, save=False)
+    priorities = {}
+    for i in range(10):
+        N.add_exp(add_exps(hyperopt.TreeParzenEstimator, 'ek_tpe%i' % i),
+                'TPE%i' % i)
+        priorities['TPE%i.fixed_features_10.AsyncBoostB' % i] = 1
+    algo = N.interleaved_algo(priorities=priorities)
+    exp = hyperopt.Experiment(trials, algo, poll_interval_secs=.1)
+    # -- the interleaving algo will break out of this
+    exp.run(sys.maxint, block_until_done=True)
+
 
 
 def lfw_view2_randomL(host, dbname):
@@ -508,3 +542,37 @@ if 0: # -- NOT SURE IF THIS IS CORRECT YET
             safe=True,
             upsert=False,
             multi=False)
+
+
+def consolidate_random_jobs():
+    final = hyperopt.mongoexp.MongoTrials(
+            'mongo://localhost:44556/final_random/jobs',
+            refresh=False)
+
+    print 'FINAL RAW COUNT', final.handle.jobs.count()
+    if final.handle.jobs.count() > 0:
+        raise NotImplementedError()
+
+    all_docs = dict()
+    all_len = 0
+    for othername in 'try2', 'feb28_1', 'march1_1':
+        other = hyperopt.mongoexp.MongoTrials(
+                'mongo://localhost:44556/%s/jobs' % othername,
+                exp_key=exp_keys['random'],
+                refresh=True)
+        other_oks = [d for d in other
+                     if d['result']['status'] == hyperopt.STATUS_OK]
+        all_len += len(other_oks)
+        print 'OTHER COUNT', len(other_oks)
+        for d in other_oks:
+            assert d["_id"] not in all_docs
+            all_docs[d['_id']] = d
+            d['misc']['consolidate_src'] = (othername, d['_id'])
+            del d['_id'] # --need to remove it to re-insert
+
+    assert len(all_docs) == all_len
+    print 'Inserting %i jobs' % len(all_docs)
+    for old_id, doc in all_docs.items():
+        final.handle.jobs.insert(doc, safe=True)
+
+
