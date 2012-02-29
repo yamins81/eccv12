@@ -20,7 +20,8 @@ import comparisons
 
 from .bandits import BaseBandit, validate_config, validate_result
 from .utils import ImgLoaderResizer
-from .classifier import get_result
+from .classifier import get_result, train_scikits
+from .classifier import normalize as dan_normalize
 
 # -- register symbols in pyll.scope
 import toyproblem
@@ -209,8 +210,11 @@ def verification_pairs(split, test=None):
     lidxs, ridxs = _verification_pairs_helper(all_paths, lpaths, rpaths)
     if test is None:
         return lidxs, ridxs, (matches * 2 - 1)
-    else:
+    elif isinstance(test, int):
         return lidxs[:test], ridxs[:test],  (matches[:test] * 2 - 1)
+    else:
+        assert all([isinstance(_t, int) for _t in test])
+        return lidxs[test], ridxs[test], (matches[test] * 2 - 1)
 
 
 @scope.define
@@ -495,7 +499,12 @@ def predictions_from_decisions(decisions):
     return np.sign(decisions)
 
                                                  
-def train_view2(namebases, basedirs, test=None):
+def train_view2(namebases, basedirs, test=None, use_libsvm=False,
+                trace_normalize=False, model_kwargs=None):
+    """To use use precomputed kernels with libsvm, do
+    use_libsvm = {'kernel': 'precomputed'}
+    otherwise, use_libsvm = True will use 'linear'
+    """
     pair_features = [[larray.cache_memmap(None,
                                    name=view2_filename(nb, snum),
                                    basedir=bdir) for snum in range(10)]             
@@ -505,33 +514,73 @@ def train_view2(namebases, basedirs, test=None):
     
     train_errs = []
     test_errs = []
+    if model_kwargs is None:
+        model_kwargs = {}
     
     for ind in range(10):
         train_inds = [_ind for _ind in range(10) if _ind != ind]
         print ('Constructing stuff for split %d ...' % ind)
-        test_X = np.hstack([pf[ind][:] for pf in pair_features])
+        test_X = [pf[ind][:] for pf in pair_features]
 
         test_y = split_data[ind][2]
-        train_X = np.hstack([np.vstack([pf[_ind][:] for _ind in train_inds])
-                             for pf in pair_features])
+        train_X = [np.vstack([pf[_ind][:] for _ind in train_inds])
+                             for pf in pair_features]
         train_y = np.concatenate([split_data[_ind][2] for _ind in train_inds])
         train_decisions = np.zeros(len(train_y))
         test_decisions = np.zeros(len(test_y))
-        train_Xyd_n, test_Xyd_n = toyproblem.normalize_Xcols(
-            (train_X, train_y, train_decisions,),
-            (test_X, test_y, test_decisions,))
-
+        
+        #train_Xyd_n, test_Xyd_n = toyproblem.normalize_Xcols(
+        #    (np.hstack(train_X), train_y, train_decisions,),
+        #    (np.hstack(test_X), test_y, test_decisions,))
+        
+        normalized = [dan_normalize((t0, t1),
+                       trace_normalize=trace_normalize,
+                       data=None) for t0, t1 in zip(train_X, test_X)]
+        train_X = np.hstack([n[0] for n in normalized])
+        test_X = np.hstack([n[1] for n in normalized])
+        
+        train_Xyd_n = (train_X, train_y, train_decisions)
+        test_Xyd_n = (test_X, test_y, test_decisions)
+        
         print ('Training split %d ...' % ind)
-        svm = toyproblem.train_svm(train_Xyd_n,
-            l2_regularization=1e-3,
-            max_observations=20000)
+        if use_libsvm:
+            if hasattr(use_libsvm, 'keys'):
+                kernel = use_libsvm.get('kernel', 'linear')
+            else:
+                kernel = 'linear'
+            if kernel == 'precomputed':
+                (_Xtrain, _ytrain, _dtrain) = train_Xyd_n
+                print ('Computing training kernel ...')
+                Ktrain = np.dot(_Xtrain, _Xtrain.T)
+                print ('... computed training kernel of shape', Ktrain.shape)
+                train_Xyd_n = (Ktrain, _ytrain, _dtrain)
+                train_data = (Ktrain, _ytrain, _dtrain)
+                print ('Computing testtrain kernel ...')
+                (_Xtest, _ytest, _dtest) = test_Xyd_n
+                Ktest = np.dot(_Xtest, _Xtrain.T)
+                print ('... computed testtrain kernel of shape', Ktest.shape)
+                test_Xyd_n = (Ktest, _ytest, _dtest)
 
-        train_decisions = svm_decisions_lfw(svm, train_Xyd_n)
-        test_decisions = svm_decisions_lfw(svm, test_Xyd_n)
+            model_kwargs['kernel'] = kernel
+            svm, _ = train_scikits(train_Xyd_n,
+                                labelset=[-1, 1],
+                                model_type='svm.SVC',
+                                model_kwargs=model_kwargs,
+                                normalization=False
+                                )
+        else:
+            svm = toyproblem.train_svm(train_Xyd_n,
+                l2_regularization=1e-3,
+                max_observations=20000)
+
+        #train_decisions = svm_decisions_lfw(svm, train_Xyd_n)
+        #test_decisions = svm_decisions_lfw(svm, test_Xyd_n)
         
-        train_predictions = predictions_from_decisions(train_decisions)
-        test_predictions = predictions_from_decisions(test_decisions)
-        
+        #train_predictions = predictions_from_decisions(train_decisions)
+        #test_predictions = predictions_from_decisions(test_decisions)
+
+        train_predictions = svm.predict(train_Xyd_n[0])
+        test_predictions = svm.predict(test_Xyd_n[0])
         train_err = (train_predictions != train_y).mean()
         test_err = (test_predictions != test_y).mean()
 

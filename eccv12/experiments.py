@@ -310,17 +310,8 @@ class BoostingAlgoBase(hyperopt.BanditAlgo):
         Return the list of tids of members selected by the boosting algorithm.
         """
         helper = BoostHelper(trials.trials)
-        specs, results, miscs = filter_ok_trials(trials)
-        losses = np.array(map(bandit.loss, results, specs))
-        assert None not in losses
-        cur_idx = np.argmin(losses)
-        reversed_members_idxs = [cur_idx]
-        while helper.continues(miscs[cur_idx]) != None:
-            cur_idx = [m['tid'] for m in miscs].index(
-                    helper.continues(miscs[cur_idx]))
-            reversed_members_idxs.append(cur_idx)
-        rval = [miscs[ii]['tid'] for ii in reversed(reversed_members_idxs)]
-        return rval
+        members = helper.ensemble_members(bandit=bandit)
+        return [m['tid'] for m in members]
 
 class BoostHelper(object):
     def __init__(self, docs):
@@ -328,6 +319,10 @@ class BoostHelper(object):
 
         # -- assert that every document has a unique tid
         assert len(self.doc_by_tid) == len(docs)
+
+    def ok_tids(self):
+        return [d['tid'] for d in self.doc_by_tid.values()
+                if d['result']['status'] == hyperopt.STATUS_OK]
 
     def round_of(self, doc):
         # -- hack to support `doc` that is a misc sub-doc
@@ -340,25 +335,44 @@ class BoostHelper(object):
             return self.round_of(from_doc)
 
     def continues(self, doc):
-        """Returns tid (or None) of the trial whose decisions `doc` built on.
+        """Returns the (older-than-doc) trial whose decisions `doc` built on.
         """
         # -- hack to support `doc` that is a misc sub-doc
         doc = self.doc_by_tid[doc['tid']]
         try:
-            return doc['misc']['boosting']['continues']
+            rval_tid = doc['misc']['boosting']['continues']
         except KeyError:
             return self.continues(
                 self.doc_by_tid[doc['misc']['from_tid']])
+        if rval_tid is None:
+            return None
+        else:
+            return self.doc_by_tid[rval_tid]
 
     def continuing(self, doc):
         """Returns all docs whose decisions were built on `doc`.
         """
-        if doc is None:
-            my_tid = None
-        else:
-            my_tid = doc.get('tid')
         return [d for d in self.doc_by_tid.values()
-                if self.continues(d) == my_tid]
+                if self.continues(d) == doc]
+
+    def ensemble_members(self, bandit):
+        """Return all docs that are part of the best ensemble in order of
+        addition to the ensemble.
+        """
+        # function works by working backward through the
+        # doc['misc']['boosting']['continues'] links
+        ok_tids = self.ok_tids()
+        losses = np.array(map(bandit.loss,
+            [self.doc_by_tid[tid]['result'] for tid in ok_tids],
+            [self.doc_by_tid[tid]['spec'] for tid in ok_tids],
+            ))
+        assert None not in losses
+        cur_idx = np.argmin(losses)
+        reversed_members = [self.doc_by_tid[ok_tids[cur_idx]]]
+        while self.continues(reversed_members[-1]) != None:
+            reversed_members.append(self.continues(reversed_members[-1]))
+        rval = list(reversed(reversed_members))
+        return rval
 
 
 class AsyncBoostingAlgo(BoostingAlgoBase):
@@ -535,6 +549,8 @@ class SyncBoostingAlgo(BoostingAlgoBase):
                 my_round = max_round
                 decisions = round_decs[-1]
                 decisions_src = helper.continues(miscs[-1])
+                if decisions_src != None:
+                    decisions_src = decisions_src['tid']
         else:
             decisions = None
             my_round = 0
