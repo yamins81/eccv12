@@ -302,10 +302,10 @@ def lfw_result_margin(result):
     N, = all_labels.shape
     assert all_decisions.shape == (1, N)
     assert test_mask.shape == (1, N)
-    margins = test_mask * all_labels * all_decisions
+    margins = all_labels * all_decisions
     hinges = 1 - np.minimum(margins, 1)
     # -- Compute the mean over test_mask==1 elements
-    return hinges.sum() / test_mask.sum()
+    return (hinges * test_mask).sum() / test_mask.sum()
 
 
 @scope.define
