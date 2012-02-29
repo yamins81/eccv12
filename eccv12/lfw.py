@@ -195,7 +195,7 @@ def _verification_pairs_helper(all_paths, lpaths, rpaths):
 
 
 @scope.define
-def verification_pairs(split, test=None):
+def verification_pairs(split, subset=None):
     """
     Return three integer arrays: lidxs, ridxs, match.
 
@@ -207,13 +207,13 @@ def verification_pairs(split, test=None):
     all_paths = dataset.raw_classification_task()[0]
     lpaths, rpaths, matches = dataset.raw_verification_task(split=split)
     lidxs, ridxs = _verification_pairs_helper(all_paths, lpaths, rpaths)
-    if test is None:
+    if subset is None:
         return lidxs, ridxs, (matches * 2 - 1)
-    elif isinstance(test, int):
-        return lidxs[:test], ridxs[:test],  (matches[:test] * 2 - 1)
+    elif isinstance(subset, int):
+        return lidxs[:subset], ridxs[:subset],  (matches[:subset] * 2 - 1)
     else:
-        assert all([isinstance(_t, int) for _t in test])
-        return lidxs[test], ridxs[test], (matches[test] * 2 - 1)
+        assert all([isinstance(_t, int) for _t in subset])
+        return lidxs[subset], ridxs[subset], (matches[subset] * 2 - 1)
 
 
 @scope.define
@@ -473,8 +473,8 @@ def get_performance(slm, decisions, preproc, comparison,
 
 def view2_filename(namebase, split_num):
     return namebase + '_pairs_view2_fold_%d' % split_num
-   
-   
+
+
 def get_view2_features(slm_desc, preproc, comparison, namebase, basedir,
                        test=None):
     image_features = slm_memmap(
@@ -485,30 +485,30 @@ def get_view2_features(slm_desc, preproc, comparison, namebase, basedir,
     for split_num in range(10):
         print ('extracting fold %d' % split_num)
         pf, matches = pairs_memmap(
-                verification_pairs('fold_%d' % split_num, test=test),
+                verification_pairs('fold_%d' % split_num, subset=test),
                 image_features,
                 comparison_name=comparison,
                 name=view2_filename(namebase, split_num),
                 basedir=basedir
                 )
-        pf[:]
+        pf[:] # -- this little guy here computes all the features
 
 
 def predictions_from_decisions(decisions):
     return np.sign(decisions)
 
-                                                 
+
 def train_view2(namebases, basedirs, test=None, use_libsvm=False):
     pair_features = [[larray.cache_memmap(None,
                                    name=view2_filename(nb, snum),
                                    basedir=bdir) for snum in range(10)]             
                       for nb, bdir in zip(namebases, basedirs)]
 
-    split_data = [verification_pairs('fold_%d' % split_num, test=test) for split_num in range(10)]
-    
+    split_data = [verification_pairs('fold_%d' % split_num, subset=test) for split_num in range(10)]
+
     train_errs = []
     test_errs = []
-    
+
     for ind in range(10):
         train_inds = [_ind for _ind in range(10) if _ind != ind]
         print ('Constructing stuff for split %d ...' % ind)
