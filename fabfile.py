@@ -350,11 +350,15 @@ if 0: # -- NOT SURE IF THIS IS CORRECT YET
 
 import pymongo as pm
 
-def insert_consolidated_feature_shapes(trials=None):
-    conn = pm.Connection('honeybadger.rowland.org',44556)
-    Jobs = conn['final_random']['jobs']
+def insert_consolidated_feature_shapes(dbname,
+                                       trials=None,
+                                       host='honeybadger.rowland.org',
+                                       port=44556):
+    conn = pm.Connection(host=host, port=port)
+    Jobs = conn[dbname]['jobs']
     if trials is None:
-        triallist = enumerate(Jobs.find(fields=['spec','result.num_features'],
+        triallist = enumerate(Jobs.find({'result.status': hyperopt.STATUS_OK},
+                                        fields=['spec','result.num_features'],
                                         timeout=False).sort('_id'))
     else:
         triallist = enumerate(trials)
@@ -384,3 +388,57 @@ def lfw_view2_final_get_mix(host='honeybadger.rowland.org',
     ada_mix_trials =  ada_mix.mix_trials(int(A))    
     
     return simple_mix_trials, ada_mix_trials
+
+
+def get_top_tpe(N=1, dbname='feb29_par_tpe', host='honeybadger.rowland.org', port=44556):
+    conn = pm.Connection(host=host, port=port)
+    J = conn[dbname]['jobs']
+    K = [k for k  in conn['feb29_par_tpe']['jobs'].distinct('exp_key') if 'Async' in k]
+    R = [np.rec.array([(x['_id'], x['result']['loss'], x['result'].get('num_features',-1)) for x in J.find({'exp_key': k,
+                                                      'misc.boosting.round': 0,
+                                                      'result.status': hyperopt.STATUS_OK},
+                                                     fields=['result.loss','result.num_features'])],
+                      names = ['_id', 'loss', 'num_features'])
+         for k in K]
+    for r in R:
+        r.sort(order=['loss'])
+    R = [r[:N] for r in R]
+    return R
+
+
+def get_continues(tid, coll):
+    assert coll.find({'tid': tid, 'result.status': hyperopt.STATUS_OK}).count() == 1
+    new_misc = coll.find_one({'tid': tid})['misc']
+    if 'boosting' in new_misc:
+        new_tid = new_misc['boosting']['continues']
+    else:
+        assert 'from_tid' in new_misc
+        new_tid = coll.find_one({'tid': new_misc['from_tid']})['misc']['boosting']['continues']
+    
+    if new_tid is not None:
+        return [tid] + get_continues(new_tid, coll)
+    else:
+        return [tid]
+
+
+def get_tpe_chain(k, dbname='feb29_par_tpe', host='honeybadger.rowland.org', port=44556):
+    conn = pm.Connection(host=host, port=port)
+    J = conn[dbname]['jobs']
+    R = np.rec.array([(x['_id'], x['tid'], x['result']['loss']) for x in J.find({'exp_key':k, 'result.status': hyperopt.STATUS_OK},
+                                                                                fields=['result.loss','tid'])],
+                  names=['_id','tid','loss'])
+    top_tid = int(R['tid'][R['loss'].argmin()])
+    all_tids = get_continues(top_tid, J)
+    R = np.rec.array([(x['_id'], x['tid'], x['result']['loss'], x['result'].get('num_features',-1))
+                      for x in J.find({'tid': {'$in': all_tids}}, fields=['result.loss', 'tid', 'result.num_features'])],
+                     names=['_id','tid','loss','num_features'])
+    assert len(R) == len(all_tids)
+    return R
+
+def get_top_tpe_chains(dbname='feb29_par_tpe', host='honeybadger.rowland.org', port=44556):
+    conn = pm.Connection(host=host, port=port)
+    J = conn[dbname]['jobs']
+    K = [k for k  in J.distinct('exp_key') if 'Async' in k]
+    return [get_tpe_chain(k, dbname=dbname, host=host, port=port) for k in K]
+    
+            
