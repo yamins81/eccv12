@@ -19,7 +19,7 @@ logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
 import numpy as np
 import matplotlib
-matplotlib.use('gtkAgg')
+#matplotlib.use('gtkAgg')
 import matplotlib.pyplot as plt
 
 import hyperopt
@@ -437,8 +437,7 @@ def blend_top_N(N, dbname, _ids, out_template, dryrun=False):
             cPickle.dump(test_errs,
                          open(out_template % member_position,'w'))
 
-simplemix_top_N_filename = \
-    '/home/dyamins/eccv12/boosted_hyperopt_eccv12/Temp/simple_mix_id_nf.pkl'
+simplemix_top_N_filename = 'simple_mix_id_nf.pkl'
 
 def simplemix_top_N(N, trace_normalize='False'):
     dbname = 'final_random'
@@ -446,8 +445,7 @@ def simplemix_top_N(N, trace_normalize='False'):
     return blend_top_N(int(N), dbname, _ids, 'simpleMix_top_%i.pkl')
 
 
-adamix_top_N_filename = \
-    '/home/dyamins/eccv12/boosted_hyperopt_eccv12/Temp/ada_mix_id_nf.pkl'
+adamix_top_N_filename = 'ada_mix_id_nf.pkl'
 
 def adamix_top_N(N, trace_normalize='False', dryrun=False):
     dbname = 'final_random'
@@ -492,15 +490,22 @@ def simple_vs_ada_curves():
     sm_recarray = cPickle.load(open(simplemix_top_N_filename))
     am_recarray = cPickle.load(open(adamix_top_N_filename))
 
-    
     sm_top_20 = cPickle.load(open('simpleMix_top_20.pkl'))
-    am_top_20 = cPickle.load(open('adaMix_top_20.pkl'))
+    am_top_49 = cPickle.load(open('adaMix_top_49.pkl'))
+    pt_top_9 = cPickle.load(open('par_tpe_top_9.pkl'))
 
-    sm_by_topN = [np.mean([sm_top_20[(i, j)] for j in range(10)]) for i in range(20)]
-    am_by_topN = [np.mean([am_top_20[(i, j)] for j in range(10)]) for i in range(20)]
+    sm20_means = [np.mean([sm_top_20[(i, j)] for j in range(10)]) for i in range(20)]
+    am49_means = [np.mean([am_top_49[(i, j)] for j in range(10)]) for i in
+            range(49)]
+    pt9_means =[np.mean([pt_top_9[(i, j)] for j in range(10)]) for i in range(10)]
 
-    plt.plot(sm_by_topN)
-    plt.plot(am_by_topN)
+    sm20_feats = np.cumsum(sm_recarray['num_features'][:20])
+    am49_feats = np.cumsum(am_recarray['num_features'][:49])
+
+    plt.plot(sm20_feats, sm20_means)
+    plt.plot(am49_feats, am49_means)
+    # XXX: TODO: GET ACTUAL COUNTS
+    plt.plot(sm20_feats[:10], pt9_means)
     plt.show()
 
 
@@ -824,3 +829,29 @@ def get_top_tpe_chains(dbname='feb29_par_tpe', host='honeybadger.rowland.org', p
     J = conn[dbname]['jobs']
     K = [k for k  in J.distinct('exp_key') if 'Async' in k]
     return [get_tpe_chain(k, dbname=dbname, host=host, port=port) for k in K]
+
+
+def show_vars(key=None, dbname='march1_1', host='honeybadger.rowland.org', port=44556):
+    conn = pm.Connection(host=host, port=port)
+    J = conn[dbname]['jobs']
+    K = [k for k  in conn[dbname]['jobs'].distinct('exp_key')]
+    if key is None:
+        raise NotImplementedError()
+    else:
+        exp_key = exp_keys[key]
+        docs = list(
+                conn[dbname]['jobs'].find(
+                    {'exp_key': exp_key},
+                    {
+                        'tid': 1,
+                        'state': 1,
+                        'result.loss':1,
+                        'result.status':1,
+                        'spec':1,
+                        'misc.tid':1,
+                        'misc.idxs':1,
+                        'misc.vals': 1,
+                    }))
+    trials = hyperopt.trials_from_docs(docs, validate=False)
+    hyperopt.plotting.main_plot_vars(trials, bandit=MultiBandit())
+
