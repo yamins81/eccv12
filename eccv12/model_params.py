@@ -292,18 +292,17 @@ def pyll_param_func(nf=None):
     # we don't want to use the same norm_shape_size at every layer.
     preproc_l2, preproc_l3 = pf_preproc()
 
-    l0 = [pf_lnorm()]
-    l1 = [pf_fbcorr(64 + 32, 1), pf_lpool(), pf_lnorm()]
-    l2 = [pf_fbcorr(128 + 64, 11), pf_lpool(), pf_lnorm()]
-    l3 = [pf_fbcorr(256 + 128, 111, nf), pf_lpool(), pf_lnorm()]
-    l2_top = [pf_fbcorr(128 + 64, 11, nf), pf_lpool(), pf_lnorm()]
+    l0_3 = [pf_lnorm()]
+    l1_3 = [pf_fbcorr(64 + 32, 1), pf_lpool(), pf_lnorm()]
+    l2_3 = [pf_fbcorr(128 + 64, 11), pf_lpool(), pf_lnorm()]
+    l3_3 = [pf_fbcorr(256 + 128, 111, nf), pf_lpool(), pf_lnorm()]
 
-    # -- the re-use of l0 and l1 will make both slm models accumulate evidence
-    #    for what works and what doesn't
-    # -- the cloning of l2 will do the opposite -- what works for l2 in l2_slm
-    #    will not be connected to what's good for l2 in l3_slm.
-    l3_slm = dict(slm=[l0, l1, l2, l3], preproc=preproc_l3)
-    l2_slm = dict(slm=[l0, l1, l2_top], preproc=preproc_l2)
+    l0_2 = [pf_lnorm()]
+    l1_2 = [pf_fbcorr(64 + 32, 1), pf_lpool(), pf_lnorm()]
+    l2_2 = [pf_fbcorr(128 + 64, 11, nf), pf_lpool(), pf_lnorm()]
+
+    l3_slm = dict(slm=[l0_3, l1_3, l2_3, l3_3], preproc=preproc_l3)
+    l2_slm = dict(slm=[l0_2, l1_2, l2_2], preproc=preproc_l2)
 
     return one_of(l3_slm, l2_slm)
 
