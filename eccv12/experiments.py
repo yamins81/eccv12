@@ -87,7 +87,7 @@ class AdaboostMixture(SimpleMixture):
     Uses AdaBoost to select an ensemble from among completed trials.
     """
 
-    def __init__(self, trials, bandit, test_mask):
+    def __init__(self, trials, bandit, test_mask, alpha0=0.5, allow_repeats=True):
         """
         test_mask - a BOOLEAN, True means use a test_mask
         """
@@ -95,6 +95,8 @@ class AdaboostMixture(SimpleMixture):
         if not type(test_mask) == bool:
             raise TypeError('test_mask should be bool', test_mask)
         self.test_mask = test_mask
+        self.alpha0 = alpha0
+        self.allow_repeats = allow_repeats
 
     def fetch_labels(self):
         """Return the 1D vector of +-1 labels for all examples.
@@ -167,16 +169,19 @@ class AdaboostMixture(SimpleMixture):
             # -- weighted error rate for each trial, split
             ep_array = (errors * weights).sum(2)
             ep_diff_array = np.abs(0.5 - ep_array)
-
+            ep_diff_array_mean1 = ep_diff_array.mean(1)
+            if self.allow_repeats is False:
+                ep_diff_array_mean1[selected_inds] = -np.inf
+            
             # -- pick the trial whose mean across splits is best
-            ind = ep_diff_array.mean(1).argmax()
+            ind = ep_diff_array_mean1.argmax()
             selected_inds.append(ind)
 
             # -- determine the weight of the new ensemble member
             #    (within in eatch split... alpha is vector here)
             ep = ep_array[ind]
 
-            alpha = 0.5 * np.log((1 - ep) / ep)
+            alpha = self.alpha0 * np.log((1 - ep) / ep)
             alphas.append(alpha)
 
         return np.array(selected_inds), np.array(alphas)
