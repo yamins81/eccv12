@@ -24,6 +24,10 @@ def filter_ok_trials(trials):
     return filter_oks(trials.specs, trials.results, trials.miscs)
 
 
+def filter_trials_ok(trials):
+    return [t for t in trials if t['result']['status'] == hyperopt.STATUS_OK]
+
+
 ##############
 ###MIXTURES###
 ##############
@@ -53,6 +57,15 @@ class SimpleMixture(object):
         losses = np.array(map(self.bandit.loss, results, specs))
         s = losses.argsort()
         return s[:A], np.ones((A,)) / float(A)
+
+    def mix_trials(self, A, **kwargs):
+        """Identify the top `A` trials.
+
+        Return list of trials and weights
+        """
+        trials = filter_trials_ok(self.trials)
+        inds, weights = self.mix_inds(A, **kwargs)
+        return [trials[ind] for ind in inds], weights
 
     def mix_models(self, A, ret_tids=False, **kwargs):
         """Identify the top `A` trials.
@@ -149,6 +162,7 @@ class AdaboostMixture(SimpleMixture):
                 if self.test_mask:
                     weights *= split_mask
             weights /= weights.sum(1)[:, np.newaxis]
+            
 
             # -- weighted error rate for each trial, split
             ep_array = (errors * weights).sum(2)
@@ -161,6 +175,7 @@ class AdaboostMixture(SimpleMixture):
             # -- determine the weight of the new ensemble member
             #    (within in eatch split... alpha is vector here)
             ep = ep_array[ind]
+
             alpha = 0.5 * np.log((1 - ep) / ep)
             alphas.append(alpha)
 
