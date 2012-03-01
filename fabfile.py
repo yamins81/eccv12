@@ -431,6 +431,7 @@ def snapshot(dbname):
     ofile = open(dbname+'.snapshot.pkl', 'w')
     cPickle.dump(to_trials, ofile, -1)
 
+
 def history(host, dbname, key=None):
     exp_key = None if key is None else exp_keys[key]
     trials = MongoTrials(
@@ -449,6 +450,33 @@ def history(host, dbname, key=None):
     import matplotlib.pyplot as plt
     plt.scatter(range(len(losses)), losses)
     plt.show()
+
+def history_par_tpe(host, dbname):
+    trials = MongoTrials(
+            'mongo://%s:44556/%s/jobs' % (host, dbname),
+            refresh=False)
+    # XXX: Does not use bandit.loss
+    query = {'result.status': hyperopt.STATUS_OK}
+    docs = list(trials.handle.jobs.find( query,
+        {'tid': 1, 'result.loss': 1, 'exp_key': 1}))
+    tdocs = [(d['tid'], d) for d in docs]
+    tdocs.sort()
+    by_key = {}
+    for d in docs:
+        by_key.setdefault(d['exp_key'], []).append(d['result']['loss'])
+
+    import matplotlib.pyplot as plt
+    iii = 1
+    for i, (k, losses) in enumerate(by_key.items()):
+        if len(losses) < 50:
+            continue
+        print k, 'min', min(losses)
+        plt.subplot(2, 5, iii)
+        plt.scatter(range(len(losses)), losses)
+        plt.ylim(.15, .55)
+        iii += 1
+    plt.show()
+
 
 def hist(host, dbname, key=None):
     # XXX REFACTOR WITH ABOVE
