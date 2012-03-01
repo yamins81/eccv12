@@ -18,6 +18,9 @@ import sys
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
 import numpy as np
+import matplotlib
+matplotlib.use('gtkAgg')
+import matplotlib.pyplot as plt
 
 import hyperopt
 from hyperopt.mongoexp import MongoTrials
@@ -314,6 +317,13 @@ def top_results(host, dbname, key, N):
     for l, i in losses_ids[:int(N)]:
         print l, i
 
+def Ktrain_name(dbname, _id, fold):
+    namebase = '%s_%s' % (dbname, _id)
+    return namebase + '_fold_%i_Ktrain.npy' % fold
+
+def Ktest_name(dbname, _id, fold):
+    namebase = '%s_%s' % (dbname, _id)
+    return namebase + '_fold_%i_Ktest.npy' % fold
 
 def lfw_view2_fold_kernels_by_id(host, dbname, _id):
     import bson
@@ -337,6 +347,11 @@ def lfw_view2_fold_kernels_by_id(host, dbname, _id):
             for fold in range(10)]
 
     for test_fold in range(10):
+        try:
+            open(Ktest_name(dbname, doc['_id'], test_fold)).close()
+            continue
+        except IOError:
+            pass
         print ('FOLD %i' % test_fold)
         test_X = pair_features[test_fold][:]
         test_y = split_data[test_fold][2]
@@ -360,19 +375,132 @@ def lfw_view2_fold_kernels_by_id(host, dbname, _id):
         Ktest = utils.linear_kernel(_Xtest, _Xtrain, use_theano=True)
         print ('... computed testtrain kernel of shape', Ktest.shape)
 
-        np.save(namebase + '_fold_%i_Ktrain.npy' % test_fold, Ktrain)
-        np.save(namebase + '_fold_%i_Ktest.npy' % test_fold, Ktest)
+        np.save(Ktrain_name(dbname, doc['_id'], test_fold), Ktrain)
+        np.save(Ktest_name(dbname, doc['_id'], test_fold), Ktest)
 
 
-def asdf(array_id = None):
-    import cPickle
+def blend_top_N(N, dbname, _ids, out_template, dryrun=False):
+    import  eccv12.classifier
+    # allocate the gram matrix for each fold
+    # This will be incremented as we loop over the top models
+    Ktrains = [np.zeros((5400, 5400), dtype='float')
+               for i in range(10)]
+    Ktests  = [np.zeros((600, 5400), dtype='float32')
+               for i in range(10)]
+
+    split_data = [verification_pairs('fold_%d' % fold, subset=None)
+            for fold in range(10)]
+
+    test_errs = {}
+
+    # loop over top N `_id`s incrementing train_X by Ktrain
+    for member_position in range(N):
+        _id = _ids[member_position]
+        print 'Working through model', _id
+
+        for test_fold in range(10):
+
+            if dryrun:
+                try:
+                    open(Ktrain_name(dbname, _id, test_fold)).close()
+                    open(Ktest_name(dbname, _id, test_fold)).close()
+                except IOError:
+                    print '---> Missing', member_position, _id
+                continue
+
+            Ktrain_n_fold = np.load(Ktrain_name(dbname, _id, test_fold))
+            Ktest_n_fold = np.load(Ktest_name(dbname, _id, test_fold))
+            Ktrains[test_fold] += Ktrain_n_fold
+            Ktests[test_fold] += Ktest_n_fold
+
+            train_y = np.concatenate([split_data[_ind][2]
+                    for _ind in range(10) if _ind != test_fold])
+            test_y = split_data[test_fold][2]
+
+            svm, _ = eccv12.classifier.train_scikits(
+                    (Ktrains[test_fold], train_y, None),
+                    labelset=[-1, 1],
+                    model_type='svm.SVC',
+                    model_kwargs={'kernel': 'precomputed', 'C': 100},
+                    normalization=False
+                    )
+            test_predictions = svm.predict(Ktests[test_fold])
+            test_err = (test_predictions != test_y).mean()
+            print member_position, test_fold, test_err
+            test_errs[(member_position, test_fold)] = test_err
+
+        if not dryrun:
+            print 'Mean', member_position, np.mean(
+                [test_errs[(member_position, ii)] for ii in range(10)])
+
+            cPickle.dump(test_errs,
+                         open(out_template % member_position,'w'))
+
+simplemix_top_N_filename = \
+    '/home/dyamins/eccv12/boosted_hyperopt_eccv12/Temp/simple_mix_id_nf.pkl'
+
+def simplemix_top_N(N, trace_normalize='False'):
+    dbname = 'final_random'
+    _ids = cPickle.load(open(simplemix_top_N_filename))['_id']
+    return blend_top_N(int(N), dbname, _ids, 'simpleMix_top_%i.pkl')
+
+
+adamix_top_N_filename = \
+    '/home/dyamins/eccv12/boosted_hyperopt_eccv12/Temp/ada_mix_id_nf.pkl'
+
+def adamix_top_N(N, trace_normalize='False', dryrun=False):
+    dbname = 'final_random'
+    filename=adamix_top_N_filename
+    _ids = cPickle.load(open(filename))['_id']
+    return blend_top_N(int(N), dbname, _ids, 'adaMix_top_%i.pkl', bool(dryrun))
+
+
+def par_tpe_top_N(N, trace_normalize='False', dryrun=False):
+    filename='/home/dyamins/eccv12/boosted_hyperopt_eccv12/Temp/top_par_tpe_round_0.pkl'
+    dbname='feb29_par_tpe'
+    array_ids_list = cPickle.load(open(filename))
+    _ids = [ail['_id'][0] for ail in array_ids_list][:int(N)]
+    return blend_top_N(int(N), dbname, _ids, 'par_tpe_top_%i.pkl', bool(dryrun))
+
+
+def extract_kernel(ids_filename, position=None):
     # -- load index from PBS_ARRAYID
-    if array_id is None:
-        array_id = os.getenv('PBS_ARRAYID')
-    filename = '/home/dyamins/eccv12/boosted_hyperopt_eccv12/Temp/simple_mix_id_nf.pkl'
-    array_ids = cPickle.load(open(filename))
-    print array_ids
 
+    if position is None:
+        position = os.getenv('PBS_ARRAYID')
+    array_ids = cPickle.load(open(ids_filename))
+    assert position is not None
+    position = int(position)
+    print len(array_ids)
+    print array_ids[position]
+    _id = array_ids['_id'][position]
+    return lfw_view2_fold_kernels_by_id('honeybadger', 'final_random', _id)
+
+
+def extract_kernel_par_tpe(ids_filename, position=None):
+    if position is None:
+        position = os.getenv('PBS_ARRAYID')
+    array_ids_list = cPickle.load(open(ids_filename))
+    assert position is not None
+    position = int(position)
+    _id = array_ids_list[position]['_id'][0]
+    return lfw_view2_fold_kernels_by_id('honeybadger', 'feb29_par_tpe', _id)
+
+
+def simple_vs_ada_curves():
+    sm_recarray = cPickle.load(open(simplemix_top_N_filename))
+    am_recarray = cPickle.load(open(adamix_top_N_filename))
+
+    
+    sm_top_20 = cPickle.load(open('simpleMix_top_20.pkl'))
+    am_top_20 = cPickle.load(open('adaMix_top_20.pkl'))
+
+    sm_by_topN = [np.mean([sm_top_20[(i, j)] for j in range(10)]) for i in range(20)]
+    am_by_topN = [np.mean([am_top_20[(i, j)] for j in range(10)]) for i in range(20)]
+
+    plt.plot(sm_by_topN)
+    plt.plot(am_by_topN)
+    plt.show()
 
 
 def list_errors(dbname):
