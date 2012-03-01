@@ -34,6 +34,7 @@ from eccv12.lfw import train_view2
 from eccv12.lfw import verification_pairs
 from eccv12.lfw import MainBandit
 from eccv12.lfw import MultiBandit
+from eccv12.lfw import get_model_shape
 from eccv12.experiments import SimpleMixture
 from eccv12.experiments import AdaboostMixture
 from eccv12.experiments import BoostHelper
@@ -559,6 +560,7 @@ def snapshot(dbname):
     ofile = open(dbname+'.snapshot.pkl', 'w')
     cPickle.dump(to_trials, ofile, -1)
 
+
 def history(host, dbname, key=None):
     exp_key = None if key is None else exp_keys[key]
     trials = MongoTrials(
@@ -577,6 +579,33 @@ def history(host, dbname, key=None):
     import matplotlib.pyplot as plt
     plt.scatter(range(len(losses)), losses)
     plt.show()
+
+def history_par_tpe(host, dbname):
+    trials = MongoTrials(
+            'mongo://%s:44556/%s/jobs' % (host, dbname),
+            refresh=False)
+    # XXX: Does not use bandit.loss
+    query = {'result.status': hyperopt.STATUS_OK}
+    docs = list(trials.handle.jobs.find( query,
+        {'tid': 1, 'result.loss': 1, 'exp_key': 1}))
+    tdocs = [(d['tid'], d) for d in docs]
+    tdocs.sort()
+    by_key = {}
+    for d in docs:
+        by_key.setdefault(d['exp_key'], []).append(d['result']['loss'])
+
+    import matplotlib.pyplot as plt
+    iii = 1
+    for i, (k, losses) in enumerate(by_key.items()):
+        if len(losses) < 50:
+            continue
+        print k, 'min', min(losses)
+        plt.subplot(2, 5, iii)
+        plt.scatter(range(len(losses)), losses)
+        plt.ylim(.15, .55)
+        iii += 1
+    plt.show()
+
 
 def hist(host, dbname, key=None):
     # XXX REFACTOR WITH ABOVE
@@ -703,4 +732,95 @@ def consolidate_random_jobs():
     for old_id, doc in all_docs.items():
         final.handle.jobs.insert(doc, safe=True)
 
+import pymongo as pm
 
+def insert_consolidated_feature_shapes(dbname,
+                                       trials=None,
+                                       host='honeybadger.rowland.org',
+                                       port=44556):
+    conn = pm.Connection(host=host, port=port)
+    Jobs = conn[dbname]['jobs']
+    if trials is None:
+        triallist = enumerate(Jobs.find({'result.status': hyperopt.STATUS_OK},
+                                        fields=['spec','result.num_features'],
+                                        timeout=False).sort('_id'))
+    else:
+        triallist = enumerate(trials)
+    for (_ind, j) in triallist:
+        print (_ind, j['_id'])
+        if 'num_features' not in j.get('result', {}):
+            shp = list(get_model_shape(j['spec']['model']))
+            num_features = int(np.prod(shp))
+            Jobs.update({'_id': j['_id']}, 
+                        {'$set':{'result.shape': shp,
+                                 'result.num_features': num_features}},
+                        upsert=False, safe=True, multi=False)
+                        
+                        
+def lfw_view2_final_get_mix(host='honeybadger.rowland.org',
+                            dbname='final_random',
+                            A=100):
+    trials = MongoTrials(
+            'mongo://%s:44556/%s/jobs' % (host, dbname),
+            exp_key=exp_keys['random'],
+            refresh=True)
+    return trials
+    bandit = MultiBandit()
+    simple_mix = SimpleMixture(trials, bandit)
+    simple_mix_trials =  simple_mix.mix_trials(int(A))
+    ada_mix = AdaboostMixture(trials, bandit)
+    ada_mix_trials =  ada_mix.mix_trials(int(A))    
+    
+    return simple_mix_trials, ada_mix_trials
+
+
+def get_top_tpe(N=1, dbname='feb29_par_tpe', host='honeybadger.rowland.org', port=44556):
+    conn = pm.Connection(host=host, port=port)
+    J = conn[dbname]['jobs']
+    K = [k for k  in conn['feb29_par_tpe']['jobs'].distinct('exp_key') if 'Async' in k]
+    R = [np.rec.array([(x['_id'], x['result']['loss'], x['result'].get('num_features',-1)) for x in J.find({'exp_key': k,
+                                                      'misc.boosting.round': 0,
+                                                      'result.status': hyperopt.STATUS_OK},
+                                                     fields=['result.loss','result.num_features'])],
+                      names = ['_id', 'loss', 'num_features'])
+         for k in K]
+    for r in R:
+        r.sort(order=['loss'])
+    R = [r[:N] for r in R]
+    return R
+
+
+def get_continues(tid, coll):
+    assert coll.find({'tid': tid, 'result.status': hyperopt.STATUS_OK}).count() == 1
+    new_misc = coll.find_one({'tid': tid})['misc']
+    if 'boosting' in new_misc:
+        new_tid = new_misc['boosting']['continues']
+    else:
+        assert 'from_tid' in new_misc
+        new_tid = coll.find_one({'tid': new_misc['from_tid']})['misc']['boosting']['continues']
+    
+    if new_tid is not None:
+        return [tid] + get_continues(new_tid, coll)
+    else:
+        return [tid]
+
+
+def get_tpe_chain(k, dbname='feb29_par_tpe', host='honeybadger.rowland.org', port=44556):
+    conn = pm.Connection(host=host, port=port)
+    J = conn[dbname]['jobs']
+    R = np.rec.array([(x['_id'], x['tid'], x['result']['loss']) for x in J.find({'exp_key':k, 'result.status': hyperopt.STATUS_OK},
+                                                                                fields=['result.loss','tid'])],
+                  names=['_id','tid','loss'])
+    top_tid = int(R['tid'][R['loss'].argmin()])
+    all_tids = get_continues(top_tid, J)
+    R = np.rec.array([(x['_id'], x['tid'], x['result']['loss'], x['result'].get('num_features',-1))
+                      for x in J.find({'tid': {'$in': all_tids}}, fields=['result.loss', 'tid', 'result.num_features'])],
+                     names=['_id','tid','loss','num_features'])
+    assert len(R) == len(all_tids)
+    return R
+
+def get_top_tpe_chains(dbname='feb29_par_tpe', host='honeybadger.rowland.org', port=44556):
+    conn = pm.Connection(host=host, port=port)
+    J = conn[dbname]['jobs']
+    K = [k for k  in J.distinct('exp_key') if 'Async' in k]
+    return [get_tpe_chain(k, dbname=dbname, host=host, port=port) for k in K]

@@ -231,6 +231,12 @@ def slm_memmap(desc, X, name, basedir=None):
     return rval
 
 
+def get_model_shape(model):
+   X = get_images('float32', preproc=model['preproc']) 
+   feat_fn = SLMFunction(model['slm'], X.shape[1:])
+   return feat_fn.slm.pythor_out_shape
+   
+
 @scope.define
 def delete_memmap(obj):
     """
