@@ -162,6 +162,7 @@ class AdaboostMixture(SimpleMixture):
                 if self.test_mask:
                     weights *= split_mask
             weights /= weights.sum(1)[:, np.newaxis]
+            
 
             # -- weighted error rate for each trial, split
             ep_array = (errors * weights).sum(2)
@@ -174,6 +175,7 @@ class AdaboostMixture(SimpleMixture):
             # -- determine the weight of the new ensemble member
             #    (within in eatch split... alpha is vector here)
             ep = ep_array[ind]
+
             alpha = 0.5 * np.log((1 - ep) / ep)
             alphas.append(alpha)
 
