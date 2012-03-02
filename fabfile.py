@@ -455,14 +455,6 @@ def adamix_top_N(N, trace_normalize='False', dryrun=False):
     return blend_top_N(int(N), dbname, _ids, 'adaMix_top_%i.pkl', bool(dryrun))
 
 
-def par_tpe_top_N(N, trace_normalize='False', dryrun=False):
-    filename='/home/dyamins/eccv12/boosted_hyperopt_eccv12/Temp/top_par_tpe_round_0.pkl'
-    dbname='feb29_par_tpe'
-    array_ids_list = cPickle.load(open(filename))
-    _ids = [ail['_id'][0] for ail in array_ids_list][:int(N)]
-    return blend_top_N(int(N), dbname, _ids, 'par_tpe_top_%i.pkl', bool(dryrun))
-
-
 def extract_kernel(ids_filename, position=None):
     # -- load index from PBS_ARRAYID
 
@@ -475,16 +467,6 @@ def extract_kernel(ids_filename, position=None):
     print array_ids[position]
     _id = array_ids['_id'][position]
     return lfw_view2_fold_kernels_by_id('honeybadger', 'final_random', _id)
-
-
-def extract_kernel_par_tpe(ids_filename, position=None):
-    if position is None:
-        position = os.getenv('PBS_ARRAYID')
-    array_ids_list = cPickle.load(open(ids_filename))
-    assert position is not None
-    position = int(position)
-    _id = array_ids_list[position]['_id'][0]
-    return lfw_view2_fold_kernels_by_id('honeybadger', 'feb29_par_tpe', _id)
 
 
 def simple_vs_ada_curves():
@@ -828,6 +810,35 @@ def get_top_tpe_chains(dbname='feb29_par_tpe', host='honeybadger.rowland.org', p
     K = [k for k  in J.distinct('exp_key') if 'Async' in k]
     return [get_tpe_chain(k, dbname=dbname, host=host, port=port) for k in K]
 
+
+par_tpe_top_N_filename = 'par_tpe_mix_id_nf_list.pkl'
+
+def save_par_tpe_top_N():
+    array_ids_list = get_top_tpe_chains()
+    _ids = []
+    for ail in array_ids_list:
+        _ids.extend(ail['_id'])
+    print 'Saving', len(_ids), 'IDs'
+    print _ids
+    cPickle.dump(array_ids_list, open(par_tpe_top_N_filename, 'w'))
+
+
+def par_tpe_top_N(N, trace_normalize='False', dryrun=False):
+    dbname='feb29_par_tpe'
+    array_ids_list = cPickle.load(open(par_tpe_top_N_filename))
+    _ids = []
+    for ail in array_ids_list:
+        _ids.extend(ail['_id'])
+    return blend_top_N(int(N), dbname, _ids, 'par_tpe_top_%i.pkl', bool(dryrun))
+
+
+def extract_kernel_par_tpe(position):
+    position = int(position)
+    array_ids_list = cPickle.load(open(par_tpe_top_N_filename))
+    _ids = []
+    for ail in array_ids_list:
+        _ids.extend(ail['_id'])
+    return lfw_view2_fold_kernels_by_id('honeybadger', 'feb29_par_tpe', _ids[position])
 
 def show_vars(key=None, dbname='march1_1', host='honeybadger.rowland.org', port=44556):
     conn = pm.Connection(host=host, port=port)
