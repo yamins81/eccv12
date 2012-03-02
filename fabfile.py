@@ -51,7 +51,7 @@ exp_keys = {
     'random_asyncB': u"ek_randombandit:eccv12.lfw.MultiBandit_num_features:128_meta_algo:eccv12.experiments.AsyncBoostingAlgoB_bandit_algo:hyperopt.base.Random_meta_kwargs:{'round_len': 200}",
     'tpe_asyncB_no_inj': "ek_tpeuse_injected:False_bandit:eccv12.lfw.MultiBandit_num_features:128_meta_algo:eccv12.experiments.AsyncBoostingAlgoB_bandit_algo:hyperopt.tpe.TreeParzenEstimator_meta_kwargs:{'round_len': 200}",
     'tpe_no_inj': "ek_tpeuse_injected:False_bandit:eccv12.lfw.MultiBandit_num_features:128_bandit_algo:hyperopt.tpe.TreeParzenEstimator",
-    'tpe0':"ek_tpe0bandit:eccv12.lfw.MultiBandit_num_features:128_meta_algo:eccv12.experiments.AsyncBoostingAlgoB_bandit_algo:hyperopt.tpe.TreeParzenEstimator_meta_kwargs:{'round_len': 500}"
+    'tpe0':"ek_tpe0bandit:eccv12.lfw.MultiBandit_num_features:128_meta_algo:eccv12.experiments.AsyncBoostingAlgoB_bandit_algo:hyperopt.tpe.TreeParzenEstimator_meta_kwargs:{'round_len': 1000}"
     }
 
 def _show_keys(docs):
@@ -576,11 +576,13 @@ def history_par_tpe(host, dbname):
     query = {'result.status': hyperopt.STATUS_OK}
     docs = list(trials.handle.jobs.find( query,
         {'tid': 1, 'result.loss': 1, 'exp_key': 1}))
-    tdocs = [(d['tid'], d) for d in docs]
+    tdocs = [(d['tid'], d) for d in docs if d['exp_key'].startswith('tpe_l3')]
     tdocs.sort()
     by_key = {}
-    for d in docs:
+    for tid, d in tdocs:
         by_key.setdefault(d['exp_key'], []).append(d['result']['loss'])
+
+    print len(by_key)
 
     iii = 1
     for i, (k, losses) in enumerate(by_key.items()):
