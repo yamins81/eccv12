@@ -51,6 +51,7 @@ exp_keys = {
     'random_asyncB': u"ek_randombandit:eccv12.lfw.MultiBandit_num_features:128_meta_algo:eccv12.experiments.AsyncBoostingAlgoB_bandit_algo:hyperopt.base.Random_meta_kwargs:{'round_len': 200}",
     'tpe_asyncB_no_inj': "ek_tpeuse_injected:False_bandit:eccv12.lfw.MultiBandit_num_features:128_meta_algo:eccv12.experiments.AsyncBoostingAlgoB_bandit_algo:hyperopt.tpe.TreeParzenEstimator_meta_kwargs:{'round_len': 200}",
     'tpe_no_inj': "ek_tpeuse_injected:False_bandit:eccv12.lfw.MultiBandit_num_features:128_bandit_algo:hyperopt.tpe.TreeParzenEstimator",
+    'tpe0':"ek_tpe0bandit:eccv12.lfw.MultiBandit_num_features:128_meta_algo:eccv12.experiments.AsyncBoostingAlgoB_bandit_algo:hyperopt.tpe.TreeParzenEstimator_meta_kwargs:{'round_len': 500}"
     }
 
 def _show_keys(docs):
@@ -599,15 +600,12 @@ def history_par_tpe(host, dbname):
     for d in docs:
         by_key.setdefault(d['exp_key'], []).append(d['result']['loss'])
 
-    import matplotlib.pyplot as plt
     iii = 1
     for i, (k, losses) in enumerate(by_key.items()):
-        if len(losses) < 50:
-            continue
         print k, 'min', min(losses)
         plt.subplot(2, 5, iii)
         plt.scatter(range(len(losses)), losses)
-        plt.ylim(.15, .55)
+        plt.ylim(.10, .55)
         iii += 1
     plt.show()
 
@@ -835,6 +833,8 @@ def show_vars(key=None, dbname='march1_1', host='honeybadger.rowland.org', port=
     conn = pm.Connection(host=host, port=port)
     J = conn[dbname]['jobs']
     K = [k for k  in conn[dbname]['jobs'].distinct('exp_key')]
+    for k in K:
+        print k
     if key is None:
         raise NotImplementedError()
     else:
