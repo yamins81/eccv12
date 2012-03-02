@@ -121,7 +121,7 @@ def chunked_linear_kernel(Xs, Ys, use_theano, symmetric):
     return rval
 
 
-def linear_kernel(X, Y, use_theano):
+def linear_kernel(X, Y, use_theano, block_size=1000):
     """Compute a linear kernel in blocks so that it can use a GPU with limited
     memory.
 
@@ -133,18 +133,18 @@ def linear_kernel(X, Y, use_theano):
         \sum_j len(Ys[j]) cols
     """
 
+    def chunk(Z):
+        Zs = []
+        ii = 0
+        while len(Z[ii:ii + block_size]):
+            Zs.append(Z[ii:ii + block_size])
+            ii += block_size
+        return Zs
 
-    n_blocks = 10
-    if len(X) % n_blocks:
-        raise NotImplementedError()
-    if len(Y) % n_blocks:
-        raise NotImplementedError()
-    x_block_size = len(X) / n_blocks
-    y_block_size = len(Y) / n_blocks
+    Xs = chunk(X)
+    Ys = chunk(Y)
 
-    Xs = [X[ii * x_block_size : (ii + 1) * x_block_size]
-            for ii in range(n_blocks)]
-    Ys = [Y[ii * y_block_size : (ii + 1) * y_block_size]
-            for ii in range(n_blocks)]
+    assert sum([len(xi) for xi in Xs]) == len(X)
+    assert sum([len(yi) for yi in Ys]) == len(Y)
     return chunked_linear_kernel(Xs, Ys, use_theano, symmetric=(X is Y))
 
