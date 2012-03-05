@@ -51,6 +51,11 @@ exp_keys = {
     'random_asyncB': u"ek_randombandit:eccv12.lfw.MultiBandit_num_features:128_meta_algo:eccv12.experiments.AsyncBoostingAlgoB_bandit_algo:hyperopt.base.Random_meta_kwargs:{'round_len': 200}",
     'tpe_asyncB_no_inj': "ek_tpeuse_injected:False_bandit:eccv12.lfw.MultiBandit_num_features:128_meta_algo:eccv12.experiments.AsyncBoostingAlgoB_bandit_algo:hyperopt.tpe.TreeParzenEstimator_meta_kwargs:{'round_len': 200}",
     'tpe_no_inj': "ek_tpeuse_injected:False_bandit:eccv12.lfw.MultiBandit_num_features:128_bandit_algo:hyperopt.tpe.TreeParzenEstimator",
+    'tpe0':"ek_tpe0bandit:eccv12.lfw.MultiBandit_num_features:128_meta_algo:eccv12.experiments.AsyncBoostingAlgoB_bandit_algo:hyperopt.tpe.TreeParzenEstimator_meta_kwargs:{'round_len': 500}",
+    'tpe1':"ek_tpe1bandit:eccv12.lfw.MultiBandit_num_features:128_meta_algo:eccv12.experiments.AsyncBoostingAlgoB_bandit_algo:hyperopt.tpe.TreeParzenEstimator_meta_kwargs:{'round_len': 500}",
+    'tpe2':"ek_tpe2bandit:eccv12.lfw.MultiBandit_num_features:128_meta_algo:eccv12.experiments.AsyncBoostingAlgoB_bandit_algo:hyperopt.tpe.TreeParzenEstimator_meta_kwargs:{'round_len': 500}",
+    'tpe3':"ek_tpe3bandit:eccv12.lfw.MultiBandit_num_features:128_meta_algo:eccv12.experiments.AsyncBoostingAlgoB_bandit_algo:hyperopt.tpe.TreeParzenEstimator_meta_kwargs:{'round_len': 500}",
+    'tpe4':"ek_tpe4bandit:eccv12.lfw.MultiBandit_num_features:128_meta_algo:eccv12.experiments.AsyncBoostingAlgoB_bandit_algo:hyperopt.tpe.TreeParzenEstimator_meta_kwargs:{'round_len': 500}",
     }
 
 def _show_keys(docs):
@@ -347,14 +352,13 @@ def lfw_view2_random_AsyncB(host, dbname, A):
                 use_libsvm={'kernel':'precomputed'})
 
 
-def top_results(host, dbname, key, N):
+def top_results(host, dbname, N):
     trials = MongoTrials(
             'mongo://%s:44556/%s/jobs' % (host, dbname),
             refresh=False)
     port=44556
-    # feb29_par_tpe
     conn = pm.Connection(host=host, port=port)
-    K = [k for k  in conn[dbname]['jobs'].distinct('exp_key') if 'Async' in k]
+    K = [k for k  in conn[dbname]['jobs'].distinct('exp_key')]
     for exp_key in K:
         # XXX: Does not use bandit.loss
         docs = list(trials.handle.jobs.find(
@@ -622,21 +626,23 @@ def history_par_tpe(host, dbname):
     query = {'result.status': hyperopt.STATUS_OK}
     docs = list(trials.handle.jobs.find( query,
         {'tid': 1, 'result.loss': 1, 'exp_key': 1}))
+    #tdocs = [(d['tid'], d) for d in docs if d['exp_key'].startswith('tpe_l3')]
     tdocs = [(d['tid'], d) for d in docs]
     tdocs.sort()
     by_key = {}
-    for d in docs:
+    for tid, d in tdocs:
         by_key.setdefault(d['exp_key'], []).append(d['result']['loss'])
 
-    import matplotlib.pyplot as plt
+    print len(by_key)
+    kl_items = by_key.items()
+    kl_items.sort()
+
     iii = 1
-    for i, (k, losses) in enumerate(by_key.items()):
-        if len(losses) < 50:
-            continue
+    for i, (k, losses) in enumerate(kl_items):
         print k, 'min', min(losses)
         plt.subplot(2, 5, iii)
         plt.scatter(range(len(losses)), losses)
-        plt.ylim(.15, .55)
+        plt.ylim(.10, .55)
         iii += 1
     plt.show()
 
@@ -893,10 +899,12 @@ def show_vars(key=None, dbname='march1_1', host='honeybadger.rowland.org', port=
     conn = pm.Connection(host=host, port=port)
     J = conn[dbname]['jobs']
     K = [k for k  in conn[dbname]['jobs'].distinct('exp_key')]
+    for k in K:
+        print k
     if key is None:
         raise NotImplementedError()
     else:
-        exp_key = exp_keys[key]
+        exp_key = exp_keys.get(key, key)
         docs = list(
                 conn[dbname]['jobs'].find(
                     {'exp_key': exp_key},
@@ -910,7 +918,8 @@ def show_vars(key=None, dbname='march1_1', host='honeybadger.rowland.org', port=
                         'misc.idxs':1,
                         'misc.vals': 1,
                     }))
+    import eccv12.lfw
     trials = hyperopt.trials_from_docs(docs, validate=False)
-    hyperopt.plotting.main_plot_vars(trials, bandit=MultiBandit())
+    hyperopt.plotting.main_plot_vars(trials, bandit=eccv12.lfw.MultiBanditL3())
 
 
