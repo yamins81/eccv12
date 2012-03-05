@@ -306,3 +306,27 @@ def pyll_param_func(nf=None):
 
     return one_of(l3_slm, l2_slm)
 
+
+def pyll_param_func_l3(nf=None):
+    """
+    Return a template for lfw.MainBandit that describes a hyperopt-friendly
+    description of the search space.
+
+    The goal here is to approximately match the FG11 sampling distribution,
+    while smoothing out the search space by using quantized ranges and
+    continuous variables where appropriate.
+    """
+
+    # N.B. that each layer is constructed with distinct objects
+    # we don't want to use the same norm_shape_size at every layer.
+    preproc_l2, preproc_l3 = pf_preproc()
+
+    l0_3 = [pf_lnorm()]
+    l1_3 = [pf_fbcorr(64 + 32, 1), pf_lpool(), pf_lnorm()]
+    l2_3 = [pf_fbcorr(128 + 64, 11), pf_lpool(), pf_lnorm()]
+    l3_3 = [pf_fbcorr(256 + 128, 111, nf), pf_lpool(), pf_lnorm()]
+
+    l3_slm = dict(slm=[l0_3, l1_3, l2_3, l3_3], preproc=preproc_l3)
+
+    return l3_slm
+
