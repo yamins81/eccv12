@@ -572,6 +572,7 @@ def history(host, dbname, key=None):
     plt.scatter(range(len(losses)), losses)
     plt.show()
 
+
 def history_par_tpe(host, dbname):
     trials = MongoTrials(
             'mongo://%s:44556/%s/jobs' % (host, dbname),
@@ -591,10 +592,13 @@ def history_par_tpe(host, dbname):
     kl_items = by_key.items()
     kl_items.sort()
 
+    ROWS = int(np.ceil(len(kl_items) / 5.0))
+
     iii = 1
     for i, (k, losses) in enumerate(kl_items):
         print k, 'min', min(losses)
-        plt.subplot(2, 5, iii)
+        plt.subplot(ROWS, 5, iii)
+        plt.title(k)
         plt.scatter(range(len(losses)), losses)
         plt.ylim(.10, .55)
         iii += 1
