@@ -92,24 +92,24 @@ def lfw_suggest(dbname, port=44556, **kwargs):
     exp.run(sys.maxint, block_until_done=True)
 
 
-def lfw_suggest_parallel_tpe():
-    dbname = 'feb29_par_tpe'
+def lfw_suggest_parallel_tpe(dbname, ENUM, n_exps):
     port = 44556
     port = int(port)
     trials = MongoTrials('mongo://localhost:%d/%s/jobs' % (port, dbname),
                         refresh=False)
     #### trials.handle.delete_all()
+    ntrials = 500
     def add_exps(bandit_algo_class, exp_prefix):
-        B = BudgetExperiment(ntrials=500, save=False, trials=trials,
+        B = BudgetExperiment(ntrials=ntrials, save=False, trials=trials,
                 num_features=128 * 10,
                 ensemble_sizes=[10],
                 bandit_algo_class=bandit_algo_class,
                 exp_prefix=exp_prefix,
                 run_parallel=False)
         return B
-    N = NestedExperiment(trials=trials, ntrials=500, save=False)
+    N = NestedExperiment(trials=trials, ntrials=ntrials, save=False)
     priorities = {}
-    for i in range(10):
+    for i in range(int(ENUM),int(ENUM)+int(n_exps)):
         N.add_exp(add_exps(hyperopt.TreeParzenEstimator, 'ek_tpe%i' % i),
                 'TPE%i' % i)
         priorities['TPE%i.fixed_features_10.AsyncBoostB' % i] = 1
@@ -118,6 +118,49 @@ def lfw_suggest_parallel_tpe():
     # -- the interleaving algo will break out of this
     exp.run(sys.maxint, block_until_done=True)
 
+
+def lfw_suggest_l3(dbname, port=44556):
+    from eccv12.lfw import MultiBanditL3
+    from eccv12.experiments import InterleaveAlgo
+    from hyperopt import TreeParzenEstimator
+    port = int(port)
+    trials = MongoTrials('mongo://localhost:%d/%s/jobs' % (port, dbname),
+                        refresh=False)
+    algos = []
+    keys = []
+    for i in range(5):
+        algos.append(
+            TreeParzenEstimator(
+                MultiBanditL3(),
+                cmd=('bandit_json evaluate', 'eccv12.lfw.MultiBanditL3'),
+                n_EI_candidates=512,
+                gamma=.20,
+                n_startup_jobs=2,
+                linear_forgetting=50,
+                ))
+        keys.append('tpe_l3_lf50_ns2_g20_%i' % i)
+    algo = InterleaveAlgo(algos, keys)
+    exp = hyperopt.Experiment(trials, algo, poll_interval_secs=.1)
+    exp.run(sys.maxint, block_until_done=True)
+
+
+def lfw_suggest_tpe_fg11(dbname, port=44556):
+    from eccv12.lfw import FG11Bandit
+    from eccv12.experiments import InterleaveAlgo
+    from hyperopt import TreeParzenEstimator
+    port = int(port)
+    trials = MongoTrials('mongo://localhost:%d/%s/jobs' % (port, dbname),
+                        refresh=False)
+    algos = []
+    keys = []
+    for i in range(3):
+        algos.append(TreeParzenEstimator(
+            FG11Bandit(),
+            cmd=('bandit_json evaluate', 'eccv12.lfw.FG11Bandit')))
+        keys.append('tpe_fg11_%i' % i)
+    algo = InterleaveAlgo(algos, keys)
+    exp = hyperopt.Experiment(trials, algo, poll_interval_secs=.1)
+    exp.run(sys.maxint, block_until_done=True)
 
 
 def lfw_view2_randomL(host, dbname):
@@ -309,19 +352,22 @@ def lfw_view2_random_AsyncB(host, dbname, A):
                 use_libsvm={'kernel':'precomputed'})
 
 
-def top_results(host, dbname, key, N):
+def top_results(host, dbname, N):
     trials = MongoTrials(
             'mongo://%s:44556/%s/jobs' % (host, dbname),
-            exp_key=exp_keys[key],
             refresh=False)
-    # XXX: Does not use bandit.loss
-    docs = list(trials.handle.jobs.find(
-        {'exp_key': exp_keys[key], 'result.status': hyperopt.STATUS_OK},
-        {'_id': 1, 'result.loss': 1, 'spec.model.slm': 1}))
-    losses_ids = [(d['result']['loss'], d['_id'], len(d['spec']['model']['slm'])) for d in docs]
-    losses_ids.sort()
-    for tup in losses_ids[:int(N)]:
-        print tup
+    port=44556
+    conn = pm.Connection(host=host, port=port)
+    K = [k for k  in conn[dbname]['jobs'].distinct('exp_key')]
+    for exp_key in K:
+        # XXX: Does not use bandit.loss
+        docs = list(trials.handle.jobs.find(
+            {'exp_key': exp_key, 'result.status': hyperopt.STATUS_OK},
+            {'_id': 1, 'result.loss': 1, 'spec': 1}))
+        losses_ids = [(d['result']['loss'], d) for d in docs]
+        losses_ids.sort()
+        for l, d in losses_ids[:int(N)]:
+            print l, d['_id'], len(d['spec']['model']['slm'])
 
 def Ktrain_name(dbname, _id, fold):
     namebase = '%s_%s' % (dbname, _id)
@@ -879,4 +925,5 @@ def show_vars(key=None, dbname='march1_1', host='honeybadger.rowland.org', port=
     import eccv12.lfw
     trials = hyperopt.trials_from_docs(docs, validate=False)
     hyperopt.plotting.main_plot_vars(trials, bandit=eccv12.lfw.MultiBanditL3())
+
 

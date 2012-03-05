@@ -4,6 +4,7 @@ Experiment classes
 
 import logging
 import sys
+import time
 logger = logging.getLogger(__name__)
 
 import numpy as np
@@ -261,7 +262,11 @@ class InterleaveAlgo(hyperopt.BanditAlgo):
                     #     In future consider adding a refresh=False
                     #     to constructor, to prevent this transfer.
                     sub_trial.refresh()
+                    t_before = time.time()
                     smth = sub_algo.suggest([new_id], sub_trial)
+                    t_after = time.time()
+                    logger.info('%s.suggest() took %f seconds' % (
+                            sub_algo, t_after - t_before))
                     if smth is hyperopt.StopExperiment:
                         logger.info('stopping experiment (%i: %s)' %
                                     (active, sub_algo))

@@ -140,6 +140,19 @@ class MultiBandit(hyperopt.Bandit):
         return my_result
 
 
+class MultiBanditL3(MultiBandit):
+    def __init__(self, n_features=None):
+        # if n-features is given, it will set the number of filters
+        # in the top-most layer
+        self.comparison = scope.one_of('mult', 'sqrtabsdiff')
+        template = dict(
+                model=model_params.pyll_param_func_l3(n_features),
+                comparison=self.comparison,
+                decisions=None,
+                )
+        hyperopt.Bandit.__init__(self, template)
+
+
 class TestBandit(MainBandit):
         param_gen = dict(
                         model=model_params.test_params,
