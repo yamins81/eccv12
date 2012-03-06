@@ -133,8 +133,8 @@ def lfw_suggest_l3(dbname, port=44556):
             TreeParzenEstimator(
                 MultiBanditL3(),
                 cmd=('bandit_json evaluate', 'eccv12.lfw.MultiBanditL3'),
-                n_EI_candidates=512,
                 gamma=.20,
+                n_EI_candidates=64,
                 n_startup_jobs=2,
                 linear_forgetting=50,
                 ))
