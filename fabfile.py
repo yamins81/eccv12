@@ -542,12 +542,14 @@ def simple_vs_ada_curves():
     plt.show()
 
 
-def list_errors(dbname):
-    trials = MongoTrials('mongo://localhost:44556/%s/jobs' % dbname,
-                         refresh=False)
+def list_errors(dbname,host='localhost'):
+    trials = MongoTrials(
+            'mongo://%s:44556/%s/jobs' % (host, dbname),
+            refresh=False)
     for doc in trials.handle:
         if doc['state'] == hyperopt.JOB_STATE_ERROR:
             print doc['_id'], doc['tid'], doc['book_time'], doc['error']
+            print doc['spec']
 
 
 def validate_from_tids(dbname):
@@ -618,6 +620,7 @@ def history(host, dbname, key=None):
     plt.scatter(range(len(losses)), losses)
     plt.show()
 
+
 def history_par_tpe(host, dbname):
     trials = MongoTrials(
             'mongo://%s:44556/%s/jobs' % (host, dbname),
@@ -637,10 +640,13 @@ def history_par_tpe(host, dbname):
     kl_items = by_key.items()
     kl_items.sort()
 
+    ROWS = int(np.ceil(len(kl_items) / 5.0))
+
     iii = 1
     for i, (k, losses) in enumerate(kl_items):
         print k, 'min', min(losses)
-        plt.subplot(2, 5, iii)
+        plt.subplot(ROWS, 5, iii)
+        plt.title(k)
         plt.scatter(range(len(losses)), losses)
         plt.ylim(.10, .55)
         iii += 1
@@ -921,5 +927,26 @@ def show_vars(key=None, dbname='march1_1', host='honeybadger.rowland.org', port=
     import eccv12.lfw
     trials = hyperopt.trials_from_docs(docs, validate=False)
     hyperopt.plotting.main_plot_vars(trials, bandit=eccv12.lfw.MultiBanditL3())
+
+
+
+def trigger_memory_error():
+    from bson import SON
+    spec = SON([
+        (u'comparison', u'mult'),
+        (u'model', SON([
+            (u'preproc', SON([(u'global_normalize', 0), (u'crop', [0, 0, 250, 250]), (u'size', [200, 200])])),
+            (u'slm', [
+                [
+                    [u'lnorm', SON([(u'kwargs', SON([(u'inker_shape', [2, 2]), (u'outker_shape', [2, 2]), (u'remove_mean', 0), (u'threshold', 1.3630454074164826), (u'stretch', 7.473159021669531)]))])]],
+                [[u'fbcorr', SON([(u'initialize', SON([(u'n_filters', 80), (u'filter_shape', [3, 3]), (u'generate', [u'random:uniform', SON([(u'rseed', 3)])])])), (u'kwargs', SON([]))])], [u'lpool', SON([(u'kwargs', SON([(u'ker_shape', [6, 6]), (u'order', 1.324551874573359), (u'stride', 2)]))])], [u'lnorm', SON([(u'kwargs', SON([(u'inker_shape', [9, 9]), (u'outker_shape', [9, 9]), (u'remove_mean', 0), (u'threshold', 0.40827368622165894), (u'stretch', 7.584735455541132)]))])]],
+                [[u'fbcorr', SON([(u'initialize', SON([(u'n_filters', 192), (u'filter_shape', [7, 7]), (u'generate', [u'random:uniform', SON([(u'rseed', 11)])])])), (u'kwargs', SON([]))])], [u'lpool', SON([(u'kwargs', SON([(u'ker_shape', [3, 3]), (u'order', 1.5466212385654194), (u'stride', 2)]))])], [u'lnorm', SON([(u'kwargs', SON([(u'inker_shape', [2, 2]), (u'outker_shape', [2, 2]), (u'remove_mean', 0), (u'threshold', 4.600337141715876), (u'stretch', 5.038921380433382)]))])]],
+                [[u'fbcorr', SON([(u'initialize', SON([(u'n_filters', 256), (u'filter_shape', [9, 9]), (u'generate', [u'random:uniform', SON([(u'rseed', 115)])])])), (u'kwargs', SON([]))])], [u'lpool', SON([(u'kwargs', SON([(u'ker_shape', [9, 9]), (u'order', 2.9238383767515814), (u'stride', 2)]))])], [u'lnorm', SON([(u'kwargs', SON([(u'inker_shape', [4, 4]), (u'outker_shape', [4, 4]), (u'remove_mean', 1), (u'threshold', 0.11847254841570273), (u'stretch', 3.3880532176663203)]))])]]
+                ])])),
+        (u'decisions', None)])
+
+    bandit = MultiBandit()
+    ctrl=None
+    bandit.evaluate(spec, ctrl)
 
 
