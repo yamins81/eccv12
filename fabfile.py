@@ -945,8 +945,17 @@ def trigger_memory_error():
                 ])])),
         (u'decisions', None)])
 
-    bandit = MultiBandit()
-    ctrl=None
-    bandit.evaluate(spec, ctrl)
+    if 0:
+        # This triggers the problem. it takes just over 1 minute
+        bandit = MultiBandit()
+        ctrl=None
+        bandit.evaluate(spec, ctrl)
+
+    else:
+        from thoreano.slm import SLMFunction
+        feat_fn = SLMFunction(spec['model']['slm'], (200, 200, 1))
+        arr = np.random.rand(200, 200).astype('float32')
+        feat_fn(arr)
+        feat_fn(arr)
 
 
