@@ -22,3 +22,6 @@
 [submodule "scikit-learn"]
 	path = scikit-learn
 	url = git://github.com/yamins81/scikit-learn.git
+[submodule "Theano"]
+	path = Theano
+	url = git@github.com:jaberg/Theano.git
