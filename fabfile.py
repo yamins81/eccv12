@@ -22,10 +22,13 @@ import matplotlib
 #matplotlib.use('gtkAgg')
 import matplotlib.pyplot as plt
 
+import pyll
+
 import hyperopt
 from hyperopt.mongoexp import MongoTrials
 from eccv12 import toyproblem
 from eccv12 import utils
+from eccv12 import model_params
 from eccv12.eccv12 import main_lfw_driver
 from eccv12.eccv12 import BudgetExperiment
 from eccv12.eccv12 import NestedExperiment
@@ -370,29 +373,34 @@ def top_results(host, dbname, N, port=44556):
         for l, d in losses_ids[:int(N)]:
             print l, d['_id'], len(d['spec']['model']['slm'])
 
+
 def Ktrain_name(dbname, _id, fold):
     namebase = '%s_%s' % (dbname, _id)
     return namebase + '_fold_%i_Ktrain.npy' % fold
+
 
 def Ktest_name(dbname, _id, fold):
     namebase = '%s_%s' % (dbname, _id)
     return namebase + '_fold_%i_Ktest.npy' % fold
 
-def lfw_view2_fold_kernels_by_id(host, dbname, _id):
-    import bson
-    trials = MongoTrials(
-            'mongo://%s:44556/%s/jobs' % (host, dbname),
-            refresh=False)
-    doc = trials.handle.jobs.find_one({'_id': bson.objectid.ObjectId(_id)})
-    print 'TRIAL:', doc['_id']
-    print 'SPEC :', doc['spec']
-    print 'LOSS :', doc['result']['loss']
-    namebase = '%s_%s' % (dbname, doc['_id'])
-    image_features, pair_features = get_view2_features(
-            slm_desc=doc['spec']['model']['slm'],
-            preproc=doc['spec']['model']['preproc'],
-            comparison=doc['spec']['comparison'],
+
+def lfw_view2_fold_kernels_fg11():
+    L = FG11Bandit()
+    config = pyll.stochastic.sample(L.template, np.random.RandomState(0))
+    config['decisions'] = None
+    config['slm'] = pyll.stochastic.sample(pyll.as_apply(model_params.fg11_top),
+            np.random.RandomState(0))
+
+    lfw_view2_fold_kernels_by_spec(config, 'fakedbFG11', 'best0')
+
+
+def lfw_view2_fold_kernels_by_spec(doc_spec_model, dbname, _id):
+    namebase = '%s_%s' % (dbname, _id)
+    image_features, pair_features_by_comp = get_view2_features(
+            slm_desc=doc_spec_model['slm'],
+            preproc=doc_spec_model['preproc'],
             namebase=namebase,
+            comparison=['mult', 'sqrtabsdiff'],
             basedir=os.getcwd(),
             )
 
@@ -401,38 +409,66 @@ def lfw_view2_fold_kernels_by_id(host, dbname, _id):
 
     for test_fold in range(10):
         try:
-            open(Ktest_name(dbname, doc['_id'], test_fold)).close()
+            open(Ktest_name(dbname, _id, test_fold)).close()
             continue
         except IOError:
             pass
         print ('FOLD %i' % test_fold)
-        test_X = pair_features[test_fold][:]
-        test_y = split_data[test_fold][2]
+        blend_train = blend_test = None
+        for comp, pf in pair_features_by_comp.items():
+            test_X = pf[test_fold][:]
+            test_y = split_data[test_fold][2]
 
-        train_inds = [_ind for _ind in range(10) if _ind != test_fold]
-        train_X = np.vstack([pair_features[ii][:] for ii in train_inds])
-        print train_X.shape
-        train_y = np.concatenate([split_data[_ind][2] for _ind in train_inds])
+            train_inds = [ii for ii in range(10) if ii != test_fold]
+            train_X = np.vstack([pf[ii][:] for ii in train_inds])
+            train_y = np.concatenate([split_data[_ind][2] for _ind in train_inds])
 
-        train_Xyd_n, test_Xyd_n = toyproblem.normalize_Xcols(
-            (train_X, train_y, None,),
-            (test_X, test_y, None,))
+            train_Xyd_n, test_Xyd_n = toyproblem.normalize_Xcols(
+                (train_X, train_y, None,),
+                (test_X, test_y, None,))
 
-        print ('Computing training kernel ...')
-        (_Xtrain, _ytrain, _dtrain) = train_Xyd_n
-        Ktrain = utils.linear_kernel(_Xtrain, _Xtrain, use_theano=True)
-        print ('... computed training kernel of shape', Ktrain.shape)
+            print ('Computing training kernel. n_features=%i' %
+                    train_X.shape[1])
+            (_Xtrain, _ytrain, _dtrain) = train_Xyd_n
+            Ktrain = utils.linear_kernel(_Xtrain, _Xtrain, use_theano=True)
 
-        print ('Computing testtrain kernel ...')
-        (_Xtest, _ytest, _dtest) = test_Xyd_n
-        Ktest = utils.linear_kernel(_Xtest, _Xtrain, use_theano=True)
-        print ('... computed testtrain kernel of shape', Ktest.shape)
+            print ('Computing testtrain kernel ...')
+            (_Xtest, _ytest, _dtest) = test_Xyd_n
+            Ktest = utils.linear_kernel(_Xtest, _Xtrain, use_theano=True)
 
-        np.save(Ktrain_name(dbname, doc['_id'], test_fold), Ktrain)
-        np.save(Ktest_name(dbname, doc['_id'], test_fold), Ktest)
+            if blend_train is None:
+                blend_train = Ktrain
+                blend_test = Ktest
+            else:
+                blend_train += Ktrain
+                blend_test += Ktest
+
+        np.save(Ktrain_name(dbname, _id, test_fold), blend_train)
+        np.save(Ktest_name(dbname, _id, test_fold), blend_test)
 
 
-def blend_top_N(N, dbname, _ids, out_template, dryrun=False):
+def lfw_view2_fold_kernels_by_id(host, dbname, _id, port=44556):
+    import bson
+    trials = MongoTrials(
+            'mongo://%s:%s/%s/jobs' % (host, port, dbname),
+            refresh=False)
+    doc = trials.handle.jobs.find_one({'_id': bson.objectid.ObjectId(_id)})
+    print 'TRIAL:', doc['_id']
+    print 'SPEC :', doc['spec']
+    print 'LOSS :', doc['result']['loss']
+    return lfw_view2_fold_kernels_by_spec(
+            doc['spec']['model'], dbname, doc['_id'])
+
+
+def blend_N(N, dbname, out_template, dryrun, *_ids):
+    return blend_top_N(int(N), dbname, _ids, out_template, int(dryrun))
+
+def run_each(dbname, out_template, dryrun, *_ids):
+    for _id in _ids:
+        blend_top_N(1, dbname, [_id], out_template, int(dryrun), C=0.1)
+
+
+def blend_top_N(N, dbname, _ids, out_template, dryrun=False, C=100):
     import  eccv12.classifier
     # allocate the gram matrix for each fold
     # This will be incremented as we loop over the top models
@@ -474,7 +510,7 @@ def blend_top_N(N, dbname, _ids, out_template, dryrun=False):
                     (Ktrains[test_fold], train_y, None),
                     labelset=[-1, 1],
                     model_type='svm.SVC',
-                    model_kwargs={'kernel': 'precomputed', 'C': 100},
+                    model_kwargs={'kernel': 'precomputed', 'C': C},
                     normalization=False
                     )
             test_predictions = svm.predict(Ktests[test_fold])
@@ -486,7 +522,8 @@ def blend_top_N(N, dbname, _ids, out_template, dryrun=False):
             print 'Mean', member_position, np.mean(
                 [test_errs[(member_position, ii)] for ii in range(10)])
 
-            cPickle.dump(test_errs,
+            if out_template:
+                cPickle.dump(test_errs,
                          open(out_template % member_position,'w'))
 
 simplemix_top_N_filename = 'simple_mix_id_nf.pkl'
