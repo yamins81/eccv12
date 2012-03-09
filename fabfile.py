@@ -682,7 +682,9 @@ def history_par_tpe(host, dbname):
 
     iii = 1
     for i, (k, losses) in enumerate(kl_items):
-        print k, 'min', min(losses)
+        minloss = min(losses)
+        print k, 'min', minloss, [d['_id']
+                for t, d in tdocs if d['result']['loss'] == minloss]
         plt.subplot(ROWS, 5, iii)
         plt.title(k)
         plt.scatter(range(len(losses)), losses)
