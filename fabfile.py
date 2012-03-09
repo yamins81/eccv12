@@ -969,33 +969,3 @@ def show_vars(key=None, dbname='march1_1', host='honeybadger.rowland.org', port=
     hyperopt.plotting.main_plot_vars(trials, bandit=eccv12.lfw.MultiBanditL3())
 
 
-
-def trigger_memory_error():
-    from bson import SON
-    spec = SON([
-        (u'comparison', u'mult'),
-        (u'model', SON([
-            (u'preproc', SON([(u'global_normalize', 0), (u'crop', [0, 0, 250, 250]), (u'size', [200, 200])])),
-            (u'slm', [
-                [
-                    [u'lnorm', SON([(u'kwargs', SON([(u'inker_shape', [2, 2]), (u'outker_shape', [2, 2]), (u'remove_mean', 0), (u'threshold', 1.3630454074164826), (u'stretch', 7.473159021669531)]))])]],
-                [[u'fbcorr', SON([(u'initialize', SON([(u'n_filters', 80), (u'filter_shape', [3, 3]), (u'generate', [u'random:uniform', SON([(u'rseed', 3)])])])), (u'kwargs', SON([]))])], [u'lpool', SON([(u'kwargs', SON([(u'ker_shape', [6, 6]), (u'order', 1.324551874573359), (u'stride', 2)]))])], [u'lnorm', SON([(u'kwargs', SON([(u'inker_shape', [9, 9]), (u'outker_shape', [9, 9]), (u'remove_mean', 0), (u'threshold', 0.40827368622165894), (u'stretch', 7.584735455541132)]))])]],
-                [[u'fbcorr', SON([(u'initialize', SON([(u'n_filters', 192), (u'filter_shape', [7, 7]), (u'generate', [u'random:uniform', SON([(u'rseed', 11)])])])), (u'kwargs', SON([]))])], [u'lpool', SON([(u'kwargs', SON([(u'ker_shape', [3, 3]), (u'order', 1.5466212385654194), (u'stride', 2)]))])], [u'lnorm', SON([(u'kwargs', SON([(u'inker_shape', [2, 2]), (u'outker_shape', [2, 2]), (u'remove_mean', 0), (u'threshold', 4.600337141715876), (u'stretch', 5.038921380433382)]))])]],
-                [[u'fbcorr', SON([(u'initialize', SON([(u'n_filters', 256), (u'filter_shape', [9, 9]), (u'generate', [u'random:uniform', SON([(u'rseed', 115)])])])), (u'kwargs', SON([]))])], [u'lpool', SON([(u'kwargs', SON([(u'ker_shape', [9, 9]), (u'order', 2.9238383767515814), (u'stride', 2)]))])], [u'lnorm', SON([(u'kwargs', SON([(u'inker_shape', [4, 4]), (u'outker_shape', [4, 4]), (u'remove_mean', 1), (u'threshold', 0.11847254841570273), (u'stretch', 3.3880532176663203)]))])]]
-                ])])),
-        (u'decisions', None)])
-
-    if 0:
-        # This triggers the problem. it takes just over 1 minute
-        bandit = MultiBandit()
-        ctrl=None
-        bandit.evaluate(spec, ctrl)
-
-    else:
-        from thoreano.slm import SLMFunction
-        feat_fn = SLMFunction(spec['model']['slm'], (200, 200, 1))
-        arr = np.random.rand(200, 200).astype('float32')
-        feat_fn(arr)
-        feat_fn(arr)
-
-
