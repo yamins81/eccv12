@@ -352,15 +352,16 @@ def lfw_view2_random_AsyncB(host, dbname, A):
                 use_libsvm={'kernel':'precomputed'})
 
 
-def top_results(host, dbname, N):
+def top_results(host, dbname, N, port=44556):
+    port = int(port)
     trials = MongoTrials(
-            'mongo://%s:44556/%s/jobs' % (host, dbname),
+            'mongo://%s:%s/%s/jobs' % (host, port, dbname),
             refresh=False)
-    port=44556
     conn = pm.Connection(host=host, port=port)
     K = [k for k  in conn[dbname]['jobs'].distinct('exp_key')]
     for exp_key in K:
-        # XXX: Does not use bandit.loss
+        # N.B. Does not use bandit.loss, because that requires loading the
+        # entire document.
         docs = list(trials.handle.jobs.find(
             {'exp_key': exp_key, 'result.status': hyperopt.STATUS_OK},
             {'_id': 1, 'result.loss': 1, 'spec': 1}))
