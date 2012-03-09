@@ -371,7 +371,10 @@ def top_results(host, dbname, N, port=44556):
         losses_ids = [(d['result']['loss'], d) for d in docs]
         losses_ids.sort()
         for l, d in losses_ids[:int(N)]:
-            print l, d['_id'], len(d['spec']['model']['slm'])
+            print l, d['_id'],
+            print 'comp:', d['spec']['comparison'],
+            print 'preproc', d['spec']['model']['preproc'],
+            print 'layers', len(d['spec']['model']['slm'])
 
 
 def Ktrain_name(dbname, _id, fold):
@@ -391,16 +394,18 @@ def lfw_view2_fold_kernels_fg11():
     config['slm'] = pyll.stochastic.sample(pyll.as_apply(model_params.fg11_top),
             np.random.RandomState(0))
 
-    lfw_view2_fold_kernels_by_spec(config, 'fakedbFG11', 'best0')
+    lfw_view2_fold_kernels_by_spec(config, 'fakedbFG11', 'best0comp4',
+            comparison=['mult', 'sqrtabsdiff', 'absdiff', 'sqdiff'])
 
 
-def lfw_view2_fold_kernels_by_spec(doc_spec_model, dbname, _id):
+def lfw_view2_fold_kernels_by_spec(doc_spec_model, dbname, _id,
+        comparison=['mult', 'sqrtabsdiff']):
     namebase = '%s_%s' % (dbname, _id)
     image_features, pair_features_by_comp = get_view2_features(
             slm_desc=doc_spec_model['slm'],
             preproc=doc_spec_model['preproc'],
             namebase=namebase,
-            comparison=['mult', 'sqrtabsdiff'],
+            comparison=comparison,
             basedir=os.getcwd(),
             )
 
@@ -463,9 +468,9 @@ def lfw_view2_fold_kernels_by_id(host, dbname, _id, port=44556):
 def blend_N(N, dbname, out_template, dryrun, *_ids):
     return blend_top_N(int(N), dbname, _ids, out_template, int(dryrun))
 
-def run_each(dbname, out_template, dryrun, *_ids):
+def run_each(dbname, out_template, dryrun, C, *_ids):
     for _id in _ids:
-        blend_top_N(1, dbname, [_id], out_template, int(dryrun), C=0.1)
+        blend_top_N(1, dbname, [_id], out_template, int(dryrun), C=float(C))
 
 
 def blend_top_N(N, dbname, _ids, out_template, dryrun=False, C=100):
@@ -940,6 +945,7 @@ def extract_kernel_par_tpe(position):
     for ail in array_ids_list:
         _ids.extend(ail['_id'])
     return lfw_view2_fold_kernels_by_id('honeybadger', 'feb29_par_tpe', _ids[position])
+
 
 def show_vars(key=None, dbname='march1_1', host='honeybadger.rowland.org', port=44556):
     conn = pm.Connection(host=host, port=port)
