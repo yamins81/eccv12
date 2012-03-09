@@ -92,10 +92,11 @@ class MultiBandit(hyperopt.Bandit):
         # -- now make sure we've got it right...
         ##print algo.vh.node_id.values()
         ##print ctrl.current_trial['misc']['vals'].keys()
-        compval = ctrl.current_trial['misc']['vals'][comp_node_id]
         # -- the each key indexes its position in the "one_of" in MainBandit
         val_of_comp = {'mult':0, 'sqrtabsdiff':1}
-        assert compval == [val_of_comp[comparison]]
+        if ctrl:
+            compval = ctrl.current_trial['misc']['vals'][comp_node_id]
+            assert compval == [val_of_comp[comparison]]
 
         cmp_results = get_performance(slm, decisions, preproc,
                                       comparison=None,
