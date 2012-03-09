@@ -35,6 +35,7 @@ from eccv12.lfw import verification_pairs
 from eccv12.lfw import MainBandit
 from eccv12.lfw import MultiBandit
 from eccv12.lfw import get_model_shape
+from eccv12.lfw import FG11Bandit
 from eccv12.experiments import SimpleMixture
 from eccv12.experiments import AdaboostMixture
 from eccv12.experiments import BoostHelper
@@ -145,7 +146,6 @@ def lfw_suggest_l3(dbname, port=44556):
 
 
 def lfw_suggest_tpe_fg11(dbname, port=44556):
-    from eccv12.lfw import FG11Bandit
     from eccv12.experiments import InterleaveAlgo
     from hyperopt import TreeParzenEstimator
     port = int(port)
