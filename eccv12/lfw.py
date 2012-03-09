@@ -503,19 +503,27 @@ def get_view2_features(slm_desc, preproc, comparison, namebase, basedir,
             X=get_images('float32', preproc=preproc),
             name=namebase + '_img_feat_view2',
             basedir=basedir)
-    pfs = []
+
+    # list coersion: `comparison` -> `comp_l`
+    if isinstance(comparison, (list, tuple)):
+        comp_l = comparison
+    else:
+        comp_l = [comparison]
+    del comparison
+
+    pfs_by_comp = {}
     for split_num in range(10):
         print ('extracting fold %d' % split_num)
-        pf, matches = pairs_memmap(
-                verification_pairs('fold_%d' % split_num, subset=test),
-                image_features,
-                comparison_name=comparison,
-                name=view2_filename(namebase, split_num),
-                basedir=basedir
-                )
-        pf[:] # -- this little guy here computes all the features
-        pfs.append(pf)
-    return image_features, pfs
+        pair_labels = verification_pairs('fold_%d' % split_num, subset=test)
+        lidxs, ridxs, matches = pair_labels
+        for comparison in comp_l:
+            pf = larray.lmap(
+                    PairFeaturesFn(image_features, comparison),
+                    lidxs,
+                    ridxs)
+            pf[:] # -- this little guy here computes all the features
+            pfs_by_comp.setdefault(comparison, []).append(pf)
+    return image_features, pfs_by_comp
 
 
 def predictions_from_decisions(decisions):
@@ -612,11 +620,11 @@ def train_view2(namebases, basedirs, test=None, use_libsvm=False,
         
         train_errs.append(train_err)
         test_errs.append(test_err)
-        
+
     train_err_mean = np.mean(train_errs)
     print 'train err mean', train_err_mean
     test_err_mean = np.mean(test_errs)
     print 'test err mean', test_err_mean
-    
+
     return train_err_mean, test_err_mean
-    
+
