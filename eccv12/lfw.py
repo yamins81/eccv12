@@ -5,6 +5,7 @@ logger = logging.getLogger(__name__)
 import os
 
 from thoreano.slm import SLMFunction
+from thoreano.slm import InvalidDescription
 import hyperopt
 
 from skdata import larray
@@ -92,15 +93,21 @@ class MultiBandit(hyperopt.Bandit):
         # -- now make sure we've got it right...
         ##print algo.vh.node_id.values()
         ##print ctrl.current_trial['misc']['vals'].keys()
-        compval = ctrl.current_trial['misc']['vals'][comp_node_id]
         # -- the each key indexes its position in the "one_of" in MainBandit
         val_of_comp = {'mult':0, 'sqrtabsdiff':1}
-        assert compval == [val_of_comp[comparison]]
+        if ctrl:
+            compval = ctrl.current_trial['misc']['vals'][comp_node_id]
+            assert compval == [val_of_comp[comparison]]
 
         cmp_results = get_performance(slm, decisions, preproc,
                                       comparison=None,
                                       return_multi=True,
                                       ctrl=ctrl)
+        if type(cmp_results) == dict:
+            # -- this happens if return Multi is False, or if there has
+            #    been a failure
+            return cmp_results
+
         my_result = None
         # XXX This logic is tightly coupled to get_performance
         #     in order to not break tests and other code using get_performance
@@ -475,14 +482,18 @@ def get_performance(slm, decisions, preproc, comparison,
         comps = [comparison]
     cmp_progs = []
     for comp in comps:
-        sresult = screening_program(
-                    slm_desc=slm,
-                    preproc=preproc,
-                    comparison=comp,
-                    namebase=namebase,
-                    decisions=decisions,
-                    image_features=image_features,
-                    ctrl=ctrl)[1][progkey]
+        try:
+            sresult = screening_program(
+                        slm_desc=slm,
+                        preproc=preproc,
+                        comparison=comp,
+                        namebase=namebase,
+                        decisions=decisions,
+                        image_features=image_features,
+                        ctrl=ctrl)[1][progkey]
+        except InvalidDescription, e:
+            sresult = {'status': hyperopt.STATUS_FAIL,
+                       'reason': (str(type(e)), str(e))}
         cmp_progs.append([comp, sresult])
     cmp_results = pyll.rec_eval(cmp_progs)
     if return_multi:
@@ -576,7 +587,6 @@ def train_view2(namebases, basedirs, test=None, use_libsvm=False,
                 Ktrain = linear_kernel(_Xtrain, _Xtrain, use_theano=True)
                 print ('... computed training kernel of shape', Ktrain.shape)
                 train_Xyd_n = (Ktrain, _ytrain, _dtrain)
-                train_data = (Ktrain, _ytrain, _dtrain)
                 print ('Computing testtrain kernel ...')
                 (_Xtest, _ytest, _dtest) = test_Xyd_n
                 Ktest = linear_kernel(_Xtest, _Xtrain, use_theano=True)
