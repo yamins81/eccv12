@@ -203,7 +203,12 @@ def main_param_func(nf):
 def rfilter_size(smin, smax, q=1):
     """Return an integer size from smin to smax inclusive with equal prob
     """
-    return pyll.scope.int(quniform(smin - q + 1e-5, smax, q))
+    assert q == int(q)
+    return pyll.scope.int(
+            quniform(
+            smin - q / 2.0 + 1e-5,
+            smax + q / 2.0 - 1e-5,
+            q))
 
 
 def cont_pt1_10():
@@ -240,14 +245,14 @@ def pf_fbcorr(max_filters, iseed, n_filters_relto128=None):
     if n_filters_relto128 is None:
         n_filters = pyll.scope.int(
                 qloguniform(
-                    np.log(16 / 2.0),
+                    np.log(16 / 2.0 + 1e-5),  # will round up to 16
                     np.log(max_filters),
                     q=16))
     else:
         coef = n_filters_relto128 / 128.0
         n_filters = pyll.scope.int(
                 qloguniform(
-                    np.log(coef * 16 / 2.0),
+                    np.log(coef * 16 / 2.0 + 1e-5), #will round up
                     np.log(coef * max_filters),
                     q=16))
     size = rfilter_size(2, 10)
