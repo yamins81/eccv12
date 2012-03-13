@@ -264,13 +264,15 @@ def pf_fbcorr(max_filters, iseed, n_filters_relto128=None):
         })
 
 
-def pf_preproc():
-    l3 = dict(
-        global_normalize=0,
+def pf_preproc(crop=None):
+    if crop is None:
         crop=one_of(
             [0, 0, 250, 250],
             [25, 25, 175, 175],
-            [88, 63, 163, 188]),
+            [88, 63, 163, 188])
+    l3 = dict(
+        global_normalize=0,
+        crop=crop,
         size=[200, 200],
         )
     # -- N.B. shallow copy keeps the same crop object
@@ -307,7 +309,7 @@ def pyll_param_func(nf=None):
     return one_of(l3_slm, l2_slm)
 
 
-def pyll_param_func_l3(nf=None):
+def pyll_param_func_l3(nf=None, crop=None):
     """
     Return a template for lfw.MainBandit that describes a hyperopt-friendly
     description of the search space.
@@ -319,7 +321,7 @@ def pyll_param_func_l3(nf=None):
 
     # N.B. that each layer is constructed with distinct objects
     # we don't want to use the same norm_shape_size at every layer.
-    preproc_l2, preproc_l3 = pf_preproc()
+    preproc_l2, preproc_l3 = pf_preproc(crop=crop)
 
     l0_3 = [pf_lnorm()]
     l1_3 = [pf_fbcorr(64 + 32, 1), pf_lpool(), pf_lnorm()]
