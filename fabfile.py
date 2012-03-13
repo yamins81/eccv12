@@ -644,10 +644,10 @@ def snapshot(dbname):
     cPickle.dump(to_trials, ofile, -1)
 
 
-def history(host, dbname, key=None):
+def history(host, port, dbname, key=None):
     exp_key = None if key is None else exp_keys[key]
     trials = MongoTrials(
-            'mongo://%s:44556/%s/jobs' % (host, dbname),
+            'mongo://%s:%s/%s/jobs' % (host, port, dbname),
             refresh=False)
     # XXX: Does not use bandit.loss
     query = {'result.status': hyperopt.STATUS_OK}
@@ -974,4 +974,19 @@ def show_vars(key=None, dbname='march1_1', host='honeybadger.rowland.org', port=
     trials = hyperopt.trials_from_docs(docs, validate=False)
     hyperopt.plotting.main_plot_vars(trials, bandit=eccv12.lfw.MultiBanditL3())
 
+
+def show_dbs(host, port, dbname=None):
+    conn = pm.Connection(host=host, port=int(port))
+    if dbname is None:
+        dbnames = conn.database_names()
+    else:
+        dbnames = [dbname]
+
+    for dbname in dbnames:
+        J = conn[dbname]['jobs']
+        K = [k for k  in conn[dbname]['jobs'].distinct('exp_key')]
+        print ''
+        print 'Database:', dbname
+        for k in K:
+            print ' ', k
 
