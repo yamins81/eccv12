@@ -123,26 +123,23 @@ def lfw_suggest_parallel_tpe(dbname, ENUM, n_exps):
     exp.run(sys.maxint, block_until_done=True)
 
 
-def lfw_suggest_l3(dbname, port=44556):
-    from eccv12.lfw import MultiBanditL3
+def lfw_suggest_SqrtAbsDiffL3(dbname, port=44556, N=5):
+    from eccv12.lfw import SqrtAbsDiffL3Bandit as Bandit
+    cmd = ('bandit_json evaluate', 'eccv12.lfw.SqrtAbsDiffL3Bandit')
     from eccv12.experiments import InterleaveAlgo
     from hyperopt import TreeParzenEstimator
-    port = int(port)
+
     trials = MongoTrials('mongo://localhost:%d/%s/jobs' % (port, dbname),
-                        refresh=False)
+                        refresh=True)
     algos = []
     keys = []
-    for i in range(5):
+    for i in range(int(N)):
         algos.append(
             TreeParzenEstimator(
-                MultiBanditL3(),
-                cmd=('bandit_json evaluate', 'eccv12.lfw.MultiBanditL3'),
-                gamma=.20,
-                n_EI_candidates=64,
-                n_startup_jobs=2,
-                linear_forgetting=50,
+                Bandit(),
+                cmd=cmd,
                 ))
-        keys.append('tpe_l3_lf50_ns2_g20_%i' % i)
+        keys.append('tpe_SqrtAbsDiffL3_%i' % i)
     algo = InterleaveAlgo(algos, keys)
     exp = hyperopt.Experiment(trials, algo, poll_interval_secs=.1)
     exp.run(sys.maxint, block_until_done=True)

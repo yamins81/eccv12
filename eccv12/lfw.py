@@ -63,6 +63,13 @@ class MainBandit(BaseBandit):
         return get_performance(slm, decisions, preproc, comparison)
 
 
+class SqrtAbsDiffL3Bandit(MainBandit):
+    param_gen = dict(
+            model=model_params.pyll_param_func_l3(crop=[0, 0, 250, 250]),
+            comparison='sqrtabsdiff',
+            decisions=None)
+
+
 class MultiBandit(hyperopt.Bandit):
     def __init__(self, n_features=None):
         # if n-features is given, it will set the number of filters
