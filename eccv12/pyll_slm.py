@@ -13,6 +13,7 @@ import theano.tensor as tensor
 from theano.tensor.nnet import conv
 
 import pyll
+import hyperopt
 
 from skdata import larray
 from skdata.cifar10 import CIFAR10
@@ -109,7 +110,7 @@ def slm_fbcorr((x, x_shp), n_filters, ker_size,
     filter_shape = (ker_size, ker_size)
     # Reference implementation:
     # ../pythor3/pythor3/operation/fbcorr_/plugins/scipy_naive/scipy_naive.py
-    if stride != fbcorr_DEFAULT_STRIDE:
+    if stride != 1:
         raise NotImplementedError('stride is not used in reference impl.')
     kerns = alloc_filterbank(n_filters=n_filters,
             height=filter_shape[0],
@@ -256,8 +257,12 @@ def pyll_theano_batched_lmap(pipeline, seq, batchsize,
     s_xi = (s_ibatch * 1).type() # get a TensorType w right ndim
     s_N = s_xi.shape[0]
     s_X = theano.tensor.set_subtensor(s_ibatch[:s_N], s_xi)
-    memo = {in_rows: (s_X, in_shp)}
-    s_obatch, oshp = pyll.rec_eval(out_rows, memo=memo)
+    #print 'PIPELINE', pipeline
+    thing = pipeline((s_X, in_shp))
+    #print 'THING'
+    #print thing
+    #print '==='
+    s_obatch, oshp = pyll.rec_eval(thing)
     assert oshp[0] == batchsize
 
     # Compile a function that takes a variable number of elements in,
@@ -335,3 +340,35 @@ def hyperopt_set_loss(dct, key):
 @pyll.scope.define
 def np_transpose(obj, arg):
     return obj.transpose(*arg)
+
+
+@pyll.scope.define
+def hyperopt_param(label, obj):
+    return obj
+
+
+class HPBandit(hyperopt.Bandit):
+    """ Create a hyperopt.Bandit from a pyll program that has been annotated
+    with hyperopt_param (HP) expressions.
+    """
+
+    def __init__(self, result_expr):
+        # -- need a template: which is a dictionary with all the HP nodes
+        template = {}
+        for node in pyll.dfs(result_expr):
+            if node.name == 'hyperopt_param':
+                template[node.arg['label'].obj] = node.arg['obj']
+        hyperopt.Bandit.__init__(self, template)
+        self.result_expr = result_expr
+
+    def evaluate(self, config, ctrl):
+        # -- config is a dict with values for all the HP nodes
+        memo = {}
+        for node in pyll.dfs(self.result_expr):
+            if node.name == 'hyperopt_param':
+                label = node.arg['label'].obj
+                memo[node] = config[label]
+        assert len(memo) == len(config)
+        return pyll.rec_eval(self.result_expr, memo=memo)
+
+
