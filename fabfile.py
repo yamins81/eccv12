@@ -22,6 +22,8 @@ import matplotlib
 #matplotlib.use('gtkAgg')
 import matplotlib.pyplot as plt
 
+import pymongo as pm
+
 import pyll
 
 import hyperopt
@@ -449,7 +451,7 @@ def lfw_view2_fold_kernels_by_spec(doc_spec_model, dbname, _id,
         np.save(Ktest_name(dbname, _id, test_fold), blend_test)
 
 
-def lfw_view2_fold_kernels_by_id(host, dbname, _id, port=44556):
+def lfw_view2_fold_kernels_by_id(host, port, dbname, _id):
     import bson
     trials = MongoTrials(
             'mongo://%s:%s/%s/jobs' % (host, port, dbname),
@@ -460,6 +462,12 @@ def lfw_view2_fold_kernels_by_id(host, dbname, _id, port=44556):
     print 'LOSS :', doc['result']['loss']
     return lfw_view2_fold_kernels_by_spec(
             doc['spec']['model'], dbname, doc['_id'])
+
+
+def lfw_view2_score(host, port, dbname, _id):
+    lfw_view2_fold_kernels_by_id(host, port, dbname, _id)
+    out_template = '' # don't save to file
+    blend_top_N(1, dbname, [_id], out_template, False, C=0.1)
 
 
 def blend_N(N, dbname, out_template, dryrun, *_ids):
@@ -661,9 +669,9 @@ def history(host, port, dbname, key=None):
     plt.show()
 
 
-def history_par_tpe(host, dbname):
+def history_allexp(host, port, dbname):
     trials = MongoTrials(
-            'mongo://%s:44556/%s/jobs' % (host, dbname),
+            'mongo://%s:%s/%s/jobs' % (host, port, dbname),
             refresh=False)
     # XXX: Does not use bandit.loss
     query = {'result.status': hyperopt.STATUS_OK}
@@ -686,7 +694,8 @@ def history_par_tpe(host, dbname):
     for i, (k, losses) in enumerate(kl_items):
         minloss = min(losses)
         print k, 'min', minloss, [d['_id']
-                for t, d in tdocs if d['result']['loss'] == minloss]
+                for t, d in tdocs
+                if d['result']['loss'] == minloss and d['exp_key'] == k]
         plt.subplot(ROWS, 5, iii)
         plt.title(k)
         plt.scatter(range(len(losses)), losses)
@@ -820,8 +829,6 @@ def consolidate_random_jobs():
     for old_id, doc in all_docs.items():
         final.handle.jobs.insert(doc, safe=True)
 
-import pymongo as pm
-
 def insert_consolidated_feature_shapes(dbname,
                                        trials=None,
                                        host='honeybadger.rowland.org',
@@ -843,8 +850,8 @@ def insert_consolidated_feature_shapes(dbname,
                         {'$set':{'result.shape': shp,
                                  'result.num_features': num_features}},
                         upsert=False, safe=True, multi=False)
-                        
-                        
+
+
 def lfw_view2_final_get_mix(host='honeybadger.rowland.org',
                             dbname='final_random',
                             A=100):
@@ -944,8 +951,10 @@ def extract_kernel_par_tpe(position):
     return lfw_view2_fold_kernels_by_id('honeybadger', 'feb29_par_tpe', _ids[position])
 
 
-def show_vars(key=None, dbname='march1_1', host='honeybadger.rowland.org', port=44556):
-    conn = pm.Connection(host=host, port=port)
+def show_vars(host, port, dbname, key):
+    import eccv12.lfw
+    bandit_cls = eccv12.lfw.SqrtAbsDiffL3Bandit
+    conn = pm.Connection(host=host, port=int(port))
     J = conn[dbname]['jobs']
     K = [k for k  in conn[dbname]['jobs'].distinct('exp_key')]
     for k in K:
@@ -967,9 +976,8 @@ def show_vars(key=None, dbname='march1_1', host='honeybadger.rowland.org', port=
                         'misc.idxs':1,
                         'misc.vals': 1,
                     }))
-    import eccv12.lfw
     trials = hyperopt.trials_from_docs(docs, validate=False)
-    hyperopt.plotting.main_plot_vars(trials, bandit=eccv12.lfw.MultiBanditL3())
+    hyperopt.plotting.main_plot_vars(trials, bandit=bandit_cls())
 
 
 def show_dbs(host, port, dbname=None):
