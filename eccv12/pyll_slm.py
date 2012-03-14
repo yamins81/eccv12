@@ -1,3 +1,10 @@
+"""
+A library file for the design approach of cifar10.py
+
+It includes the slm components as well as a few other things that should
+migrate upstream.
+
+"""
 import copy
 
 import numpy as np
@@ -7,59 +14,12 @@ from theano.tensor.nnet import conv
 
 import pyll
 
-use_pythor3_defaults = False
-
-if use_pythor3_defaults:
-    # fbcorr
-    from pythor3.operation import fbcorr_
-    fbcorr_DEFAULT_STRIDE = fbcorr_.DEFAULT_STRIDE
-    fbcorr_DEFAULT_MIN_OUT = fbcorr_.DEFAULT_MIN_OUT
-    fbcorr_DEFAULT_MAX_OUT = fbcorr_.DEFAULT_MAX_OUT
-    fbcorr_DEFAULT_MODE = fbcorr_.DEFAULT_MODE
-
-    # lnorm
-    from pythor3.operation import lnorm_
-    lnorm_DEFAULT_INKER_SHAPE = lnorm_.DEFAULT_INKER_SHAPE
-    lnorm_DEFAULT_OUTKER_SHAPE = lnorm_.DEFAULT_OUTKER_SHAPE
-    lnorm_DEFAULT_REMOVE_MEAN = lnorm_.DEFAULT_REMOVE_MEAN
-    lnorm_DEFAULT_DIV_METHOD = lnorm_.DEFAULT_DIV_METHOD
-    lnorm_DEFAULT_THRESHOLD = lnorm_.DEFAULT_THRESHOLD
-    lnorm_DEFAULT_STRETCH = lnorm_.DEFAULT_STRETCH
-    lnorm_DEFAULT_MODE = lnorm_.DEFAULT_MODE
-    lnorm_EPSILON = lnorm_.EPSILON
-
-    from pythor3.model import SequentialLayeredModel
-else:
-    # fbcorr
-    fbcorr_DEFAULT_STRIDE = 1
-    fbcorr_DEFAULT_MIN_OUT = None
-    fbcorr_DEFAULT_MAX_OUT = None
-    fbcorr_DEFAULT_MODE = 'valid'
-
-    # lnorm
-    lnorm_DEFAULT_INKER_SHAPE = (3, 3)
-    lnorm_DEFAULT_OUTKER_SHAPE = lnorm_DEFAULT_INKER_SHAPE
-    lnorm_DEFAULT_REMOVE_MEAN = False
-    lnorm_DEFAULT_DIV_METHOD = 'euclidean'
-    lnorm_DEFAULT_THRESHOLD = 0.
-    lnorm_DEFAULT_STRETCH = 1.
-    lnorm_DEFAULT_MODE = 'valid'
-    lnorm_EPSILON = 1e-4
+from skdata import larray
+from skdata.cifar10 import CIFAR10
 
 
-def get_into_shape(x):
-    if hasattr(x,'__iter__'):
-        x = np.array(x)
-        assert x.ndim == 1
-        x = x[np.newaxis, :, np.newaxis, np.newaxis]
-        x = x.astype(np.float32)
-    return x
-
-
-def dict_add(a, b):
-    rval = dict(a)
-    rval.update(b)
-    return rval
+class InvalidDescription(Exception):
+    """Model description was invalid"""
 
 
 def alloc_filterbank(n_filters, height, width, channels, dtype,
@@ -102,10 +62,7 @@ def alloc_filterbank(n_filters, height, width, channels, dtype,
     return fb_data.astype(dtype)
 
 
-class InvalidDescription(Exception):
-    """Model description was invalid"""
-
-
+@pyll.scope.define_info(o_len=2)
 def boxconv((x, x_shp), kershp, channels=False):
     """
     channels: sum over channels (T/F)
@@ -142,12 +99,11 @@ def boxconv((x, x_shp), kershp, channels=False):
 
 
 @pyll.scope.define_info(o_len=2)
-def slm_fbcorr((x, x_shp), n_filters,
-        ker_size,
-        min_out=fbcorr_DEFAULT_MIN_OUT,
-        max_out=fbcorr_DEFAULT_MAX_OUT,
-        stride=fbcorr_DEFAULT_STRIDE,
-        mode=fbcorr_DEFAULT_MODE,
+def slm_fbcorr((x, x_shp), n_filters, ker_size,
+        min_out=None,
+        max_out=None,
+        stride=1,
+        mode='valid',
         generate=None):
     assert x.dtype == 'float32'
     filter_shape = (ker_size, ker_size)
@@ -225,19 +181,19 @@ def slm_lpool((x, x_shp),
 
 @pyll.scope.define_info(o_len=2)
 def slm_lnorm((x, x_shp),
-        ker_size=lnorm_DEFAULT_INKER_SHAPE[0],
-        remove_mean=lnorm_DEFAULT_REMOVE_MEAN,    # False
-        div_method=lnorm_DEFAULT_DIV_METHOD,      # 'euclidean'
-        threshold=lnorm_DEFAULT_THRESHOLD,        # 0.
-        stretch=lnorm_DEFAULT_STRETCH,            # 1.
-        mode=lnorm_DEFAULT_MODE,                  # 'valid'
+        ker_size=3,
+        remove_mean= False,
+        div_method='euclidean',
+        threshold=0.0,
+        stretch=1.0,
+        mode='valid',
+        EPSILON=1e-4,
         ):
+    # Reference implementation:
+    # ../pythor3/pythor3/operation/lnorm_/plugins/scipy_naive/scipy_naive.py
     assert x.dtype == 'float32'
     inker_shape=(ker_size, ker_size)
     outker_shape=(ker_size, ker_size)  # (3, 3)
-    # Reference implementation:
-    # ../pythor3/pythor3/operation/lnorm_/plugins/scipy_naive/scipy_naive.py
-    EPSILON = lnorm_EPSILON
     if mode != 'valid':
         raise NotImplementedError('lnorm requires mode=valid', mode)
 
@@ -281,3 +237,101 @@ def slm_lnorm((x, x_shp),
     r_shp = x_shp[0], x_shp[1], ssqshp[2], ssqshp[3]
     return r, r_shp
 
+
+@pyll.scope.define
+def pyll_theano_batched_lmap(pipeline, seq, batchsize,
+        _debug_call_counts=None, print_progress=False):
+    """
+    This function returns a skdata.larray.lmap object whose function
+    is defined by a theano expression.
+
+    The theano expression will be built and compiled specifically for the
+    dimensions of the given `seq`. Therefore, in_rows, and out_rows should
+    actually be a *pyll* graph, that evaluates to a theano graph.
+    """
+
+    in_shp = (batchsize,) + seq.shape[1:]
+    batch = np.zeros(in_shp, dtype='float32')
+    s_ibatch = theano.shared(batch)
+    s_xi = (s_ibatch * 1).type() # get a TensorType w right ndim
+    s_N = s_xi.shape[0]
+    s_X = theano.tensor.set_subtensor(s_ibatch[:s_N], s_xi)
+    memo = {in_rows: (s_X, in_shp)}
+    s_obatch, oshp = pyll.rec_eval(out_rows, memo=memo)
+    assert oshp[0] == batchsize
+
+    # Compile a function that takes a variable number of elements in,
+    # returns the same number of processed elements out,
+    # but does all internal computations using a fixed number of elements,
+    # because convolutions are fastest when they're hard-coded to a certain
+    # size.
+    fn = theano.function([s_xi], s_obatch[:s_N],
+            updates={
+                s_ibatch: s_X, # this allows the inc_subtensor to be in-place
+                })
+
+    def fn_1(x):
+        if _debug_call_counts:
+            _debug_call_counts['fn_1'] += 1
+        return fn(x[None, :, :, :])[0]
+
+    attrs = {
+            'shape': oshp[1:],
+            'ndim': len(oshp) -1,
+            'dtype': s_obatch.dtype }
+    def rval_getattr(attr, objs):
+        # -- objs don't matter to the structure of the return value
+        try:
+            return attrs[attr]
+        except KeyError:
+            raise AttributeError(attr)
+
+    fn_1.rval_getattr = rval_getattr
+
+    def f_map(X):
+        if _debug_call_counts:
+            _debug_call_counts['f_map'] += 1
+        rval = np.zeros((len(X),) + oshp[1:], dtype=s_obatch.dtype)
+        offset = 0
+        while offset < len(X):
+            if print_progress:
+                print 'pyll_theano_batched_lmap.f_map', offset, len(X)
+            xi = X[offset: offset + batchsize]
+            rval[offset:offset + len(xi)] = fn(xi)
+            offset += len(xi)
+        return rval
+
+    return larray.lmap(fn_1, seq, f_map=f_map)
+
+
+@pyll.scope.define
+def linsvm_train_test(features, labels, n_train, n_test,
+        C=1.0, allow_inplace=False, normalize_cols=True, shuffle=False,
+        **kwargs):
+    return {'result': 'awesome'}
+
+
+@pyll.scope.define_info(o_len=2)
+def cifar10_img_classification_task(dtype='float32'):
+    imgs, labels = CIFAR10().img_classification_task(dtype='float32')
+    return imgs, labels
+
+
+@pyll.scope.define
+def hyperopt_set_loss(dct, key):
+    #TODO: move this logic to general nested-key-setting pyll fn
+    #N.B. this function modifies dct in-place, but doesn't change any of the
+    #     existing keys... so it's probably safe not to copy dct.
+    keys = key.split('.')
+    obj = dct
+    for key in keys:
+        obj = obj[key]
+    dct.setdefault('loss', obj)
+    if obj != dct['loss']:
+        raise KeyError('loss already set')
+    return dct
+
+
+@pyll.scope.define
+def np_transpose(obj, arg):
+    return obj.transpose(*arg)
