@@ -40,6 +40,7 @@ from eccv12.lfw import verification_pairs
 from eccv12.lfw import MainBandit
 from eccv12.lfw import MultiBandit
 from eccv12.lfw import get_model_shape
+from eccv12.lfw import get_performance
 from eccv12.lfw import FG11Bandit
 from eccv12.experiments import SimpleMixture
 from eccv12.experiments import AdaboostMixture
@@ -376,30 +377,113 @@ def top_results(host, dbname, N, port=44556):
             print 'layers', len(d['spec']['model']['slm'])
 
 
-def Ktrain_name(dbname, _id, fold):
-    namebase = '%s_%s' % (dbname, _id)
+def Ktrain_name(dbname, _id, ncomp, fold):
+    namebase = '%s_%s_comp%i' % (dbname, _id, ncomp)
     return namebase + '_fold_%i_Ktrain.npy' % fold
 
 
-def Ktest_name(dbname, _id, fold):
-    namebase = '%s_%s' % (dbname, _id)
+def Ktest_name(dbname, _id, ncomp, fold):
+    namebase = '%s_%s_comp%i' % (dbname, _id, ncomp)
     return namebase + '_fold_%i_Ktest.npy' % fold
 
 
-def lfw_view2_fold_kernels_fg11():
+def lfw_view1_score_topfg11(rseed):
+    #
+    # l2_regularization == 1e-3
+    # -------------------------
+    # rseed   loss
+    # 0   ->  .194 (* from test_lfw.py)
+    # 1   ->  .200
+    # 2   ->  .186
+    # 3   ->  .188
+    # 4   ->  .192
+    #
+    #
+    # l2_regularization == 1e-7
+    # -------------------------
+    # rseed   loss
+    # 0   ->  .194
+    # 1   ->  .193
+    # 2   ->  .190
+    # 3   ->  .188
+    # 4   ->  .190
+    #
+    rseed = int(rseed)
     L = FG11Bandit()
     config = pyll.stochastic.sample(L.template, np.random.RandomState(0))
     config['decisions'] = None
-    config['slm'] = pyll.stochastic.sample(pyll.as_apply(model_params.fg11_top),
-            np.random.RandomState(0))
+    config['comparison'] = 'sqrtabsdiff'
+    config['slm'] = pyll.stochastic.sample(
+            pyll.as_apply(model_params.fg11_top),
+            np.random.RandomState(rseed))
 
-    lfw_view2_fold_kernels_by_spec(config, 'fakedbFG11', 'best0comp4',
-            comparison=['mult', 'sqrtabsdiff', 'absdiff', 'sqdiff'])
+    result = get_performance(
+            config['slm'],
+            None,
+            config['preproc'],
+            config['comparison'],
+            namebase = 'fg11_top_view1_memmap_%i' % rseed,
+            progkey = 'result',
+            l2_regularization=1e-7)
+    print 'LOSS:', result['loss']
+
+
+def lfw_view2_score_topfg11(rseed, C):
+    # rseed   C    view2 error rate
+    # 0       0.01  -> .184
+    # 0       0.1   -> .1775
+    # 0       1.0   -> .183
+    # 0       10K   -> .183
+    #
+    # 1       0.1   -> .171
+    # 1       1.0   -> .178
+    # 1       10K   -> .178
+    #
+    # 2       0.1   -> .176
+    # 2       1.0   -> .191
+    # 2       10K   -> .191
+    #
+    # 3       0.1   -> .166
+    # 3       1.0   -> .173
+    #
+    # 4       0.1   -> .170
+    # 4       1.0   -> .177
+
+    rseed = int(rseed)
+    L = FG11Bandit()
+    # -- generate a config that we will now completely overwrite
+    config = pyll.stochastic.sample(L.template, np.random.RandomState(0))
+    config['decisions'] = None
+    config['comparison'] = ['mult', 'sqrtabsdiff', 'absdiff', 'sqdiff']
+    ncomp = 4
+    config['slm'] = pyll.stochastic.sample(
+            pyll.as_apply(model_params.fg11_top),
+            np.random.RandomState(rseed))
+
+    dbname = 'fakedbFG11'
+    _id = 'best0_r%i_comp%i' % (rseed, ncomp)
+    out_template = 'blend_top_N=%i_%s_%s_%s' % (
+            1, dbname, _id, '%i')
+
+    lfw_view2_fold_kernels_by_spec(config, dbname, _id,
+            comparison=ncomp)
+
+    blend_top_N(1, dbname, [_id], out_template,
+            dryrun=False, C=float(C), ncomp=ncomp)
 
 
 def lfw_view2_fold_kernels_by_spec(doc_spec_model, dbname, _id,
-        comparison=['mult', 'sqrtabsdiff']):
-    namebase = '%s_%s' % (dbname, _id)
+        comparison=2):
+    if comparison == 2:
+        comparison=['mult', 'sqrtabsdiff']
+        namebase = '%s_%s_comp2' % (dbname, _id,)
+        ncomp = 2
+    elif comparison == 4:
+        comparison=['mult', 'sqrtabsdiff', 'absdiff', 'sqdiff']
+        namebase = '%s_%s_comp4' % (dbname, _id,)
+        ncomp = 4
+    else:
+        raise NotImplementedError()
     image_features, pair_features_by_comp = get_view2_features(
             slm_desc=doc_spec_model['slm'],
             preproc=doc_spec_model['preproc'],
@@ -413,7 +497,7 @@ def lfw_view2_fold_kernels_by_spec(doc_spec_model, dbname, _id,
 
     for test_fold in range(10):
         try:
-            open(Ktest_name(dbname, _id, test_fold)).close()
+            open(Ktest_name(dbname, _id, ncomp, test_fold)).close()
             continue
         except IOError:
             pass
@@ -447,11 +531,13 @@ def lfw_view2_fold_kernels_by_spec(doc_spec_model, dbname, _id,
                 blend_train += Ktrain
                 blend_test += Ktest
 
-        np.save(Ktrain_name(dbname, _id, test_fold), blend_train)
-        np.save(Ktest_name(dbname, _id, test_fold), blend_test)
+        np.save(Ktrain_name(dbname, _id, ncomp, test_fold),
+                blend_train)
+        np.save(Ktest_name(dbname, _id, ncomp, test_fold),
+                blend_test)
 
 
-def lfw_view2_fold_kernels_by_id(host, port, dbname, _id):
+def lfw_view2_fold_kernels_by_id(host, port, dbname, _id, comparison=None):
     import bson
     trials = MongoTrials(
             'mongo://%s:%s/%s/jobs' % (host, port, dbname),
@@ -461,13 +547,13 @@ def lfw_view2_fold_kernels_by_id(host, port, dbname, _id):
     print 'SPEC :', doc['spec']
     print 'LOSS :', doc['result']['loss']
     return lfw_view2_fold_kernels_by_spec(
-            doc['spec']['model'], dbname, doc['_id'])
+            doc['spec']['model'], dbname, doc['_id'], comparison=comparison)
 
 
 def lfw_view2_score(host, port, dbname, _id):
-    lfw_view2_fold_kernels_by_id(host, port, dbname, _id)
+    lfw_view2_fold_kernels_by_id(host, port, dbname, _id, comparison=2)
     out_template = '' # don't save to file
-    blend_top_N(1, dbname, [_id], out_template, False, C=0.1)
+    blend_top_N(1, dbname, [_id], out_template, False, C=0.1, ncomp=2)
 
 
 def blend_N(N, dbname, out_template, dryrun, *_ids):
@@ -478,7 +564,7 @@ def run_each(dbname, out_template, dryrun, C, *_ids):
         blend_top_N(1, dbname, [_id], out_template, int(dryrun), C=float(C))
 
 
-def blend_top_N(N, dbname, _ids, out_template, dryrun=False, C=100):
+def blend_top_N(N, dbname, _ids, out_template, dryrun=False, C=100, ncomp=2):
     import  eccv12.classifier
     # allocate the gram matrix for each fold
     # This will be incremented as we loop over the top models
@@ -501,14 +587,14 @@ def blend_top_N(N, dbname, _ids, out_template, dryrun=False, C=100):
 
             if dryrun:
                 try:
-                    open(Ktrain_name(dbname, _id, test_fold)).close()
-                    open(Ktest_name(dbname, _id, test_fold)).close()
+                    open(Ktrain_name(dbname, _id, ncomp, test_fold)).close()
+                    open(Ktest_name(dbname, _id, ncomp, test_fold)).close()
                 except IOError:
                     print '---> Missing', member_position, _id
                 continue
 
-            Ktrain_n_fold = np.load(Ktrain_name(dbname, _id, test_fold))
-            Ktest_n_fold = np.load(Ktest_name(dbname, _id, test_fold))
+            Ktrain_n_fold = np.load(Ktrain_name(dbname, _id, ncomp, test_fold))
+            Ktest_n_fold = np.load(Ktest_name(dbname, _id, ncomp, test_fold))
             Ktrains[test_fold] += Ktrain_n_fold
             Ktests[test_fold] += Ktest_n_fold
 
