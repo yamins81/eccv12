@@ -27,6 +27,15 @@ from .classifier import normalize as dan_normalize
 # -- register symbols in pyll.scope
 import toyproblem
 
+_Aligned = None
+
+
+def Aligned():
+    global _Aligned
+    if _Aligned is None:
+        _Aligned = skdata.lfw.Aligned()
+    return _Aligned
+
 
 class FG11Bandit(BaseBandit):
     param_gen = dict(
@@ -203,7 +212,7 @@ def get_images(dtype, preproc):
 
     """
 
-    all_paths = skdata.lfw.Aligned().raw_classification_task()[0]
+    all_paths = Aligned().raw_classification_task()[0]
     rval = larray.lmap(
                 ImgLoaderResizer(
                     dtype=dtype,
@@ -231,7 +240,7 @@ def verification_pairs(split, subset=None):
     ridxs: position in the given split of the right image
     match: 1 if they correspond to the same people, else -1
     """
-    dataset = skdata.lfw.Aligned()
+    dataset = Aligned()
     all_paths = dataset.raw_classification_task()[0]
     lpaths, rpaths, matches = dataset.raw_verification_task(split=split)
     lidxs, ridxs = _verification_pairs_helper(all_paths, lpaths, rpaths)
