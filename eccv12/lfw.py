@@ -523,8 +523,9 @@ def view2_filename(namebase, split_num):
 
 
 def get_view2_features(slm_desc, preproc, comparison, namebase, basedir,
-                       test=None):
-    image_features = slm_memmap(
+                       test=None, image_features=None):
+    if image_features is None:
+        image_features = slm_memmap(
             desc=slm_desc,
             X=get_images('float32', preproc=preproc),
             name=namebase + '_img_feat_view2',
@@ -543,11 +544,10 @@ def get_view2_features(slm_desc, preproc, comparison, namebase, basedir,
         pair_labels = verification_pairs('fold_%d' % split_num, subset=test)
         lidxs, ridxs, matches = pair_labels
         for comparison in comp_l:
-            pf = larray.lmap(
+            pf = larray.cache_memory(larray.lmap(
                     PairFeaturesFn(image_features, comparison),
                     lidxs,
-                    ridxs)
-            pf[:] # -- this little guy here computes all the features
+                    ridxs))
             pfs_by_comp.setdefault(comparison, []).append(pf)
     return image_features, pfs_by_comp
 
@@ -652,4 +652,65 @@ def train_view2(namebases, basedirs, test=None, use_libsvm=False,
     print 'test err mean', test_err_mean
 
     return train_err_mean, test_err_mean
+
+
+def view2_fold_kernels_by_spec(
+        doc_spec_model,
+        dbname,
+        _id,
+        Ktrain_names,
+        Ktest_names,
+        comparisons,
+        image_features=None,
+        force_recompute_kernel=False,
+        ):
+    # N.B. Ktrain_names actually must be a list of 10 filenames
+    # N.B. Ktest_names actually must be a list of 10 filenames
+    #namebase = '%s_%s_comp=' % (dbname, _id, '+'.join(comparisons))
+
+    image_features, pair_features_by_comp = get_view2_features(
+            slm_desc=doc_spec_model['slm'],
+            preproc=doc_spec_model['preproc'],
+            namebase=None,
+            comparison=comparisons,
+            basedir=os.getcwd(),
+            image_features=image_features,
+            )
+
+    for test_fold in range(10):
+        if (not force_recompute_kernel
+           and os.path.exists(Ktest_names[test_fold])):
+            continue
+        print ('FOLD %i' % test_fold)
+        blend_train = blend_test = None
+        for comp, pf_list in pair_features_by_comp.items():
+            test_X = pf_list[test_fold][:]
+
+            train_X = np.vstack([pf_list[ii][:]
+                                 for ii in range(10) if ii != test_fold])
+
+            shift = -np.mean(train_X, axis=0)
+            xstd = np.std(train_X, axis=0)
+            xstd[xstd.astype('float32') == 0] = 1
+            scale = 1.0 / xstd
+            print 'scale stats', scale.min(), scale.max()
+            train_X = (train_X + shift) * scale
+            test_X = (test_X + shift) * scale
+
+            print ('Computing training kernel. n_features=%i' %
+                    train_X.shape[1])
+            Ktrain = linear_kernel(train_X, train_X, use_theano=True)
+
+            print ('Computing testtrain kernel ...')
+            Ktest = linear_kernel(test_X, train_X, use_theano=True)
+
+            if blend_train is None:
+                blend_train = Ktrain
+                blend_test = Ktest
+            else:
+                blend_train += Ktrain
+                blend_test += Ktest
+
+        np.save(Ktrain_names[test_fold], blend_train)
+        np.save(Ktest_names[test_fold], blend_test)
 

@@ -18,7 +18,7 @@ import sys
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
 import numpy as np
-import matplotlib
+#import matplotlib
 #matplotlib.use('gtkAgg')
 import matplotlib.pyplot as plt
 
@@ -42,6 +42,7 @@ from eccv12.lfw import MultiBandit
 from eccv12.lfw import get_model_shape
 from eccv12.lfw import get_performance
 from eccv12.lfw import FG11Bandit
+from eccv12.lfw import view2_fold_kernels_by_spec
 from eccv12.experiments import SimpleMixture
 from eccv12.experiments import AdaboostMixture
 from eccv12.experiments import BoostHelper
@@ -465,76 +466,17 @@ def lfw_view2_score_topfg11(rseed, C):
     out_template = 'blend_top_N=%i_%s_%s_%s' % (
             1, dbname, _id, '%i')
 
-    lfw_view2_fold_kernels_by_spec(config, dbname, _id,
-            comparison=ncomp)
+    # --saves files named by dbname and id
+    view2_fold_kernels_by_spec(
+            config, dbname, _id,
+            ncomp=ncomp,
+            Ktrain_names=[Ktrain_name(dbname, _id, ncomp, i)
+                          for i in range(10)],
+            Ktest_names=[Ktest_name(dbname, _id, ncomp, i)
+                         for i in range(10)]) 
 
     blend_top_N(1, dbname, [_id], out_template,
             dryrun=False, C=float(C), ncomp=ncomp)
-
-
-def lfw_view2_fold_kernels_by_spec(doc_spec_model, dbname, _id,
-        comparison=2):
-    if comparison == 2:
-        comparison=['mult', 'sqrtabsdiff']
-        namebase = '%s_%s_comp2' % (dbname, _id,)
-        ncomp = 2
-    elif comparison == 4:
-        comparison=['mult', 'sqrtabsdiff', 'absdiff', 'sqdiff']
-        namebase = '%s_%s_comp4' % (dbname, _id,)
-        ncomp = 4
-    else:
-        raise NotImplementedError()
-    image_features, pair_features_by_comp = get_view2_features(
-            slm_desc=doc_spec_model['slm'],
-            preproc=doc_spec_model['preproc'],
-            namebase=namebase,
-            comparison=comparison,
-            basedir=os.getcwd(),
-            )
-
-    split_data = [verification_pairs('fold_%d' % fold, subset=None)
-            for fold in range(10)]
-
-    for test_fold in range(10):
-        try:
-            open(Ktest_name(dbname, _id, ncomp, test_fold)).close()
-            continue
-        except IOError:
-            pass
-        print ('FOLD %i' % test_fold)
-        blend_train = blend_test = None
-        for comp, pf in pair_features_by_comp.items():
-            test_X = pf[test_fold][:]
-            test_y = split_data[test_fold][2]
-
-            train_inds = [ii for ii in range(10) if ii != test_fold]
-            train_X = np.vstack([pf[ii][:] for ii in train_inds])
-            train_y = np.concatenate([split_data[_ind][2] for _ind in train_inds])
-
-            train_Xyd_n, test_Xyd_n = toyproblem.normalize_Xcols(
-                (train_X, train_y, None,),
-                (test_X, test_y, None,))
-
-            print ('Computing training kernel. n_features=%i' %
-                    train_X.shape[1])
-            (_Xtrain, _ytrain, _dtrain) = train_Xyd_n
-            Ktrain = utils.linear_kernel(_Xtrain, _Xtrain, use_theano=True)
-
-            print ('Computing testtrain kernel ...')
-            (_Xtest, _ytest, _dtest) = test_Xyd_n
-            Ktest = utils.linear_kernel(_Xtest, _Xtrain, use_theano=True)
-
-            if blend_train is None:
-                blend_train = Ktrain
-                blend_test = Ktest
-            else:
-                blend_train += Ktrain
-                blend_test += Ktest
-
-        np.save(Ktrain_name(dbname, _id, ncomp, test_fold),
-                blend_train)
-        np.save(Ktest_name(dbname, _id, ncomp, test_fold),
-                blend_test)
 
 
 def lfw_view2_fold_kernels_by_id(host, port, dbname, _id, comparison=None):
@@ -546,8 +488,13 @@ def lfw_view2_fold_kernels_by_id(host, port, dbname, _id, comparison=None):
     print 'TRIAL:', doc['_id']
     print 'SPEC :', doc['spec']
     print 'LOSS :', doc['result']['loss']
-    return lfw_view2_fold_kernels_by_spec(
-            doc['spec']['model'], dbname, doc['_id'], comparison=comparison)
+    ncomp = int(comparison)
+    return view2_fold_kernels_by_spec(
+            doc['spec']['model'], dbname, doc['_id'], ncomp=ncomp,
+            Ktrain_names=[Ktrain_name(dbname, _id, ncomp, i)
+                          for i in range(10)],
+            Ktest_names=[Ktest_name(dbname, _id, ncomp, i)
+                         for i in range(10)]) 
 
 
 def lfw_view2_score(host, port, dbname, _id):
