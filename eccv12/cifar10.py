@@ -9,11 +9,14 @@ import pyll_slm
 pyll.scope.import_(globals(),
     'pyll_theano_batched_lmap',
     'cifar10_img_classification_task',
-    'linsvm_train_test',
-    'hyperopt_set_loss',
+    'fit_linear_svm',
+    'model_predict',
+    'error_rate',
     'np_transpose',
+    'flatten_elems',
     'partial',
     'callpipe1',
+    'mean_and_std',
     # /begin distributions... that hyperopt can tune
     'uniform',
     'quniform',
@@ -29,6 +32,7 @@ pyll.scope.import_(globals(),
     'fbcorr': 'slm_fbcorr',
     's_int': 'int',
     'HP': 'hyperopt_param',
+    'HR': 'hyperopt_result',
     })
 
 
@@ -76,7 +80,9 @@ class Cifar10Bandit1(pyll_slm.HPBandit):
                 stretch=HP('n1_stretch', logu_range(.1/3, 10.*3)),
                 threshold=HP('n1_thresh', logu_range(.1/3, 10.*3)))
 
-        pipeline = [lnorm0, fbcorr1, lpool1, lnorm1]
+        pipeline = [lnorm0,
+                fbcorr1, lpool1, lnorm1,
+                ]
 
         assert n_train + n_valid < 50000
         assert n_test < 10000
@@ -95,35 +101,37 @@ class Cifar10Bandit1(pyll_slm.HPBandit):
                 all_imgs[50000:50000 + n_test],
                 batchsize=batchsize)
 
-        self.result = linsvm_train_test(
-                train=(screen_features[:n_train], all_labels[:n_train]),
-                test_sets = dict(
-                    valid=(
-                        screen_features[n_train:n_train + n_valid],
-                        all_labels[n_train:n_train + n_valid]
-                        ),
-                    test=(
-                        test_features,
-                        all_labels[50000:50000 + n_test],
-                        ),
-                    ),
-                C=C,
-                normalize_cols=True,
-                allow_inplace=True,
-                report={
-                    'col_affine': 0,
-                    'svm': 0,
-                    'train.error_rate': 1,
-                    'train.fit_time': 1,
-                    'test.valid.error_rate': 1,
-                    'test.valid.accuracy': 1,
-                    'test.test.error_rate': 1,
-                    'test.test.accuracy': 1,
-                    'train.sgd_step_size0': 1,
-                    })
+        xmean, xstd = mean_and_std(
+                flatten_elems(screen_features[:n_train]),
+                remove_std0=True)
+        xmean = HR('xmean', xmean)
+        xmean = HR('xstd', xstd)
 
-        self.result_w_loss = hyperopt_set_loss(self.result, 'test.valid.error_rate')
+        trn_xy=(
+            (flatten_elems(screen_features[:n_train]) - xmean) / xstd,
+            all_labels[:n_train])
 
-        pyll_slm.HPBandit.__init__(self, self.result_w_loss)
+        val_xy = (
+            (flatten_elems(screen_features[n_train:n_train + n_valid])
+                - xmean) / xstd,
+            all_labels[n_train:n_train + n_valid])
+
+        tst_xy = (
+            (flatten_elems(test_features[:]) - xmean) / xstd,
+            all_labels[50000:50000 + n_test])
+
+        # TODO: choose l2_regularization by optimization
+        svm = fit_linear_svm(trn_xy, l2_regularization=1e-3)
+
+        val_loss = HR("val_erate",
+                error_rate(
+                    model_predict(svm, val_xy[0]),
+                    val_xy[1]))
+        tst_loss = HR("tst_erate",
+                error_rate(
+                    model_predict(svm, tst_xy[0]),
+                    tst_xy[1]))
+
+        pyll_slm.HPBandit.__init__(self, val_loss)
 
 

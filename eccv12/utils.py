@@ -62,7 +62,7 @@ class ImgLoaderResizer(object):
         return rval
 
 
-DOT_MAX_NDIMS = 10000
+DOT_MAX_NDIMS = 256
 MEAN_MAX_NPOINTS = 2000
 STD_MAX_NPOINTS = 2000
 
@@ -145,7 +145,7 @@ def chunked_linear_kernel(Xs, Ys, use_theano, symmetric):
     return rval
 
 
-def linear_kernel(X, Y, use_theano, block_size=1000):
+def linear_kernel(X, Y, use_theano, block_size=10000):
     """Compute a linear kernel in blocks so that it can use a GPU with limited
     memory.
 
@@ -173,7 +173,12 @@ def linear_kernel(X, Y, use_theano, block_size=1000):
     return chunked_linear_kernel(Xs, Ys, use_theano, symmetric=(X is Y))
 
 
-def mean_and_std(X):
+def mean_and_std(X, remove_std0=False):
+    """Return the mean and standard deviation of each column of matrix `X`
+
+    if `remove_std0` is True, then 0 elements of the std vector will be
+    switched to 1. This is typically what you want for feature normalization.
+    """
     fshape = X.shape
     X.shape = fshape[0], -1
     npoints, ndims = X.shape
@@ -190,12 +195,10 @@ def mean_and_std(X):
         curr = np.empty_like(fmean)
         npoints_done = MEAN_MAX_NPOINTS
         while npoints_done < npoints:
-            
             sel = X[npoints_done : npoints_done + MEAN_MAX_NPOINTS]
             np.add.reduce(sel, axis=0, dtype="float32", out=curr)
             np.add(fmean, curr, fmean)
-            npoints_done += MEAN_MAX_NPOINTS                
- 
+            npoints_done += MEAN_MAX_NPOINTS
         fmean /= npoints
 
     if npoints < STD_MAX_NPOINTS:
@@ -226,7 +229,9 @@ def mean_and_std(X):
 
         fstd = np.sqrt(fstd/npoints)
 
-    fstd[fstd == 0] = 1
+    if remove_std0:
+        fstd[fstd == 0] = 1
+
     return fmean, fstd
 
 

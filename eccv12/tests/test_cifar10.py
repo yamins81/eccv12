@@ -79,7 +79,7 @@ def test_partial_callpipe():
 
 
 def test_bandit1_sample():
-    bandit = Cifar10Bandit1('foo', 10, 10, 10)
+    bandit = Cifar10Bandit1('foo', n_train=100, n_valid=10, n_test=10)
     print 'TEMPLATE', bandit.template
 
     config = pyll.stochastic.sample(bandit.template,

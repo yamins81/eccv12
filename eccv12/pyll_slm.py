@@ -18,6 +18,11 @@ import hyperopt
 from skdata import larray
 from skdata.cifar10 import CIFAR10
 
+from .utils import linear_kernel, mean_and_std
+from asgd.auto_step_size import binary_fit
+from asgd import NaiveBinaryASGD
+from asgd import NaiveRankASGD
+
 
 class InvalidDescription(Exception):
     """Model description was invalid"""
@@ -309,32 +314,10 @@ def pyll_theano_batched_lmap(pipeline, seq, batchsize,
     return larray.lmap(fn_1, seq, f_map=f_map)
 
 
-@pyll.scope.define
-def linsvm_train_test(features, labels, n_train, n_test,
-        C=1.0, allow_inplace=False, normalize_cols=True, shuffle=False,
-        **kwargs):
-    return {'result': 'awesome'}
-
-
 @pyll.scope.define_info(o_len=2)
 def cifar10_img_classification_task(dtype='float32'):
     imgs, labels = CIFAR10().img_classification_task(dtype='float32')
     return imgs, labels
-
-
-@pyll.scope.define
-def hyperopt_set_loss(dct, key):
-    #TODO: move this logic to general nested-key-setting pyll fn
-    #N.B. this function modifies dct in-place, but doesn't change any of the
-    #     existing keys... so it's probably safe not to copy dct.
-    keys = key.split('.')
-    obj = dct
-    for key in keys:
-        obj = obj[key]
-    dct.setdefault('loss', obj)
-    if obj != dct['loss']:
-        raise KeyError('loss already set')
-    return dct
 
 
 @pyll.scope.define
@@ -343,7 +326,17 @@ def np_transpose(obj, arg):
 
 
 @pyll.scope.define
+def flatten_elems(obj):
+    return obj.reshape(len(obj), -1)
+
+
+@pyll.scope.define
 def hyperopt_param(label, obj):
+    return obj
+
+
+@pyll.scope.define
+def hyperopt_result(label, obj):
     return obj
 
 
@@ -355,11 +348,23 @@ class HPBandit(hyperopt.Bandit):
     def __init__(self, result_expr):
         # -- need a template: which is a dictionary with all the HP nodes
         template = {}
+        s_result_dct = {}
         for node in pyll.dfs(result_expr):
             if node.name == 'hyperopt_param':
-                template[node.arg['label'].obj] = node.arg['obj']
+                key = node.arg['label'].obj
+                val = node.arg['obj']
+                if template.get(key, val) != val:
+                    raise KeyError(key)
+                template[key] = val
+            if node.name == 'hyperopt_result':
+                key = node.arg['label'].obj
+                val = node.arg['obj']
+                if s_result_dct.get(key, val) != val:
+                    raise KeyError(key)
+                s_result_dct[key] = val
         hyperopt.Bandit.__init__(self, template)
         self.result_expr = result_expr
+        self.s_result_dct = s_result_dct
 
     def evaluate(self, config, ctrl):
         # -- config is a dict with values for all the HP nodes
@@ -369,6 +374,158 @@ class HPBandit(hyperopt.Bandit):
                 label = node.arg['label'].obj
                 memo[node] = config[label]
         assert len(memo) == len(config)
-        return pyll.rec_eval(self.result_expr, memo=memo)
+        r_expr, r_dct = pyll.rec_eval(
+                [self.result_expr, self.s_result_dct],
+                memo=memo)
+        r_dct['rval'] = r_expr
+        r_dct.setdefault('loss', r_expr)
+        r_dct.setdefault('status', hyperopt.STATUS_OK)
+        return r_dct
 
+        if 0:
+
+            #TODO: move this logic to general nested-key-setting pyll fn
+            # N.B. this function modifies dct in-place,
+            #     but doesn't change any of the
+            #     existing keys... so it's probably safe not to copy dct.
+            keys = key.split('.')
+            obj = dct
+            for key in keys:
+                obj = obj[key]
+            dct.setdefault('loss', obj)
+            if obj != dct['loss']:
+                raise KeyError('loss already set')
+            return dct
+
+
+class LinearSVM(object):
+    """
+    SVM-fitting object that implements a heuristic for choosing
+    the right solver among several that may be installed:
+
+    - libSVM
+    - NaiveASGD
+    - NaiveOVAASGD
+
+    """
+    def __init__(self, l2_regularization, solver='auto', label_dct=None):
+        self.l2_regularization = l2_regularization
+        self.solver = solver
+        self.label_dct = label_dct
+
+    def fit(self, X, y, weights=None, bias=None):
+        solver = self.solver
+        label_dct = self.label_dct
+        l2_regularization = self.l2_regularization
+
+        if weights or bias:
+            raise NotImplementedError(
+                    'Currently only train_set = (X, y) is supported')
+        del weights, bias
+
+        n_train, n_feats = X.shape
+        if self.label_dct is None:
+            label_dct = dict([(v, i) for (i, v) in enumerate(sorted(set(y)))])
+        else:
+            label_dct = self.label_dct
+        n_classes = len(label_dct)
+
+        if n_classes < 2:
+            raise ValueError('must be at least 2 labels')
+
+        elif n_classes == 2:
+            if set(y) != set([-1, 1]):
+                # TODO: use the label_dct to automatically adjust
+                raise NotImplementedError()
+
+            if solver == 'auto':
+                if n_feats > n_train:
+                    solver = ('sklearn.svm.SVC', {'kernel': 'precomputed'})
+                else:
+                    solver = ('asgd.NaiveBinaryASGD', {})
+
+            method, method_kwargs = solver
+
+            if method == 'asgd.NaiveBinaryASGD':
+                svm = NaiveBinaryASGD(
+                        l2_regularization=l2_regularization,
+                        **method_kwargs)
+                svm = binary_fit(svm, (X, y))
+
+            elif method == 'sklearn.svm.SVC':
+                C = 1.0 / (l2_regularization * len(X))
+                svm = sklearn.svm.SVC(C=C, scale_C=False, **method_kwargs)
+                ktrn = linear_kernel(X, X)
+                svm.fit(ktrn, y)
+
+            else:
+                raise ValueError('unrecognized method', method)
+
+        else:  # n_classes > 2
+            if set(y) != set(range(len(set(y)))):
+                # TODO: use the label_dct to automatically adjust
+                raise NotImplementedError('labels need adapting',
+                        set(y))
+            if solver == 'auto':
+                # TODO: switch to OVA and use libSVM?
+                #if n_feats > n_train:
+                solver = ('asgd.NaiveRankASGD', {})
+
+            method, method_kwargs = solver
+
+            if method == 'asgd.NaiveRankASGD':
+                svm = NaiveRankASGD(n_classes, n_feats,
+                        l2_regularization=l2_regularization,
+                        **method_kwargs)
+                svm = binary_fit(svm, (X, y))
+
+            elif method == 'asgd.NaiveOVAASGD':
+                # -- one vs. all
+                svm = NaiveOVAASGD(n_classes, n_feats,
+                        l2_regularization=l2_regularization,
+                        **method_kwargs)
+                svm = binary_fit(svm, (X, y))
+
+            elif method == 'sklearn.svm.SVC':
+                # -- one vs. one
+                raise NotImplementedError(method)
+
+            elif method == 'sklearn.svm.NuSVC':
+                # -- one vs. one
+                raise NotImplementedError(method)
+
+            elif method == 'sklearn.svm.LinearSVC':
+                # -- one vs. all
+                raise NotImplementedError(method)
+
+            else:
+                raise ValueError('unrecognized method', method)
+
+        self.svm = svm
+
+    def predict(self, *args, **kwargs):
+        return self.svm.predict(*args, **kwargs)
+
+    def decision_function(self, *args, **kwargs):
+        return self.svm.decision_function(*args, **kwargs)
+
+
+@pyll.scope.define
+def fit_linear_svm(data, l2_regularization, solver='auto'):
+    svm = LinearSVM(l2_regularization, solver=solver)
+    svm.fit(*data)
+    return svm
+
+
+@pyll.scope.define
+def model_predict(mdl, X):
+    return mdl.predict(X)
+
+
+@pyll.scope.define
+def error_rate(pred, y):
+    return np.mean(pred != y)
+
+
+pyll.scope.define_info(o_len=2)(mean_and_std)
 
