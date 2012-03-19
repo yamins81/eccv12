@@ -147,6 +147,9 @@ from eccv12.lfw import Aligned
 from eccv12.lfw import screening_program
 from eccv12.lfw import verification_pairs
 from eccv12.lfw import view2_fold_kernels_by_spec
+from eccv12.lfw import get_view2_features
+from eccv12.utils import mean_and_std, linear_kernel
+from eccv12.utils import dot
 
 feature_root = '/share/datasets/LFW_FG11/lfw2'
 
@@ -159,6 +162,33 @@ def only_on_honeybadger(f):
             raise SkipTest()
     wrapper.__name__ = f.__name__
     return wrapper
+
+
+def load_official_view2_dump(test_fold, comparison):
+    sclas_comparison = {
+        'mult': 'mul',
+        'sqrtabsdiff': 'sqrtabs_diff',
+        'absdiff': 'abs_diff',
+        'sqdiff': 'sq_diff',
+    }[comparison]
+
+    fname = '/home/jbergstra/tmp/lfw_view2_split_%02i.csv.kernel.ht1_1_l3__150fd767e9d5d6822e414b6ae20d7da6ce9469fa_gray.%s.mat.pkl' % (
+        10 - test_fold,  # N.B. official splits are backward (!!)
+        sclas_comparison)
+
+    print 'LOADING OFFICIAL SAVED KERNEL:', fname
+
+    rval = cPickle.load(open(fname))
+    return rval
+
+
+def closeish(msg, A, B, atol=.25):
+    AmB = abs(A - B)
+    print msg, AmB.max(), (AmB / (abs(A) + abs(B))).max()
+    # -- these numbers are typically pretty big, but a few are close to zero,
+    #    so relative error is as much as .5 but I think it's OK.
+    if atol:
+        assert AmB.max() < atol
 
 
 @pyll.scope.define
@@ -186,7 +216,6 @@ def get_fg11_features(suffix, expected_shape):
     rval = larray.lmap(load_path, paths)
     rval = larray.cache_memmap(rval, 'fcache_' + suffix, basedir=os.getcwd())
     return rval
-
 
 
 @only_on_honeybadger
@@ -217,26 +246,102 @@ def test_fg11_view1_from_saved_features():
     assert result['test_accuracy'] > 81.0  # -- I just saw it score 82.3 (Feb 2012)
     # March 16 2012 -- current codebase scores it 81.7  (loss .183)
 
+@only_on_honeybadger
+def test_sclas():
+    foo = cPickle.load(open('/home/jbergstra/cvs/sclas/ofoo.mat.pkl'))
+    ktrn_ref = foo['kernel_traintrain']
+    official = load_official_view2_dump(9, 'absdiff')
+    closeish('ofoo dump matches official data', ktrn_ref, official['kernel_traintrain'])
+
 
 @only_on_honeybadger
-def test_fg11_view2_from_saved_features():
+def test_view2_features():
+    """
+    Follow the computation of a feature kernel from start to finish
+    """
+    #foo = cPickle.load(open('/home/jbergstra/cvs/sclas/ofoo.mat.pkl'))
+    foo = cPickle.load(open('/home/jbergstra/cvs/sclas/ofoo_nowhiten.pkl.mat.pkl'))
+    ktrn_ref = foo['kernel_traintrain']
+
+    rows_refA = cPickle.load(open('/home/jbergstra/cvs/sclas/ofoo.mat.A.mat'))
+    rows_refB = cPickle.load(open('/home/jbergstra/cvs/sclas/ofoo.mat.B.mat'))
+
+    feat = get_fg11_features(
+        '.ht1_1_l3__150fd767e9d5d6822e414b6ae20d7da6ce9469fa_gray.mat',
+        expected_shape=(100, 256))
+    assert feat[0].shape == (100, 256)
+    #dbname = 'fakedbFG11'
+    #_id = 'from_saved'
+
+    test_fold = 9
+    split_data = [verification_pairs('fold_%d' % fold, subset=None, interleaved=True)
+            for fold in range(10)]
+    train_y = np.concatenate([split_data[_ind][2]
+            for _ind in range(10) if _ind != test_fold])
+    test_y = split_data[test_fold][2]
+
+    image_features, pair_features_by_comp = get_view2_features(
+            slm_desc=None,
+            preproc=None,
+            namebase=None,
+            comparison=['absdiff'],
+            basedir=os.getcwd(),
+            image_features=feat,
+            )
+    pf_list = pair_features_by_comp['absdiff']
+
+
+    train_X = np.vstack([pf_list[ii][:]
+                         for ii in range(10) if ii != test_fold])
+    assert np.allclose(train_X, rows_refA)
+    fmean, fstd = mean_and_std(train_X)
+    shift = -fmean
+    scale = 1.0 / fstd
+    
+    train_X = (train_X + shift) * scale
+    assert np.allclose(train_X, rows_refB)
+
+    ktrn = linear_kernel(train_X, train_X, use_theano=True)
+    ktrn2 = dot(train_X, train_X.T)
+    closish('ktrn ktrn2', ktrn, ktrn2)
+    closish('ktrn ktrn_ref', ktrn, ktrn_ref)
+    closish('ktrn2 ktrn_ref', ktrn2, ktrn_ref)
+
+
+@only_on_honeybadger
+def test_view2_saved_kernels():
+    """
+    Test that the saved kernels match the ones from sclas
+    """
+    ofoo = cPickle.load(open('/home/jbergstra/cvs/sclas/ofoo.mat.pkl'))
+    for comparison in ['absdiff', 'mult', 'sqrtabsdiff', 'sqdiff']:
+        train_names = ['fg11_top_ktrain%i_%s.npy' % (i, comparison)
+                       for i in range(10)]
+        test_names = ['fg11_top_ktest%i_%s.npy' % (i, comparison)
+                      for i in range(10)]
+        for test_fold in range(10):
+            ktrn = np.load(train_names[test_fold])
+            ktst = np.load(test_names[test_fold])
+
+            closish('%s %s train' % (comparison, test_fold), ktrn, foo['kernel_traintrain'])
+            closish('%s %s test' % (comparison, test_fold), ktst, foo['kernel_traintest'].T)
+            closish('%s %s train (ofoo)' % (comparison, test_fold), ktrn, ofoo['kernel_traintrain'])
+            closish('%s %s test (ofoo)' % (comparison, test_fold), ktst, ofoo['kernel_traintest'].T)
+
+
+
+@only_on_honeybadger
+def test_view2_from_saved_features():
     # -- this tests the evaluation program from image features -> loss
     fg11_features = get_fg11_features(
         '.ht1_1_l3__150fd767e9d5d6822e414b6ae20d7da6ce9469fa_gray.mat',
         expected_shape=(100, 256))
 
-
-    config = {}
-    config['decisions'] = None
-    config['comparison'] = None
-    config['preproc'] = None
-    config['slm'] = None
-
     dbname = 'fakedbFG11'
     _id = 'from_saved'
 
     # -- used for labels
-    split_data = [verification_pairs('fold_%d' % fold, subset=None)
+    split_data = [verification_pairs('fold_%d' % fold, subset=None, interleaved=True)
             for fold in range(10)]
 
     #comparisons=['mult', 'sqrtabsdiff', 'absdiff', 'sqdiff'],
@@ -245,7 +350,7 @@ def test_fg11_view2_from_saved_features():
                        for i in range(10)]
         test_names = ['fg11_top_ktest%i_%s.npy' % (i, comparison)
                       for i in range(10)]
-        view2_fold_kernels_by_spec(config, dbname, _id,
+        view2_fold_kernels_by_spec(None, dbname, _id,
                 comparisons=[comparison],
                 image_features=fg11_features,
                 Ktrain_names = train_names,
@@ -266,103 +371,108 @@ def test_fg11_view2_from_saved_features():
                     for _ind in range(10) if _ind != test_fold])
             test_y = split_data[test_fold][2]
 
-            svm = sklearn.svm.SVC(kernel='precomputed', scale_C=False, tol=1e-4, C=1e5)
+            svm = sklearn.svm.SVC(kernel='precomputed', scale_C=False, tol=1e-3, C=1e5)
             svm.fit(Ktrain, train_y)
             test_predictions = svm.predict(Ktest)
             test_err = (test_predictions != test_y).mean()
-            print test_fold, 'accuracy', (1.0 - test_err) * 100
+            print comparison, test_fold, 'accuracy', (1.0 - test_err) * 100
             test_errs.append(test_err)
 
         print comparison, 'MEAN:', (1.0 - np.mean(test_errs)) * 100
 
 
 @only_on_honeybadger
-def test_fg11_view2_blend_from_saved_features():
-    # -- used for labels
-    split_data = [verification_pairs('fold_%d' % fold, subset=None)
-            for fold in range(10)]
+def test_abs_diff_kernel_01():
+    dump_path = '%s/lfw_view2_split_01.csv.kernel.%s.sqrtabs_diff.mat.pkl' % (
+        '/home/jbergstra/tmp',
+        'ht1_1_l3__150fd767e9d5d6822e414b6ae20d7da6ce9469fa_gray')
+    kernel_mat = cPickle.load(open(dump_path))
 
-    comparisons = ['mult', 'sqrtabsdiff', 'absdiff', 'sqdiff']
-    #comparisons = ['sqrtabsdiff']
-    test_errs = []
-    for test_fold in range(10):
+    fg11_features = get_fg11_features(
+        '.ht1_1_l3__150fd767e9d5d6822e414b6ae20d7da6ce9469fa_gray.mat',
+        expected_shape=(100, 256))
 
-        blend_train = blend_test = None
-        for comparison in comparisons:
-            train_names = ['fg11_top_ktrain%i_%s.npy' % (i, comparison)
-                           for i in range(10)]
-            test_names = ['fg11_top_ktest%i_%s.npy' % (i, comparison)
-                          for i in range(10)]
+    comparison = 'sqrtabsdiff'
+    test_fold = 9 # csv splits are backward for some reason
 
-            Ktrain = np.load(train_names[test_fold]).astype('float64')
-            Ktest = np.load(test_names[test_fold]).astype('float64')
+    dbname = 'fakedbFG11'
+    _id = 'from_saved'
+    train_names = ['fg11_top_ktrain%i_%s.npy' % (test_fold, comparison)]
+    test_names = ['fg11_top_ktest%i_%s.npy' % (test_fold, comparison)]
+    view2_fold_kernels_by_spec(None, dbname, _id,
+            comparisons=[comparison],
+            image_features = fg11_features,
+            Ktrain_names = train_names,
+            Ktest_names = test_names,
+            force_recompute_kernel=True,
+            test_folds = [test_fold])
 
-            train_trace = Ktrain.trace()
-            Ktrain /= train_trace
-            Ktest /= train_trace
+    ktrn = np.load(train_names[0])
+    ktst = np.load(test_names[0])
 
-            if blend_train is None:
-                blend_train = Ktrain
-                blend_test = Ktest
-            else:
-                blend_train += Ktrain
-                blend_test += Ktest
-            del Ktrain, Ktest
+    ktrn_ref = kernel_mat['kernel_traintrain']
+    ktst_ref = kernel_mat['kernel_traintest'].T
 
-        trc = blend_train.trace()
-        blend_train /= trc
-        blend_test /= trc
+    print ktrn[:3, :3]
+    print ktrn_ref[:3, :3]
+    #print ktst[:3, :3]
+    #print ktst_ref[:3, :3]
 
-        train_y = np.concatenate([split_data[_ind][2]
-                for _ind in range(10) if _ind != test_fold])
-        test_y = split_data[test_fold][2]
-
-        print 'TRAIN_KERNEL VAR', blend_train.var()
-
-        for log10C in 5,:
-            C = 10 ** log10C
-            svm = sklearn.svm.SVC(kernel='precomputed', scale_C=False, tol=1e-3, C=C)
-            svm.fit(blend_train, train_y)
-            test_predictions = svm.predict(blend_test)
-            test_err = (test_predictions != test_y).mean()
-            print test_fold, C, 'accuracy', (1.0 - test_err) * 100
-            test_errs.append(test_err)
-
-        print C, 'MEAN:', (1.0 - np.mean(test_errs)) * 100, comparisons
+    assert ktrn.shape == ktrn_ref.shape
+    assert ktst.shape == ktst_ref.shape
 
 
+@only_on_honeybadger
 def test_splits():
-    import os
+    """
+    This tests that the view2 splits are equivalent to the ones used by sclas.
+    """
     dataset = Aligned()
     all_paths = np.array(dataset.raw_classification_task()[0])
     skd = []
     for j in range(10):
-        lidxs, ridxs, matches = verification_pairs('fold_%i' % j)
+        lidxs, ridxs, matches = verification_pairs('fold_%i' % j, interleaved=True)
         skd_Ltest = map(os.path.basename, all_paths[lidxs])
         skd_Rtest = map(os.path.basename, all_paths[ridxs])
         # skd puts all matches first, then all mis-matches
         # csv has them match, mismatch, match, mismatch
-        csvlike_Ltest = np.vstack([skd_Ltest[:300], skd_Ltest[300:]]).T.flatten()
-        csvlike_Rtest = np.vstack([skd_Rtest[:300], skd_Rtest[300:]]).T.flatten()
-        skd.append((csvlike_Ltest, csvlike_Rtest))
+        #csvlike_Ltest = np.vstack([skd_Ltest[:300], skd_Ltest[300:]]).T.flatten()
+        #csvlike_Rtest = np.vstack([skd_Rtest[:300], skd_Rtest[300:]]).T.flatten()
+        skd.append((skd_Ltest, skd_Rtest))
 
-    csv = []
     for i in range(1, 11):
         csv_path = '/share/datasets/LFW_FG11/lfw_view2_split_%02i.csv' % i
         csv_lines = np.asarray([l.split(',') for l in open(csv_path)])
         assert len(csv_lines) == 6000, len(csv_lines)
         assert np.all(csv_lines[-600:, 3] == 'test\r\n')
         assert np.all(csv_lines[:-600, 3] == 'train\r\n')
+        csv_Ltrain = map(os.path.basename, csv_lines[:-600, 0])
+        csv_Rtrain = map(os.path.basename, csv_lines[:-600, 1])
+        assert np.all(csv_Ltrain == np.concatenate([l
+                    for j, (l, r) in enumerate(skd) if j != (10 - i)]))
+        assert np.all(csv_Rtrain == np.concatenate([r
+                    for j, (l, r) in enumerate(skd) if j != (10 - i)]))
+
         csv_Ltest = map(os.path.basename, csv_lines[-600:, 0])
         csv_Rtest = map(os.path.basename, csv_lines[-600:, 1])
-        csv.append((csv_Ltest, csv_Rtest))
 
-    for i, (l, r) in enumerate(skd):
-        ll, rr = csv[-i - 1]
-        print i, (np.all(l == ll) and np.all(r == rr))
+        ll, rr = skd[-i]  # curiously, the order is backward..
+        print i, (np.all(csv_Ltest == ll) and np.all(csv_Rtest == rr))
+        assert (np.all(csv_Ltest == ll) and np.all(csv_Rtest == rr))
 
 
-def test_can_classify_saved_kernels(input_filenames):
+def classify_sclas_kernels(input_filenames):
+    """
+    To run this program I had to hack the sclas file for kernel
+    classification to dump matlab files to pickle format, because
+    scipy.io complained about matlab version mismatches and refused to
+    load the original files.
+
+    The weird setup of the procedure makes this not really a unit or
+    regression test but the result was that the same numbers came out as
+    came out of the sclas program. (March 16 2012)
+    
+    """
 
     blend_train = blend_test = None
     for fname in input_filenames:
