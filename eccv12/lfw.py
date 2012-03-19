@@ -20,12 +20,21 @@ import model_params
 import comparisons
 
 from .bandits import BaseBandit, validate_config, validate_result
-from .utils import ImgLoaderResizer, linear_kernel
+from .utils import ImgLoaderResizer, linear_kernel, mean_and_std
 from .classifier import get_result, train_scikits
 from .classifier import normalize as dan_normalize
 
 # -- register symbols in pyll.scope
 import toyproblem
+
+_Aligned = None
+
+
+def Aligned():
+    global _Aligned
+    if _Aligned is None:
+        _Aligned = skdata.lfw.Aligned()
+    return _Aligned
 
 
 class FG11Bandit(BaseBandit):
@@ -205,7 +214,7 @@ def get_images(dtype, preproc):
 
     """
 
-    all_paths = skdata.lfw.Aligned().raw_classification_task()[0]
+    all_paths = Aligned().raw_classification_task()[0]
     rval = larray.lmap(
                 ImgLoaderResizer(
                     dtype=dtype,
@@ -225,7 +234,7 @@ def _verification_pairs_helper(all_paths, lpaths, rpaths):
 
 
 @scope.define
-def verification_pairs(split, subset=None):
+def verification_pairs(split, subset=None, interleaved=False):
     """
     Return three integer arrays: lidxs, ridxs, match.
 
@@ -233,9 +242,16 @@ def verification_pairs(split, subset=None):
     ridxs: position in the given split of the right image
     match: 1 if they correspond to the same people, else -1
     """
-    dataset = skdata.lfw.Aligned()
+    if not interleaved:
+        import sys
+        print >> sys.stderr, "WARNING: not interleaved verification pairs"
+    dataset = Aligned()
     all_paths = dataset.raw_classification_task()[0]
     lpaths, rpaths, matches = dataset.raw_verification_task(split=split)
+    if interleaved and split.startswith('fold'):
+        lpaths = np.vstack([lpaths[:300], lpaths[300:]]).T.flatten()
+        rpaths = np.vstack([rpaths[:300], rpaths[300:]]).T.flatten()
+        matches = np.vstack([matches[:300], matches[300:]]).T.flatten()
     lidxs, ridxs = _verification_pairs_helper(all_paths, lpaths, rpaths)
     if subset is None:
         return lidxs, ridxs, (matches * 2 - 1)
@@ -519,8 +535,9 @@ def view2_filename(namebase, split_num):
 
 
 def get_view2_features(slm_desc, preproc, comparison, namebase, basedir,
-                       test=None):
-    image_features = slm_memmap(
+                       test=None, image_features=None):
+    if image_features is None:
+        image_features = slm_memmap(
             desc=slm_desc,
             X=get_images('float32', preproc=preproc),
             name=namebase + '_img_feat_view2',
@@ -536,14 +553,14 @@ def get_view2_features(slm_desc, preproc, comparison, namebase, basedir,
     pfs_by_comp = {}
     for split_num in range(10):
         print ('extracting fold %d' % split_num)
-        pair_labels = verification_pairs('fold_%d' % split_num, subset=test)
+        pair_labels = verification_pairs('fold_%d' % split_num, subset=test,
+                                        interleaved=True)
         lidxs, ridxs, matches = pair_labels
         for comparison in comp_l:
-            pf = larray.lmap(
+            pf = larray.cache_memory(larray.lmap(
                     PairFeaturesFn(image_features, comparison),
                     lidxs,
-                    ridxs)
-            pf[:] # -- this little guy here computes all the features
+                    ridxs))
             pfs_by_comp.setdefault(comparison, []).append(pf)
     return image_features, pfs_by_comp
 
@@ -648,4 +665,83 @@ def train_view2(namebases, basedirs, test=None, use_libsvm=False,
     print 'test err mean', test_err_mean
 
     return train_err_mean, test_err_mean
+
+
+def view2_fold_kernels_by_spec(
+        doc_spec_model,
+        dbname,
+        _id,
+        Ktrain_names,
+        Ktest_names,
+        comparisons,
+        image_features=None,
+        force_recompute_kernel=False,
+        test_folds=range(10),
+        ):
+    # N.B. Ktrain_names actually must be a list of 10 filenames
+    # N.B. Ktest_names actually must be a list of 10 filenames
+    #namebase = '%s_%s_comp=' % (dbname, _id, '+'.join(comparisons))
+
+    if image_features is None:
+        image_features, pair_features_by_comp = get_view2_features(
+                slm_desc=doc_spec_model['slm'],
+                preproc=doc_spec_model['preproc'],
+                namebase=None,
+                comparison=comparisons,
+                basedir=os.getcwd(),
+                )
+    else:
+        image_features, pair_features_by_comp = get_view2_features(
+                slm_desc=None,
+                preproc=None,
+                namebase=None,
+                comparison=comparisons,
+                basedir=os.getcwd(),
+                image_features=image_features,
+                )
+
+    assert len(test_folds) == len(Ktrain_names)
+    assert len(test_folds) == len(Ktest_names)
+
+    for jj, test_fold in enumerate(test_folds):
+        if (not force_recompute_kernel
+           and os.path.exists(Ktest_names[jj])):
+            continue
+        print ('FOLD %i' % test_fold)
+        blend_train = blend_test = None
+        for comp, pf_list in pair_features_by_comp.items():
+            test_X = pf_list[test_fold][:]
+
+            train_X = np.vstack([pf_list[ii][:]
+                                 for ii in range(10) if ii != test_fold])
+
+            if 1:
+                fmean, fstd = mean_and_std(train_X)
+                shift = -fmean
+                scale = 1.0 / fstd
+            else:
+                shift = -np.mean(train_X, axis=0)
+                xstd = np.std(train_X, axis=0)
+                xstd[xstd.astype('float32') == 0] = 1
+                scale = 1.0 / xstd
+            print 'scale stats', scale.min(), scale.max()
+            train_X = (train_X + shift) * scale
+            test_X = (test_X + shift) * scale
+
+            print ('Computing training kernel. n_features=%i' %
+                    train_X.shape[1])
+            Ktrain = linear_kernel(train_X, train_X, use_theano=True)
+
+            print ('Computing testtrain kernel ...')
+            Ktest = linear_kernel(test_X, train_X, use_theano=True)
+
+            if blend_train is None:
+                blend_train = Ktrain
+                blend_test = Ktest
+            else:
+                blend_train += Ktrain
+                blend_test += Ktest
+
+        np.save(Ktrain_names[jj], blend_train)
+        np.save(Ktest_names[jj], blend_test)
 

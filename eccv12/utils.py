@@ -62,6 +62,25 @@ class ImgLoaderResizer(object):
         return rval
 
 
+DOT_MAX_NDIMS = 10000
+MEAN_MAX_NPOINTS = 2000
+STD_MAX_NPOINTS = 2000
+
+
+import theano
+sX = theano.tensor.matrix(dtype='float32')
+sY = theano.tensor.matrix(dtype='float32')
+dot32 = theano.function([sX, sY], theano.tensor.dot(sX, sY))
+sX = theano.tensor.matrix(dtype='float64')
+sY = theano.tensor.matrix(dtype='float64')
+dot64 = theano.function([sX, sY], theano.tensor.dot(sX, sY))
+
+
+def dot(A, B):
+    _dot = dict(float32=dot32, float64=dot64)[str(A.dtype)]
+    return _dot(A, B)
+
+
 def chunked_linear_kernel(Xs, Ys, use_theano, symmetric):
     """Compute a linear kernel in blocks so that it can use a GPU with limited
     memory.
@@ -76,16 +95,22 @@ def chunked_linear_kernel(Xs, Ys, use_theano, symmetric):
 
     dtype = Xs[0].dtype
 
-    if use_theano:
-        import theano
-        sX = theano.tensor.matrix(dtype=dtype)
-        sY = theano.tensor.matrix(dtype=dtype)
-        dot = theano.function([sX, sY], theano.tensor.dot(sX, sY))
-    else:
-        dot = np.dot
+    def _dot(A, B):
+        if K < DOT_MAX_NDIMS:
+            return dot(A, B)
+        else:
+            out = dot(A[:,:DOT_MAX_NDIMS], B[:DOT_MAX_NDIMS])
+            ndims_done = DOT_MAX_NDIMS            
+            while ndims_done < K:
+                out += dot(
+                    A[:,ndims_done : ndims_done + DOT_MAX_NDIMS], 
+                    B[ndims_done : ndims_done + DOT_MAX_NDIMS])
+                ndims_done += DOT_MAX_NDIMS
+            return out
 
     R = sum([len(X) for X in Xs])
     C = sum([len(Y) for Y in Ys])
+    K = Xs[0].shape[1]
 
     rval = np.zeros((R, C), dtype=dtype)
 
@@ -110,14 +135,13 @@ def chunked_linear_kernel(Xs, Ys, use_theano, symmetric):
                 r_ji = rval[jj0:jj1, ii0:ii1]
                 r_ij[:] = r_ji.T
             else:
-                r_ij[:] = dot(X_i, Y_j.T)
+                r_ij[:] = _dot(X_i, Y_j.T)
 
             jj0 = jj1
 
         ii0 = ii1
 
     print 'done!'
-
     return rval
 
 
@@ -147,4 +171,62 @@ def linear_kernel(X, Y, use_theano, block_size=1000):
     assert sum([len(xi) for xi in Xs]) == len(X)
     assert sum([len(yi) for yi in Ys]) == len(Y)
     return chunked_linear_kernel(Xs, Ys, use_theano, symmetric=(X is Y))
+
+
+def mean_and_std(X):
+    fshape = X.shape
+    X.shape = fshape[0], -1
+    npoints, ndims = X.shape
+
+    if npoints < MEAN_MAX_NPOINTS:
+        fmean = X.mean(0)
+    else:
+        sel = X[:MEAN_MAX_NPOINTS]
+        fmean = np.empty_like(sel[0,:])
+
+        np.add.reduce(sel, axis=0, dtype="float32", out=fmean)
+
+        # -- sum up the features in blocks to reduce rounding error
+        curr = np.empty_like(fmean)
+        npoints_done = MEAN_MAX_NPOINTS
+        while npoints_done < npoints:
+            
+            sel = X[npoints_done : npoints_done + MEAN_MAX_NPOINTS]
+            np.add.reduce(sel, axis=0, dtype="float32", out=curr)
+            np.add(fmean, curr, fmean)
+            npoints_done += MEAN_MAX_NPOINTS                
+ 
+        fmean /= npoints
+
+    if npoints < STD_MAX_NPOINTS:
+        fstd = X.std(0)
+    else:
+        sel = X[:MEAN_MAX_NPOINTS]
+
+        mem = np.empty_like(sel)
+        curr = np.empty_like(mem[0,:])
+
+        seln = sel.shape[0]
+        np.subtract(sel, fmean, mem[:seln])
+        np.multiply(mem[:seln], mem[:seln], mem[:seln])
+        fstd = np.add.reduce(mem[:seln], axis=0, dtype="float32")
+
+        npoints_done = MEAN_MAX_NPOINTS
+        # -- loop over by blocks for improved numerical accuracy
+        while npoints_done < npoints:
+
+            sel = X[npoints_done : npoints_done + MEAN_MAX_NPOINTS]
+            seln = sel.shape[0]
+            np.subtract(sel, fmean, mem[:seln])
+            np.multiply(mem[:seln], mem[:seln], mem[:seln])
+            np.add.reduce(mem[:seln], axis=0, dtype="float32", out=curr)
+            np.add(fstd, curr, fstd)
+
+            npoints_done += MEAN_MAX_NPOINTS
+
+        fstd = np.sqrt(fstd/npoints)
+
+    fstd[fstd == 0] = 1
+    return fmean, fstd
+
 
