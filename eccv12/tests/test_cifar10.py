@@ -78,15 +78,32 @@ def test_partial_callpipe():
     assert feats.shape[3] < 32
 
 
-def test_bandit1_sample():
-    bandit = Cifar10Bandit1('foo', 10, 10, 10)
+def test_bandit1_small():
+    bandit = Cifar10Bandit1(n_train=100, n_valid=10, n_test=10)
     print 'TEMPLATE', bandit.template
-
     config = pyll.stochastic.sample(bandit.template,
             np.random.RandomState(34))
-
     print 'CONFIG', config
-
     bandit.evaluate(config, ctrl=None)
 
+
+def test_bandit1_medium():
+    bandit = Cifar10Bandit1(n_train=10000, n_valid=1000, n_test=100)
+    print 'TEMPLATE', bandit.template
+    config = pyll.stochastic.sample(bandit.template,
+            np.random.RandomState(34))
+    print 'CONFIG', config
+    result = bandit.evaluate(config, ctrl=None)
+    print result
+
+
+def test_bandit3_large():
+    bandit = Cifar10Bandit1(n_train=40000, n_valid=10000, n_test=10000,
+            nfilt_ubounds=[64, 128, 256])
+    print 'TEMPLATE', bandit.template
+    config = pyll.stochastic.sample(bandit.template,
+            np.random.RandomState(34))
+    print 'CONFIG', config
+    result = bandit.evaluate(config, ctrl=None)
+    print result
 

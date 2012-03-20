@@ -1,5 +1,19 @@
+import sys
+import time
+
 import numpy as np
 import scipy as sp
+
+try:
+    import theano
+except ImportError:
+    pass
+
+from asgd import NaiveBinaryASGD
+from asgd.auto_step_size import binary_fit
+
+from .utils import linear_kernel
+import utils
 
 #############
 ###scikits###
@@ -24,10 +38,10 @@ def train_scikits(train_Xyd,
 
     """
     construct and train a scikits svm model
-    
+
     model_type = which svm model to use (e.g. "svm.LinearSVC")
     model_kwargs = args sent to classifier initialization
-    fit_kwargs = args sent to classifier fit 
+    fit_kwargs = args sent to classifier fit
     use_decisions = whether to use "raw decisions" in weights or not
     normalization = do feature-wise train data normalization
     trace_normalize = do example-wise trace normalization
@@ -49,29 +63,30 @@ def train_scikits(train_Xyd,
         train_mean = None
         train_std = None
         trace = None
-        
+
     if sample_weight_opts is not None:
         #NB:  if sample_weight_opts is not None, the classifier better support
         #sample_weights fit argument, e.g. svm.SVC is fine but svm.LinearSVC
-        #is NOT. 
+        #is NOT.
         assert 'sample_weight' not in fit_kwargs
         use_raw_decisions = sample_weight_opts['use_raw_decisions']
         alpha = sample_weight_opts['alpha']
-        sample_weights = sample_weights_from_decisions(decisions=train_decisions,
-                                            labels=train_labels,
-                                            labelset=labelset,
-                                            use_raw_decisions=use_raw_decisions,
-                                            alpha=alpha)
+        sample_weights = sample_weights_from_decisions(
+                decisions=train_decisions,
+                labels=train_labels,
+                labelset=labelset,
+                use_raw_decisions=use_raw_decisions,
+                alpha=alpha)
         fit_kwargs['sample_weight'] = sample_weights
-    
+
     model = train_scikits_core(train_features=train_features,
                                train_labels=train_labels,
                                model_type=model_type,
                                labelset=labelset,
                                model_kwargs=model_kwargs,
                                fit_kwargs=fit_kwargs)
-                              
-    train_data = {'train_mean':train_mean,
+
+    train_data = {'train_mean': train_mean,
                   'train_std': train_std,
                   'trace': trace}
 
@@ -85,11 +100,11 @@ def train_scikits_core(train_features,
                      model_kwargs,
                      fit_kwargs
                      ):
-    """ 
+    """
     """
     if model_type.startswith('svm.'):
         ct = model_type.split('.')[-1]
-        cls = getattr(sklearn_svm,ct)
+        cls = getattr(sklearn_svm, ct)
     else:
         raise ValueError('Model type %s not recognized' % model_type)
     if labelset == [-1, 1]:
@@ -105,10 +120,10 @@ def sample_weights_from_decisions(decisions,
                                   labelset,
                                   use_raw_decisions,
                                   alpha):
-                                  
+
     assert labelset == [-1, 1] or labelset == range(len(labelset))
     assert decisions.shape[0] == labels.shape[0]
-    
+
     if labelset == [-1, 1]:
         decisions = np.column_stack([-decisions, decisions]) / 2.
         labels = ((1 + labels) / 2).astype(np.int)
@@ -121,7 +136,7 @@ def sample_weights_from_decisions(decisions,
         margins = actual - max_c
     else:
         predictions = decisions.argmax(1)
-        margins = 2 * (predictions == labels).astype(np.int) - 1        
+        margins = 2 * (predictions == labels).astype(np.int) - 1
     weights = np.exp(-alpha * margins)
     weights = weights / weights.sum()
 
@@ -132,28 +147,38 @@ def sample_weights_from_decisions(decisions,
 ##stats##
 #########
 
-def get_regression_result(train_actual, test_actual, train_predicted, test_predicted):
+def get_regression_result(train_actual, test_actual,
+        train_predicted, test_predicted):
     test_results = regression_stats(test_actual, test_predicted)
-    train_results = regression_stats(train_actual, train_predicted, prefix='train')
+    train_results = regression_stats(train_actual, train_predicted,
+            prefix='train')
     test_results.update(train_results)
     return test_results
 
+
 def regression_stats(actual, predicted, prefix='test'):
     a_mean = actual.mean()
-    test_rsquared = 1 - np.linalg.norm(actual - predicted)**2 / np.linalg.norm(actual-a_mean)**2
-    return {prefix+'_rsquared' : test_rsquared}
+    ap = np.linalg.norm(actual - predicted)
+    am = np.linalg.norm(actual - a_mean)
+    test_rsquared = 1 - (ap / am) ** 2
+    return {prefix + '_rsquared': test_rsquared}
 
 
-def get_result(train_labels, test_labels, train_prediction, test_prediction, labels):
-    assert all(l in labels for l in train_prediction), np.unique([l for l in train_prediction if l not in labels])
-    assert all(l in labels for l in test_prediction), np.unique([l for l in test_prediction if l not in labels])
-    result = {'train_errors': (train_labels != train_prediction).tolist(),
-     'test_errors': (test_labels != test_prediction).tolist(),
-     'train_prediction': train_prediction.tolist(),
-     'test_prediction' : test_prediction.tolist(),
-     'label_set' : list(labels),
+def get_result(train_labels, test_labels,
+        train_prediction, test_prediction, labels):
+    assert all(l in labels for l in train_prediction), \
+            np.unique([l for l in train_prediction if l not in labels])
+    assert all(l in labels for l in test_prediction), \
+            np.unique([l for l in test_prediction if l not in labels])
+    result = {
+            'train_errors': (train_labels != train_prediction).tolist(),
+            'test_errors': (test_labels != test_prediction).tolist(),
+            'train_prediction': train_prediction.tolist(),
+            'test_prediction': test_prediction.tolist(),
+            'label_set': list(labels),
      }
-    stats = multiclass_stats(test_labels, test_prediction, train_labels, train_prediction, labels)
+    stats = multiclass_stats(test_labels, test_prediction, train_labels,
+            train_prediction, labels)
     result.update(stats)
     return result
 
@@ -161,55 +186,59 @@ def get_result(train_labels, test_labels, train_prediction, test_prediction, lab
 def get_test_result(test_labels, test_prediction, labels, prefix='test'):
     result = {
      prefix + '_errors': (test_labels != test_prediction).tolist(),
-     prefix + '_prediction' : test_prediction.tolist(),
+     prefix + '_prediction': test_prediction.tolist(),
      'label_set': labels
      }
-    stats = multiclass_test_stats(test_labels, test_prediction, labels, prefix=prefix)
+    stats = multiclass_test_stats(test_labels, test_prediction, labels,
+            prefix=prefix)
     result.update(stats)
     return result
 
 
-def multiclass_stats(test_actual, test_predicted, train_actual, train_predicted,labels):
+def multiclass_stats(test_actual, test_predicted,
+        train_actual, train_predicted, labels):
     test_results = multiclass_test_stats(test_actual, test_predicted, labels)
-    train_results = multiclass_test_stats(train_actual, train_predicted, labels, prefix='train')
+    train_results = multiclass_test_stats(train_actual, train_predicted,
+            labels, prefix='train')
     test_results.update(train_results)
     return test_results
 
 
 def multiclass_test_stats(test_actual, test_predicted, labels, prefix='test'):
-    test_accuracy = float(100*(test_predicted == test_actual).sum() / float(len(test_predicted)))
+    test_accuracy = 100 * np.mean(test_predicted == test_actual)
     test_aps = []
     test_aucs = []
     if len(labels) == 2:
         labels = labels[1:]
     for label in labels:
-        test_prec,test_rec = precision_and_recall(test_actual,test_predicted,label)
-        test_ap = ap_from_prec_and_rec(test_prec,test_rec)
+        test_prec, test_rec = precision_and_recall(test_actual,
+                test_predicted, label)
+        test_ap = ap_from_prec_and_rec(test_prec, test_rec)
         test_aps.append(test_ap)
-        test_auc = auc_from_prec_and_rec(test_prec,test_rec)
+        test_auc = auc_from_prec_and_rec(test_prec, test_rec)
         test_aucs.append(test_auc)
     test_ap = np.array(test_aps).mean()
     test_auc = np.array(test_aucs).mean()
-    return {prefix+'_accuracy' : float(test_accuracy),
-            prefix+'_ap' : float(test_ap),
-            prefix+'_auc' : float(test_auc)}
+    return {prefix + '_accuracy': float(test_accuracy),
+            prefix + '_ap': float(test_ap),
+            prefix + '_auc': float(test_auc)}
 
 
-def precision_and_recall(actual,predicted,cls):
+def precision_and_recall(actual, predicted, cls):
     c = (actual == cls)
     si = sp.argsort(-c)
     tp = sp.cumsum(sp.single(predicted[si] == cls))
     fp = sp.cumsum(sp.single(predicted[si] != cls))
-    rec = tp /sp.sum(predicted == cls)
+    rec = tp / sp.sum(predicted == cls)
     prec = tp / (fp + tp)
-    return prec,rec
+    return prec, rec
 
 
-def ap_from_prec_and_rec(prec,rec):
+def ap_from_prec_and_rec(prec, rec):
     ap = 0
-    rng = sp.arange(0, 1.1, .1)
+    rng = sp.arange(0, 1.1, 0.1)
     for th in rng:
-        parray = prec[rec>=th]
+        parray = prec[rec >= th]
         if len(parray) == 0:
             p = 0
         else:
@@ -218,13 +247,11 @@ def ap_from_prec_and_rec(prec,rec):
     return ap
 
 
-def auc_from_prec_and_rec(prec,rec):
+def auc_from_prec_and_rec(prec, rec):
     #area under curve
     h = sp.diff(rec)
     auc = sp.sum(h * (prec[1:] + prec[:-1])) / 2.0
     return auc
-
-
 
 
 #########
@@ -235,6 +262,11 @@ def normalize(feats, trace_normalize=False, data=None):
     """Performs normalizations before training on a list of feature array/label
     pairs. first feature array in list is taken by default to be training set
     and norms are computed relative to that one.
+    """
+
+    print >> sys.stderr, """"WARNING:, this trace normalization is not the same
+    as is in sclas. sclas divides the gram matrix by the trace, whereas this
+    normalization (utils.normalize) appears to scale by trace / n_examples
     """
 
     if data is None:
@@ -248,7 +280,7 @@ def normalize(feats, trace_normalize=False, data=None):
     if trace_normalize:
         if data is None:
             train_f = feats[0]
-            tr = np.maximum(np.sqrt((train_f**2).sum(axis=1)).mean(), 1e-8)
+            tr = np.maximum(np.sqrt((train_f ** 2).sum(axis=1)).mean(), 1e-8)
         else:
             tr = data['trace']
     else:
@@ -257,24 +289,6 @@ def normalize(feats, trace_normalize=False, data=None):
         feats = [f / tr for f in feats]
     feats = tuple(feats)
     return feats + (m, s, tr)
-
-
-def mean_and_std(X, min_std):
-    # -- this loop is more memory efficient than numpy
-    #    but not as numerically accurate as possible
-    m = np.zeros(X.shape[1], dtype='float64')
-    msq = np.zeros(X.shape[1], dtype='float64')
-    for i in xrange(X.shape[0]):
-        alpha = 1.0 / (i + 1)
-        v = X[i]
-        m = (alpha * v) + (1 - alpha) * m
-        msq = (alpha * v * v) + (1 - alpha) * msq
-
-    train_mean = np.asarray(m, dtype=X.dtype)
-    train_std = np.sqrt(np.maximum(
-            msq - m * m,
-            min_std ** 2)).astype(X.dtype)
-    return train_mean, train_std
 
 
 def split_center_normalize(X, y,
@@ -305,7 +319,7 @@ def split_center_normalize(X, y,
     train_labels = y[:n_train]
     valid_labels = y[n_train:n_train + n_valid]
 
-    train_mean, train_std = mean_and_std(X, min_std=min_std)
+    train_mean, train_std = utils.mean_and_std(X, min_std=min_std)
 
     # train features and valid features are aliased to X
     X -= train_mean
@@ -315,5 +329,4 @@ def split_center_normalize(X, y,
             (valid_features, valid_labels),
             train_mean,
             train_std)
-
 

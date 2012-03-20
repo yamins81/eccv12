@@ -9,11 +9,14 @@ import pyll_slm
 pyll.scope.import_(globals(),
     'pyll_theano_batched_lmap',
     'cifar10_img_classification_task',
-    'linsvm_train_test',
-    'hyperopt_set_loss',
+    'fit_linear_svm',
+    'model_predict',
+    'error_rate',
     'np_transpose',
+    'flatten_elems',
     'partial',
     'callpipe1',
+    'mean_and_std',
     # /begin distributions... that hyperopt can tune
     'uniform',
     'quniform',
@@ -29,6 +32,7 @@ pyll.scope.import_(globals(),
     'fbcorr': 'slm_fbcorr',
     's_int': 'int',
     'HP': 'hyperopt_param',
+    'HR': 'hyperopt_result',
     })
 
 
@@ -44,42 +48,49 @@ def logu_range(lower, upper):
 
 
 class Cifar10Bandit1(pyll_slm.HPBandit):
-    def __init__(self, namebase, n_train, n_valid, n_test,
-            use_l3='no',  # can be yes, no, maybe
+    def __init__(self, n_train, n_valid, n_test,
+            nfilt_ubounds=[64],
             batchsize=10,
-            C=1.0):
+            l2_regularization=1e-7):
 
         lnorm0 = partial(lnorm,
                 ker_size=HP('n0_size', rfilter_size(2, 6)),
                 remove_mean=HP('n0_remove_mean', one_of(0, 1)),
                 stretch=HP('n0_stretch', logu_range(.1/3, 10.*3)),
                 threshold=HP('n0_thresh', logu_range(.1/3, 10.*3)))
+        #print lnorm0
 
-        fbcorr1 = partial(fbcorr,
-                ker_size=HP('f1_size', rfilter_size(2, 6)),
-                n_filters=s_int(
-                    HP('f1_nfilt', qloguniform(
-                        np.log(16 / 2.0) + 1e-5,
-                        np.log(64),
-                        q=16))),
-                generate=('random:uniform',
-                    {'rseed': HP('f1_seed', choice(range(10, 15)))}))
+        pipeline = [lnorm0]
+        for ii, nfu in enumerate(nfilt_ubounds):
+            ll = ii + 1
+            fbcorr1 = partial(fbcorr,
+                    ker_size=HP('f%i_size' % ll, rfilter_size(2, 6)),
+                    n_filters=s_int(
+                        HP('f%i_nfilt' % ll, qloguniform(
+                            np.log(16 / 2.0) + 1e-5,
+                            np.log(nfu),
+                            q=16))),
+                    generate=('random:uniform',
+                        {'rseed': HP('f%i_seed' % ll, choice(range(10, 15)))}))
 
-        lpool1 = partial(lpool,
-                ker_size=HP('p1_size', rfilter_size(2, 5)),
-                order=HP('p1_order', loguniform(np.log(1), np.log(10))),
-                stride=HP('p1_stride', 1))
+            lpool1 = partial(lpool,
+                    ker_size=HP('p%i_size' % ll, rfilter_size(2, 5)),
+                    order=HP('p%i_order' % ll, loguniform(np.log(1), np.log(10))),
+                    stride=HP('p%i_stride' % ll, 1))
 
-        lnorm1 = partial(lnorm,
-                ker_size = HP('n1_size', rfilter_size(2, 5)),
-                remove_mean=HP('n1_nomean', one_of(0, 1)),
-                stretch=HP('n1_stretch', logu_range(.1/3, 10.*3)),
-                threshold=HP('n1_thresh', logu_range(.1/3, 10.*3)))
+            lnorm1 = partial(lnorm,
+                    ker_size = HP('n%i_size' % ll, rfilter_size(2, 5)),
+                    remove_mean=HP('n%i_nomean' % ll, one_of(0, 1)),
+                    stretch=HP('n%i_stretch' % ll, logu_range(.1/3, 10.*3)),
+                    threshold=HP('n%i_thresh' % ll, logu_range(.1/3, 10.*3)))
 
-        pipeline = [lnorm0, fbcorr1, lpool1, lnorm1]
+            pipeline.extend([fbcorr1, lpool1, lnorm1])
 
-        assert n_train + n_valid < 50000
-        assert n_test < 10000
+        #print pipeline
+        pipeline = pyll.as_apply(pipeline)
+
+        assert n_train + n_valid <= 50000
+        assert n_test <= 10000
 
         # -- map cifar10 through the pipeline
         all_imgs, all_labels = cifar10_img_classification_task()
@@ -95,35 +106,34 @@ class Cifar10Bandit1(pyll_slm.HPBandit):
                 all_imgs[50000:50000 + n_test],
                 batchsize=batchsize)
 
-        self.result = linsvm_train_test(
-                train=(screen_features[:n_train], all_labels[:n_train]),
-                test_sets = dict(
-                    valid=(
-                        screen_features[n_train:n_train + n_valid],
-                        all_labels[n_train:n_train + n_valid]
-                        ),
-                    test=(
-                        test_features,
-                        all_labels[50000:50000 + n_test],
-                        ),
-                    ),
-                C=C,
-                normalize_cols=True,
-                allow_inplace=True,
-                report={
-                    'col_affine': 0,
-                    'svm': 0,
-                    'train.error_rate': 1,
-                    'train.fit_time': 1,
-                    'test.valid.error_rate': 1,
-                    'test.valid.accuracy': 1,
-                    'test.test.error_rate': 1,
-                    'test.test.accuracy': 1,
-                    'train.sgd_step_size0': 1,
-                    })
+        xmean, xstd = mean_and_std(
+                flatten_elems(screen_features[:n_train]),
+                remove_std0=True)
+        xmean = HR('xmean', xmean)
+        xstd = HR('xstd', xstd)
 
-        self.result_w_loss = hyperopt_set_loss(self.result, 'test.valid.error_rate')
+        trn_xy=(
+            (flatten_elems(screen_features[:n_train]) - xmean) / xstd,
+            all_labels[:n_train])
 
-        pyll_slm.HPBandit.__init__(self, self.result_w_loss)
+        val_xy = (
+            (flatten_elems(screen_features[n_train:n_train + n_valid])
+                - xmean) / xstd,
+            all_labels[n_train:n_train + n_valid])
+
+        tst_xy = (
+            (flatten_elems(test_features[:]) - xmean) / xstd,
+            all_labels[50000:50000 + n_test])
+
+        # TODO: choose l2_regularization by optimization
+        svm = fit_linear_svm(trn_xy, l2_regularization=l2_regularization)
+
+        outputs = []
+        for name, xy in ('trn', trn_xy), ('val', val_xy), ('tst', tst_xy):
+            erate = error_rate(model_predict(svm, xy[0]), xy[1])
+            if name == 'val':
+                erate = HR('loss', erate)
+            outputs.append(HR(name + "_erate", erate))
+        pyll_slm.HPBandit.__init__(self, pyll.as_apply(outputs))
 
 

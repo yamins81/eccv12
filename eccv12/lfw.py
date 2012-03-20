@@ -52,7 +52,9 @@ class FG11Bandit(BaseBandit):
         preproc = config['preproc']
         comparison = config['comparison']
         decisions = config.get('decisions')
-        return get_performance(slm, decisions, preproc, comparison)
+        namebase = config.get('namebase')
+        return get_performance(slm, decisions, preproc, comparison,
+                namebase=namebase)
 
 
 class MainBandit(BaseBandit):
@@ -424,7 +426,8 @@ def attach_feature_kernels(train_Xyd, test_Xyd, ctrl, comp):
 
 
 def screening_program(slm_desc, decisions, comparison, preproc, namebase,
-                      image_features=None, ctrl=None):
+                      image_features=None, ctrl=None,
+                      l2_regularization=1e-3):
     if image_features is None:
         image_features = scope.slm_memmap(
                 desc=slm_desc,
@@ -462,7 +465,7 @@ def screening_program(slm_desc, decisions, comparison, preproc, namebase,
 
     ### TODO: put consts in config, possibly loop over them in MultiBandit
     svm = scope.train_svm(train_Xyd_n,
-            l2_regularization=1e-3,
+            l2_regularization=l2_regularization,
             max_observations=20000)
 
     new_d_train = scope.svm_decisions_lfw(svm, train_Xyd_n)
@@ -487,7 +490,7 @@ def screening_program(slm_desc, decisions, comparison, preproc, namebase,
 
 def get_performance(slm, decisions, preproc, comparison,
                     namebase=None, progkey='result_w_cleanup',
-                    return_multi=False, ctrl=None):
+                    return_multi=False, ctrl=None, l2_regularization=1e-3):
     if decisions is None:
         decisions = np.zeros((1, 3200))
     else:
@@ -513,7 +516,9 @@ def get_performance(slm, decisions, preproc, comparison,
                         namebase=namebase,
                         decisions=decisions,
                         image_features=image_features,
-                        ctrl=ctrl)[1][progkey]
+                        ctrl=ctrl,
+                        l2_regularization=l2_regularization,
+                        )[1][progkey]
         except InvalidDescription, e:
             sresult = {'status': hyperopt.STATUS_FAIL,
                        'reason': (str(type(e)), str(e))}

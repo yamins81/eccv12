@@ -18,6 +18,9 @@ import hyperopt
 from skdata import larray
 from skdata.cifar10 import CIFAR10
 
+from .utils import linear_kernel, mean_and_std
+from asgd import LinearSVM
+
 
 class InvalidDescription(Exception):
     """Model description was invalid"""
@@ -309,32 +312,10 @@ def pyll_theano_batched_lmap(pipeline, seq, batchsize,
     return larray.lmap(fn_1, seq, f_map=f_map)
 
 
-@pyll.scope.define
-def linsvm_train_test(features, labels, n_train, n_test,
-        C=1.0, allow_inplace=False, normalize_cols=True, shuffle=False,
-        **kwargs):
-    return {'result': 'awesome'}
-
-
 @pyll.scope.define_info(o_len=2)
 def cifar10_img_classification_task(dtype='float32'):
     imgs, labels = CIFAR10().img_classification_task(dtype='float32')
     return imgs, labels
-
-
-@pyll.scope.define
-def hyperopt_set_loss(dct, key):
-    #TODO: move this logic to general nested-key-setting pyll fn
-    #N.B. this function modifies dct in-place, but doesn't change any of the
-    #     existing keys... so it's probably safe not to copy dct.
-    keys = key.split('.')
-    obj = dct
-    for key in keys:
-        obj = obj[key]
-    dct.setdefault('loss', obj)
-    if obj != dct['loss']:
-        raise KeyError('loss already set')
-    return dct
 
 
 @pyll.scope.define
@@ -343,7 +324,17 @@ def np_transpose(obj, arg):
 
 
 @pyll.scope.define
+def flatten_elems(obj):
+    return obj.reshape(len(obj), -1)
+
+
+@pyll.scope.define
 def hyperopt_param(label, obj):
+    return obj
+
+
+@pyll.scope.define
+def hyperopt_result(label, obj):
     return obj
 
 
@@ -355,11 +346,23 @@ class HPBandit(hyperopt.Bandit):
     def __init__(self, result_expr):
         # -- need a template: which is a dictionary with all the HP nodes
         template = {}
+        s_result_dct = {}
         for node in pyll.dfs(result_expr):
             if node.name == 'hyperopt_param':
-                template[node.arg['label'].obj] = node.arg['obj']
+                key = node.arg['label'].obj
+                val = node.arg['obj']
+                if template.get(key, val) != val:
+                    raise KeyError('duplicate key', key)
+                template[key] = val
+            if node.name == 'hyperopt_result':
+                key = node.arg['label'].obj
+                val = node.arg['obj']
+                if s_result_dct.get(key, val) != val:
+                    raise KeyError('duplicate key', (key, val, template[key]))
+                s_result_dct[key] = val
         hyperopt.Bandit.__init__(self, template)
         self.result_expr = result_expr
+        self.s_result_dct = s_result_dct
 
     def evaluate(self, config, ctrl):
         # -- config is a dict with values for all the HP nodes
@@ -369,6 +372,46 @@ class HPBandit(hyperopt.Bandit):
                 label = node.arg['label'].obj
                 memo[node] = config[label]
         assert len(memo) == len(config)
-        return pyll.rec_eval(self.result_expr, memo=memo)
+        r_expr, r_dct = pyll.rec_eval(
+                [self.result_expr, self.s_result_dct],
+                memo=memo)
+        r_dct['rval'] = r_expr
+        r_dct.setdefault('loss', r_expr)
+        r_dct.setdefault('status', hyperopt.STATUS_OK)
+        return r_dct
 
+        if 0:
+
+            #TODO: move this logic to general nested-key-setting pyll fn
+            # N.B. this function modifies dct in-place,
+            #     but doesn't change any of the
+            #     existing keys... so it's probably safe not to copy dct.
+            keys = key.split('.')
+            obj = dct
+            for key in keys:
+                obj = obj[key]
+            dct.setdefault('loss', obj)
+            if obj != dct['loss']:
+                raise KeyError('loss already set')
+            return dct
+
+
+@pyll.scope.define
+def fit_linear_svm(data, l2_regularization, solver='auto'):
+    svm = LinearSVM(l2_regularization, solver=solver)
+    svm.fit(*data)
+    return svm
+
+
+@pyll.scope.define
+def model_predict(mdl, X):
+    return mdl.predict(X)
+
+
+@pyll.scope.define
+def error_rate(pred, y):
+    return np.mean(pred != y)
+
+
+pyll.scope.define_info(o_len=2)(mean_and_std)
 
