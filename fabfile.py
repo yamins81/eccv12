@@ -732,7 +732,7 @@ def history_allexp(host, port, dbname):
         plt.subplot(ROWS, 5, iii)
         plt.title(k)
         plt.scatter(range(len(losses)), losses)
-        plt.ylim(.10, .55)
+        plt.ylim(0, 1)
         iii += 1
     plt.show()
 
@@ -985,8 +985,6 @@ def extract_kernel_par_tpe(position):
 
 
 def show_vars(host, port, dbname, key):
-    import eccv12.lfw
-    bandit_cls = eccv12.lfw.SqrtAbsDiffL3Bandit
     conn = pm.Connection(host=host, port=int(port))
     J = conn[dbname]['jobs']
     K = [k for k  in conn[dbname]['jobs'].distinct('exp_key')]
@@ -1005,12 +1003,22 @@ def show_vars(host, port, dbname, key):
                         'result.loss':1,
                         'result.status':1,
                         'spec':1,
+                        'misc.cmd': 1,
                         'misc.tid':1,
                         'misc.idxs':1,
                         'misc.vals': 1,
                     }))
+    doc0 = docs[0]
+    cmd = doc0['misc']['cmd']
+    print cmd
+    if cmd[0] == 'bandit_json evaluate':
+        bandit = hyperopt.utils.json_call(cmd[1])
+    else:
+        bandit = None
+    print 'bandit', bandit
+
     trials = hyperopt.trials_from_docs(docs, validate=False)
-    hyperopt.plotting.main_plot_vars(trials, bandit=bandit_cls())
+    hyperopt.plotting.main_plot_vars(trials, bandit=bandit)
 
 
 def show_dbs(host, port, dbname=None):
