@@ -48,7 +48,7 @@ def logu_range(lower, upper):
 
 
 class Cifar10Bandit1(pyll_slm.HPBandit):
-    def __init__(self, n_train, n_valid, n_test,
+    def __init__(self, n_train=40000, n_valid=10000, n_test=10000,
             nfilt_ubounds=[64],
             batchsize=10,
             l2_regularization=1e-7):
@@ -136,4 +136,26 @@ class Cifar10Bandit1(pyll_slm.HPBandit):
             outputs.append(HR(name + "_erate", erate))
         pyll_slm.HPBandit.__init__(self, pyll.as_apply(outputs))
 
+
+def Cifar10Bandit2():
+    return Cifar10Bandit1(nfilt_ubounds=[64, 128])
+
+
+def Cifar10Bandit3():
+    return Cifar10Bandit1(nfilt_ubounds=[64, 128, 256])
+
+
+def Cifar10Bandit1Small():
+    return Cifar10Bandit1(nfilt_ubounds=[64],
+                          n_train=10000, n_valid=10000, n_test=1000)
+
+
+def Cifar10Bandit2Small():
+    return Cifar10Bandit1(nfilt_ubounds=[64, 128],
+                          n_train=10000, n_valid=10000, n_test=1000)
+
+
+def Cifar10Bandit3Small():
+    return Cifar10Bandit1(nfilt_ubounds=[64, 128, 256],
+                          n_train=10000, n_valid=10000, n_test=1000)
 
