@@ -66,19 +66,21 @@ DOT_MAX_NDIMS = 256
 MEAN_MAX_NPOINTS = 2000
 STD_MAX_NPOINTS = 2000
 
+if 0:
 
-import theano
-sX = theano.tensor.matrix(dtype='float32')
-sY = theano.tensor.matrix(dtype='float32')
-dot32 = theano.function([sX, sY], theano.tensor.dot(sX, sY))
-sX = theano.tensor.matrix(dtype='float64')
-sY = theano.tensor.matrix(dtype='float64')
-dot64 = theano.function([sX, sY], theano.tensor.dot(sX, sY))
+    import theano
+    sX = theano.tensor.matrix(dtype='float32')
+    sY = theano.tensor.matrix(dtype='float32')
+    dot32 = theano.function([sX, sY], theano.tensor.dot(sX, sY))
+    sX = theano.tensor.matrix(dtype='float64')
+    sY = theano.tensor.matrix(dtype='float64')
+    dot64 = theano.function([sX, sY], theano.tensor.dot(sX, sY))
+    def dot(A, B):
+        _dot = dict(float32=dot32, float64=dot64)[str(A.dtype)]
+        return _dot(A, B)
 
-
-def dot(A, B):
-    _dot = dict(float32=dot32, float64=dot64)[str(A.dtype)]
-    return _dot(A, B)
+else:
+    dot = np.dot
 
 
 def chunked_linear_kernel(Xs, Ys, use_theano, symmetric):

@@ -414,7 +414,7 @@ def classify_eccv12_blend():
     for test_fold in range(10):
         ktrn_blend = ktst_blend = None
         for comparison in ['mult', 'sqrtabsdiff', 'absdiff', 'sqdiff']:
-            if 0:
+            if 1:
                 train_name = '/home/jbergstra/tmp/fg11_top_ktrain%i_%s.npy' % (test_fold, comparison)
                 test_name = '/home/jbergstra/tmp/fg11_top_ktest%i_%s.npy' % (test_fold, comparison)
                 Ktrain = np.load(train_name)

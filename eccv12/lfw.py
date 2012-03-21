@@ -715,15 +715,9 @@ def view2_fold_kernels_by_spec(
             train_X = np.vstack([pf_list[ii][:]
                                  for ii in range(10) if ii != test_fold])
 
-            if 1:
-                fmean, fstd = mean_and_std(train_X)
-                shift = -fmean
-                scale = 1.0 / fstd
-            else:
-                shift = -np.mean(train_X, axis=0)
-                xstd = np.std(train_X, axis=0)
-                xstd[xstd.astype('float32') == 0] = 1
-                scale = 1.0 / xstd
+            fmean, fstd = mean_and_std(train_X, remove_std0=True)
+            shift = -fmean
+            scale = 1.0 / fstd
             print 'scale stats', scale.min(), scale.max()
             train_X = (train_X + shift) * scale
             test_X = (test_X + shift) * scale
