@@ -73,10 +73,9 @@ def show_vars(host, port, dbname, key):
     if key is None:
         raise NotImplementedError()
     else:
-        exp_key = exp_keys.get(key, key)
         docs = list(
                 conn[dbname]['jobs'].find(
-                    {'exp_key': exp_key},
+                    {'exp_key': key},
                     {
                         'tid': 1,
                         'state': 1,
@@ -132,14 +131,22 @@ def transfer_trials(fromdb, todb):
     to_trials.insert_trial_docs(doc)
 
 
-
-def list_errors(dbname,host='localhost'):
+def list_errors(host, port, dbname, key=None, spec=0):
     trials = MongoTrials(
-            'mongo://%s:44556/%s/jobs' % (host, dbname),
+            'mongo://%s:%s/%s/jobs' % (host, port, dbname),
             refresh=False)
-    for doc in trials.handle:
-        if doc['state'] == hyperopt.JOB_STATE_ERROR:
-            print doc['_id'], doc['tid'], doc['book_time'], doc['error']
+    conn = pm.Connection(host=host, port=int(port))
+    jobs = conn[dbname]['jobs']
+    if key is None:
+        query = {}
+    else:
+        query = {'exp_key': exp_key}
+    query['state'] = hyperopt.JOB_STATE_ERROR
+    retrieve = {'tid': 1, 'state': 1, 'result.status':1, 'misc.cmd': 1,
+            'spec': int(spec)}
+    for doc in conn[dbname]['jobs'].find(query, retrieve):
+        print doc['_id'], doc['tid'], doc['book_time'], doc['error']
+        if int(spec):
             print doc['spec']
 
 
