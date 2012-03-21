@@ -185,6 +185,8 @@ def load_official_view2_dump(test_fold, comparison):
 def closeish(msg, A, B, atol=.25):
     AmB = abs(A - B)
     print msg, AmB.max(), (AmB / (abs(A) + abs(B))).max()
+    print A[:3, :3]
+    print B[:3, :3]
     # -- these numbers are typically pretty big, but a few are close to zero,
     #    so relative error is as much as .5 but I think it's OK.
     if atol:
@@ -249,9 +251,29 @@ def test_fg11_view1_from_saved_features():
 @only_on_honeybadger
 def test_sclas():
     foo = cPickle.load(open('/home/jbergstra/cvs/sclas/ofoo.mat.pkl'))
-    ktrn_ref = foo['kernel_traintrain']
-    official = load_official_view2_dump(9, 'absdiff')
-    closeish('ofoo dump matches official data', ktrn_ref, official['kernel_traintrain'])
+    foo2 = load_official_view2_dump(9, 'absdiff')
+    K1 = foo['kernel_traintrain']
+    K2 = foo2['kernel_traintrain']
+    print 'tr: %e %s' % (K1.trace(), K2.trace())
+    print 'sum: %e %s' % (K1.sum() * 2, K2.sum())
+
+    train_y = [-1 if l == 'same' else 1 for l in foo['train_labels']]
+    test_y = [-1 if l == 'same' else 1 for l in foo['test_labels']]
+
+    assert np.all(foo['train_labels'] == foo2['train_labels'])
+    assert np.all(foo['test_labels'] == foo2['test_labels'])
+
+    svm = sklearn.svm.SVC(kernel='precomputed', scale_C=False, tol=1e-3, C=1e5)
+    svm.fit(K1, train_y)
+    print (svm.predict(foo['kernel_traintest'].T) != test_y).mean()
+    print (svm.predict(foo2['kernel_traintest'].T) != test_y).mean()
+
+    svm = sklearn.svm.SVC(kernel='precomputed', scale_C=False, tol=1e-3, C=1e5)
+    svm.fit(K2, train_y)
+    print (svm.predict(foo['kernel_traintest'].T) != test_y).mean()
+    print (svm.predict(foo2['kernel_traintest'].T) != test_y).mean()
+
+    closeish('ofoo dump matches official data', K1, K2)
 
 
 @only_on_honeybadger
@@ -303,9 +325,9 @@ def test_view2_features():
 
     ktrn = linear_kernel(train_X, train_X, use_theano=True)
     ktrn2 = dot(train_X, train_X.T)
-    closish('ktrn ktrn2', ktrn, ktrn2)
-    closish('ktrn ktrn_ref', ktrn, ktrn_ref)
-    closish('ktrn2 ktrn_ref', ktrn2, ktrn_ref)
+    closeish('ktrn ktrn2', ktrn, ktrn2)
+    closeish('ktrn ktrn_ref', ktrn, ktrn_ref)
+    closeish('ktrn2 ktrn_ref', ktrn2, ktrn_ref)
 
 
 @only_on_honeybadger
@@ -323,10 +345,11 @@ def test_view2_saved_kernels():
             ktrn = np.load(train_names[test_fold])
             ktst = np.load(test_names[test_fold])
 
-            closish('%s %s train' % (comparison, test_fold), ktrn, foo['kernel_traintrain'])
-            closish('%s %s test' % (comparison, test_fold), ktst, foo['kernel_traintest'].T)
-            closish('%s %s train (ofoo)' % (comparison, test_fold), ktrn, ofoo['kernel_traintrain'])
-            closish('%s %s test (ofoo)' % (comparison, test_fold), ktst, ofoo['kernel_traintest'].T)
+            foo = load_official_view2_dump(test_fold, comparison)
+            closeish('%s %s train' % (comparison, test_fold), ktrn, foo['kernel_traintrain'])
+            closeish('%s %s test' % (comparison, test_fold), ktst, foo['kernel_traintest'].T)
+            closeish('%s %s train (ofoo)' % (comparison, test_fold), ktrn, ofoo['kernel_traintrain'])
+            closeish('%s %s test (ofoo)' % (comparison, test_fold), ktst, ofoo['kernel_traintest'].T)
 
 
 
@@ -379,6 +402,54 @@ def test_view2_from_saved_features():
             test_errs.append(test_err)
 
         print comparison, 'MEAN:', (1.0 - np.mean(test_errs)) * 100
+
+
+@only_on_honeybadger
+def classify_eccv12_blend():
+    # -- used for labels
+    split_data = [verification_pairs('fold_%d' % fold, subset=None, interleaved=True)
+            for fold in range(10)]
+
+    test_errs = []
+    for test_fold in range(10):
+        ktrn_blend = ktst_blend = None
+        for comparison in ['mult', 'sqrtabsdiff', 'absdiff', 'sqdiff']:
+            if 0:
+                train_name = '/home/jbergstra/tmp/fg11_top_ktrain%i_%s.npy' % (test_fold, comparison)
+                test_name = '/home/jbergstra/tmp/fg11_top_ktest%i_%s.npy' % (test_fold, comparison)
+                Ktrain = np.load(train_name)
+                Ktest = np.load(test_name)
+            else:
+                foo = load_official_view2_dump(test_fold, comparison)
+                Ktrain = foo['kernel_traintrain']
+                Ktest = foo['kernel_traintest'].T
+
+            trace = Ktrain.trace()
+            Ktrain /= trace
+            Ktest /= trace
+
+            if ktrn_blend is None:
+                ktrn_blend = Ktrain
+                ktst_blend = Ktest
+            else:
+                ktrn_blend += Ktrain
+                ktst_blend += Ktest
+        trace = ktrn_blend.trace()
+        ktrn_blend /= trace
+        ktst_blend /= trace
+
+        train_y = np.concatenate([split_data[_ind][2]
+                for _ind in range(10) if _ind != test_fold])
+        test_y = split_data[test_fold][2]
+
+        svm = sklearn.svm.SVC(kernel='precomputed', scale_C=False, tol=1e-3, C=1e5)
+        svm.fit(ktrn_blend, train_y)
+        test_predictions = svm.predict(ktst_blend)
+        test_err = (test_predictions != test_y).mean()
+        print test_fold, 'accuracy', (1.0 - test_err) * 100
+        test_errs.append(test_err)
+
+    print comparison, 'MEAN:', (1.0 - np.mean(test_errs)) * 100
 
 
 @only_on_honeybadger
