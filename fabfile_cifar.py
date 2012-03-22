@@ -85,3 +85,23 @@ def cifar10_suggest2small(dbname, port=44556, N=3):
     algo = InterleaveAlgo(algos, keys)
     exp = hyperopt.Experiment(trials, algo, poll_interval_secs=.1)
     exp.run(sys.maxint, block_until_done=True)
+
+def cifar10_suggest1small(dbname, port=44556, N=3):
+    Bandit = ec10.Cifar10Bandit1Small
+    cmd = ('bandit_json evaluate', 'eccv12.cifar10.Cifar10Bandit1Small')
+
+    trials = MongoTrials(
+            'mongo://localhost:%d/%s/jobs' % (port, dbname),
+            refresh=True)
+    algos = []
+    keys = []
+    for i in range(int(N)):
+        algos.append(
+            TreeParzenEstimator(
+                Bandit(),
+                cmd=cmd,
+                ))
+        keys.append('b1small_%i' % i)
+    algo = InterleaveAlgo(algos, keys)
+    exp = hyperopt.Experiment(trials, algo, poll_interval_secs=.1)
+    exp.run(sys.maxint, block_until_done=True)
