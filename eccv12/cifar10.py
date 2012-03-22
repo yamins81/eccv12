@@ -29,6 +29,8 @@ pyll.scope.import_(globals(),
     # NEW NAME:  ORIG NAME
     'lnorm': 'slm_lnorm',
     'lpool': 'slm_lpool',
+    'lpool_smallgrid': 'slm_lpool_smallgrid',
+    'gnorm': 'slm_gnorm',
     'fbcorr': 'slm_fbcorr',
     's_int': 'int',
     'HP': 'hyperopt_param',
@@ -49,7 +51,7 @@ def logu_range(lower, upper):
 
 class Cifar10Bandit1(pyll_slm.HPBandit):
     def __init__(self, n_train=40000, n_valid=10000, n_test=10000,
-            nfilt_ubounds=[64],
+            nfilt_ubounds=[],
             batchsize=10,
             l2_regularization=1e-7):
 
@@ -63,6 +65,7 @@ class Cifar10Bandit1(pyll_slm.HPBandit):
         pipeline = [lnorm0]
         for ii, nfu in enumerate(nfilt_ubounds):
             ll = ii + 1
+            # this is an interior layer, pool like normal SLM
             fbcorr1 = partial(fbcorr,
                     ker_size=HP('f%i_size' % ll, rfilter_size(2, 6)),
                     n_filters=s_int(
@@ -71,11 +74,12 @@ class Cifar10Bandit1(pyll_slm.HPBandit):
                             np.log(nfu),
                             q=16))),
                     generate=('random:uniform',
-                        {'rseed': HP('f%i_seed' % ll, choice(range(10, 15)))}))
-
+                        {'rseed': HP('f%i_seed' % ll,
+                            choice(range(10, 15)))}))
             lpool1 = partial(lpool,
                     ker_size=HP('p%i_size' % ll, rfilter_size(2, 5)),
-                    order=HP('p%i_order' % ll, loguniform(np.log(1), np.log(10))),
+                    order=HP('p%i_order' % ll,
+                        loguniform(np.log(1), np.log(10))),
                     stride=HP('p%i_stride' % ll, 1))
 
             lnorm1 = partial(lnorm,
@@ -85,6 +89,33 @@ class Cifar10Bandit1(pyll_slm.HPBandit):
                     threshold=HP('n%i_thresh' % ll, logu_range(.1/3, 10.*3)))
 
             pipeline.extend([fbcorr1, lpool1, lnorm1])
+
+        # this is the top layer, so do the quadrant pooling
+        # like in Adam Coates' work.
+        ll = len(nfilt_ubounds) + 1
+        gres_nfilt = one_of((2, 1600), (3, 750))
+        fbcorr1 = partial(fbcorr,
+                ker_size=HP('f%i_size' % ll, rfilter_size(2, 8)),
+                n_filters=HP('f%i_nfilt' % ll, gres_nfilt[1]),
+                generate=('random:uniform',
+                    {'rseed': HP('f%i_seed' % ll,
+                        choice(range(10, 15)))}))
+        lpool1 = partial(lpool_smallgrid,
+                grid_res=HP('p%i_size' % ll, gres_nfilt[0]),
+                order=HP('p%i_order' % ll,
+                    loguniform(np.log(1), np.log(10))))
+
+        lnorm1 = partial(gnorm,
+                remove_mean=HP('n%i_remove_mean' % ll,
+                    one_of(0, 1)),
+                stretch=HP('n%i_stretch' % ll,
+                    logu_range(.1/3, 10.*3)),
+                threshold=HP('n%i_thresh' % ll,
+                    logu_range(.1/3, 10.*3)),
+                across_channels=HP('n%i_across_channels' % ll,
+                    one_of(0, 1)))
+
+        pipeline.extend([fbcorr1, lpool1, lnorm1])
 
         #print pipeline
         pipeline = pyll.as_apply(pipeline)
@@ -109,8 +140,9 @@ class Cifar10Bandit1(pyll_slm.HPBandit):
         xmean, xstd = mean_and_std(
                 flatten_elems(screen_features[:n_train]),
                 remove_std0=True)
-        xmean = HR('xmean', xmean)
-        xstd = HR('xstd', xstd)
+        # Do not save these because they can be big.
+        #xmean = HR('xmean', xmean)
+        #xstd = HR('xstd', xstd)
 
         trn_xy=(
             (flatten_elems(screen_features[:n_train]) - xmean) / xstd,
@@ -138,24 +170,24 @@ class Cifar10Bandit1(pyll_slm.HPBandit):
 
 
 def Cifar10Bandit2():
-    return Cifar10Bandit1(nfilt_ubounds=[64, 128])
+    return Cifar10Bandit1(nfilt_ubounds=[64])
 
 
 def Cifar10Bandit3():
-    return Cifar10Bandit1(nfilt_ubounds=[64, 128, 256])
+    return Cifar10Bandit1(nfilt_ubounds=[64, 128])
 
 
 def Cifar10Bandit1Small():
-    return Cifar10Bandit1(nfilt_ubounds=[64],
+    return Cifar10Bandit1(nfilt_ubounds=[],
                           n_train=10000, n_valid=10000, n_test=1000)
 
 
 def Cifar10Bandit2Small():
-    return Cifar10Bandit1(nfilt_ubounds=[64, 128],
+    return Cifar10Bandit1(nfilt_ubounds=[64],
                           n_train=10000, n_valid=10000, n_test=1000)
 
 
 def Cifar10Bandit3Small():
-    return Cifar10Bandit1(nfilt_ubounds=[64, 128, 256],
+    return Cifar10Bandit1(nfilt_ubounds=[64, 128],
                           n_train=10000, n_valid=10000, n_test=1000)
 

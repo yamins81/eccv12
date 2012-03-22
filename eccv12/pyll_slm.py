@@ -242,6 +242,105 @@ def slm_lnorm((x, x_shp),
     return r, r_shp
 
 
+@pyll.scope.define_info(o_len=2)
+def slm_lpool_smallgrid((x, x_shp), grid_res=2, order=1):
+    """
+    Like lpool, but parametrized to produce a fixed size image as output.
+    The image is not rescaled, but rather single giant box filters are
+    defined for each output pixel, and stored in a matrix.
+    """
+    assert x.dtype == 'float32'
+    order=float(order)
+
+    if hasattr(order, '__iter__'):
+        o1 = (order == 1).all()
+        o2 = (order == order.astype(np.int)).all()
+    else:
+        o1 = order == 1
+        o2 = (order == int(order))
+
+    # rather than convolving with a box, this function takes
+    # a dot product with the entire image
+    ngR = x_shp[2] // grid_res + int(x_shp[2] % grid_res > 0)
+    ngC = x_shp[3] // grid_res + int(x_shp[3] % grid_res > 0)
+
+    assert ngR * grid_res >= x_shp[2]
+    assert ngC * grid_res >= x_shp[3]
+
+    W = np.zeros((grid_res, grid_res,) + x_shp[2:], dtype=x.dtype)
+    for rr in range(grid_res):
+        for cc in range(grid_res):
+            W[rr, cc,
+                    rr * ngR : (rr + 1) * ngR,
+                    cc * ngC : (cc + 1) * ngC] = 1.0
+    sW = theano.shared(W.reshape((grid_res ** 2, -1)))
+
+    xmat = x.reshape((x_shp[0] * x_shp[1], x_shp[2] * x_shp[3]))
+
+    if o1:
+        r = tensor.dot(xmat, sW.T)
+    elif o2:
+        r = tensor.sqrt(tensor.dot(xmat ** 2, sW.T))
+    else:
+        r = tensor.dot(abs(xmat) ** order, sW.T)
+        r = tensor.maximum(r, 0) ** (1.0 / order)
+
+    r_shp = (x_shp[0], x_shp[1], grid_res, grid_res)
+    r = r.reshape(r_shp)
+
+    return r, r_shp
+
+
+@pyll.scope.define_info(o_len=2)
+def slm_gnorm((x, x_shp),
+        remove_mean= False,
+        div_method='euclidean',
+        threshold=0.0,
+        stretch=1.0,
+        EPSILON=1e-4,
+        across_channels=True,
+        ):
+    """
+    Global normalization, as opposed to local normalization
+    """
+
+    threshold = float(threshold)
+    stretch = float(stretch)
+
+    if across_channels:
+        size = x_shp[1] * x_shp[2] * x_shp[3]
+        ssq = (x ** 2).sum(axis=[1, 2, 3]).dimshuffle(0, 'x', 'x', 'x')
+    else:
+        size = x_shp[2] * x_shp[3]
+        ssq = (x ** 2).sum(axis=[2, 3]).dimshuffle(0, 1, 'x', 'x')
+
+    if div_method == 'euclidean':
+        if remove_mean:
+            if across_channels:
+                arr_sum = x.sum(axis=[1, 2, 3]).dimshuffle(0, 'x', 'x', 'x')
+            else:
+                arr_sum = x.sum(axis=[2, 3]).dimshuffle(0, 1, 'x', 'x')
+
+            arr_num = x - arr_sum / size
+            arr_div = EPSILON + tensor.sqrt(
+                    tensor.maximum(0,
+                        ssq - (arr_sum ** 2) / size))
+        else:
+            arr_num = x
+            arr_div = EPSILON + tensor.sqrt(ssq)
+    else:
+        raise NotImplementedError('div_method', div_method)
+
+    if (hasattr(stretch, '__iter__') and (stretch != 1).any()) or stretch != 1:
+        arr_num = arr_num * stretch
+        arr_div = arr_div * stretch
+    arr_div = tensor.switch(arr_div < (threshold + EPSILON), 1.0, arr_div)
+
+    r = arr_num / arr_div
+    r_shp = x_shp
+    return r, r_shp
+
+
 @pyll.scope.define
 def pyll_theano_batched_lmap(pipeline, seq, batchsize,
         _debug_call_counts=None, print_progress=False):
