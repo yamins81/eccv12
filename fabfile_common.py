@@ -19,6 +19,7 @@ def show_history(host, port, dbname, key=None):
     Show loss vs. time scatterplots for one experiment or all experiments in a
     database.
     """
+    import matplotlib.pyplot as plt
     trials = MongoTrials(
             'mongo://%s:%s/%s/jobs' % (host, port, dbname),
             refresh=False)
