@@ -1,6 +1,6 @@
-from eccv12.cifar10 import *
-
 import unittest
+
+from eccv12.cifar10 import *
 
 class TestPTBL(unittest.TestCase):
     def setUp(self):
@@ -76,4 +76,5 @@ def test_partial_callpipe():
     assert feats.shape[1] == 16
     assert feats.shape[2] < 32
     assert feats.shape[3] < 32
+
 
