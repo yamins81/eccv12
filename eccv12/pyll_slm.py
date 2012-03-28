@@ -16,7 +16,6 @@ import pyll
 import hyperopt
 
 from skdata import larray
-from skdata.cifar10 import CIFAR10
 
 from .utils import linear_kernel, mean_and_std
 from asgd import LinearSVM
@@ -46,7 +45,6 @@ def alloc_filterbank(n_filters, height, width, channels, dtype,
         # allocate a filterbank spanning a grid of frequencies, phases,
         # orientations
         raise NotImplementedError()
-
     else:
         raise ValueError(
             "method to generate filterbank '%s' not understood"
@@ -108,21 +106,35 @@ def slm_fbcorr((x, x_shp), n_filters, ker_size,
         max_out=None,
         stride=1,
         mode='valid',
-        generate=None):
+        generate=None,
+        kerns=None,
+        ):
+    """
+    min_out - None or else a floor value for the output
+    max_out - None or else a ceiling value for the output
+    kerns - either None (automatically allocated using `generate`)
+        or else a filterbank with shape:
+        (n_filters, ker_size, ker_size, channels)
+
+    """
     assert x.dtype == 'float32'
     filter_shape = (ker_size, ker_size)
     # Reference implementation:
     # ../pythor3/pythor3/operation/fbcorr_/plugins/scipy_naive/scipy_naive.py
     if stride != 1:
         raise NotImplementedError('stride is not used in reference impl.')
-    kerns = alloc_filterbank(n_filters=n_filters,
-            height=filter_shape[0],
-            width=filter_shape[1],
-            channels=x_shp[1],
-            dtype=x.dtype,
-            method_name=generate[0],
-            method_kwargs=generate[1])
+
+    if kerns == None:
+        kerns = alloc_filterbank(n_filters=n_filters,
+                height=filter_shape[0],
+                width=filter_shape[1],
+                channels=x_shp[1],
+                dtype=x.dtype,
+                method_name=generate[0],
+                method_kwargs=generate[1])
+
     kerns = kerns.transpose(0, 3, 1, 2).copy()[:,:,::-1,::-1]
+    kerns = theano.shared(kerns.astype(x.dtype))
     x = conv.conv2d(
             x,
             kerns,
@@ -231,7 +243,9 @@ def slm_lnorm((x, x_shp),
         else:
             raise NotImplementedError('div_method', div_method)
     else:
-        raise NotImplementedError('outker_shape != inker_shape',outker_shape, inker_shape)
+        raise NotImplementedError('outker_shape != inker_shape',
+                outker_shape, inker_shape)
+
     if (hasattr(stretch, '__iter__') and (stretch != 1).any()) or stretch != 1:
         arr_num = arr_num * stretch
         arr_div = arr_div * stretch
@@ -409,12 +423,6 @@ def pyll_theano_batched_lmap(pipeline, seq, batchsize,
         return rval
 
     return larray.lmap(fn_1, seq, f_map=f_map)
-
-
-@pyll.scope.define_info(o_len=2)
-def cifar10_img_classification_task(dtype='float32'):
-    imgs, labels = CIFAR10().img_classification_task(dtype='float32')
-    return imgs, labels
 
 
 @pyll.scope.define
