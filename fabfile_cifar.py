@@ -137,6 +137,7 @@ def cifar10_repeat_trial(host, port, dbname, _id):
     for k, v in result.items():
         print k, v
 
+
 def cifar10_run_large(host, port, dbname, _id):
     conn = pm.Connection(host=host, port=int(port))
     J = conn[dbname]['jobs']
@@ -187,3 +188,11 @@ def cifar10_bandit3_large():
     result = bandit.evaluate(config, ctrl=None)
     print result
 
+
+def coates_algo_debug1():
+    import eccv12.sc_vq_demo
+    eccv12.sc_vq_demo.track_matlab()
+
+def coates_algo():
+    import eccv12.sc_vq_demo
+    eccv12.sc_vq_demo.demo()
