@@ -4,11 +4,13 @@ import numpy as np
 import hyperopt
 import pyll
 from pyll import scope
-import pyll_slm
 
+from skdata.cifar10 import CIFAR10
+CF10 = CIFAR10()
+
+import pyll_slm  # adds the symbols that the next line imports
 pyll.scope.import_(globals(),
     'pyll_theano_batched_lmap',
-    'cifar10_img_classification_task',
     'fit_linear_svm',
     'model_predict',
     'error_rate',
@@ -56,11 +58,14 @@ class Cifar10Bandit1(pyll_slm.HPBandit):
             l2_regularization=1e-7):
 
         lnorm0 = partial(lnorm,
-                ker_size=HP('n0_size', rfilter_size(2, 6)),
+                ker_size=HP('n0_size', rfilter_size(2, 8)),
                 remove_mean=HP('n0_remove_mean', one_of(0, 1)),
                 stretch=HP('n0_stretch', logu_range(.1/3, 10.*3)),
                 threshold=HP('n0_thresh', logu_range(.1/3, 10.*3)))
         #print lnorm0
+
+        # TODO: use min_out parameter to do thresholding
+        # TODO: use both positive and negative features
 
         pipeline = [lnorm0]
         for ii, nfu in enumerate(nfilt_ubounds):
