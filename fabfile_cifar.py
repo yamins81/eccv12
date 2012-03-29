@@ -193,6 +193,10 @@ def coates_algo_debug1():
     import eccv12.sc_vq_demo
     eccv12.sc_vq_demo.track_matlab()
 
-def coates_algo():
+def coates_classif():
     import eccv12.sc_vq_demo
-    eccv12.sc_vq_demo.demo()
+    eccv12.sc_vq_demo.coates_classif()
+
+def coates_classif_theano():
+    import eccv12.sc_vq_demo
+    eccv12.sc_vq_demo.coates_classif_theano()

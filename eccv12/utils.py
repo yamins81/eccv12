@@ -175,7 +175,8 @@ def linear_kernel(X, Y, use_theano, block_size=10000):
     return chunked_linear_kernel(Xs, Ys, use_theano, symmetric=(X is Y))
 
 
-def mean_and_std(X, remove_std0=False):
+def mean_and_std(X, remove_std0=False, unbiased=False,
+        internal_dtype='float64', return_dtype=None):
     """Return the mean and standard deviation of each column of matrix `X`
 
     if `remove_std0` is True, then 0 elements of the std vector will be
@@ -186,35 +187,35 @@ def mean_and_std(X, remove_std0=False):
     npoints, ndims = X.shape
 
     if npoints < MEAN_MAX_NPOINTS:
-        fmean = X.mean(0)
+        fmean = X.mean(0, dtype=internal_dtype)
     else:
         sel = X[:MEAN_MAX_NPOINTS]
-        fmean = np.empty_like(sel[0,:])
+        fmean = np.empty_like(sel[0,:]).astype(internal_dtype)
 
-        np.add.reduce(sel, axis=0, dtype="float32", out=fmean)
+        np.add.reduce(sel, axis=0, dtype=internal_dtype, out=fmean)
 
         # -- sum up the features in blocks to reduce rounding error
         curr = np.empty_like(fmean)
         npoints_done = MEAN_MAX_NPOINTS
         while npoints_done < npoints:
             sel = X[npoints_done : npoints_done + MEAN_MAX_NPOINTS]
-            np.add.reduce(sel, axis=0, dtype="float32", out=curr)
+            np.add.reduce(sel, axis=0, dtype=internal_dtype, out=curr)
             np.add(fmean, curr, fmean)
             npoints_done += MEAN_MAX_NPOINTS
         fmean /= npoints
 
     if npoints < STD_MAX_NPOINTS:
-        fstd = X.std(0)
+        fstd = X.std(0, dtype=internal_dtype)
     else:
         sel = X[:MEAN_MAX_NPOINTS]
 
-        mem = np.empty_like(sel)
-        curr = np.empty_like(mem[0,:])
+        mem = np.empty_like(sel).astype(internal_dtype)
+        curr = np.empty_like(mem[0,:]).astype(internal_dtype)
 
         seln = sel.shape[0]
         np.subtract(sel, fmean, mem[:seln])
         np.multiply(mem[:seln], mem[:seln], mem[:seln])
-        fstd = np.add.reduce(mem[:seln], axis=0, dtype="float32")
+        fstd = np.add.reduce(mem[:seln], axis=0, dtype=internal_dtype)
 
         npoints_done = MEAN_MAX_NPOINTS
         # -- loop over by blocks for improved numerical accuracy
@@ -224,17 +225,23 @@ def mean_and_std(X, remove_std0=False):
             seln = sel.shape[0]
             np.subtract(sel, fmean, mem[:seln])
             np.multiply(mem[:seln], mem[:seln], mem[:seln])
-            np.add.reduce(mem[:seln], axis=0, dtype="float32", out=curr)
+            np.add.reduce(mem[:seln], axis=0, dtype=internal_dtype, out=curr)
             np.add(fstd, curr, fstd)
 
             npoints_done += MEAN_MAX_NPOINTS
 
-        fstd = np.sqrt(fstd/npoints)
+        if unbiased:
+            fstd = np.sqrt(fstd / max(1, npoints - 1))
+        else:
+            fstd = np.sqrt(fstd / max(1, npoints))
 
     if remove_std0:
         fstd[fstd == 0] = 1
 
-    return fmean, fstd
+    if return_dtype is None:
+        return_dtype = X.dtype
+
+    return fmean.astype(return_dtype), fstd.astype(return_dtype)
 
 
 def assert_allclose(a, b, rtol=1e-05, atol=1e-08):

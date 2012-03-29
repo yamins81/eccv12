@@ -32,6 +32,35 @@ def random_patches(images, N, R, C):
     return rval
 
 
+def coates_patches(images, N, R, C):
+    assert len(images) == 50000
+    assert N == 50000
+    assert R == C == 6
+    patches = []
+    m_patches = scipy.io.loadmat(mpath('patches.mat'))['patches']
+    m_patches_rci = scipy.io.loadmat(mpath('patches_rci.mat'))['patches_rci']
+    #print 'm_patches',
+    #print m_patches.shape, m_patches.min(), m_patches.max()
+    for j, (r, c, i) in enumerate(m_patches_rci):
+        patch = images[i - 1, c - 1:c + 5, r - 1:r + 5]
+        flatpatch = patch.transpose(2, 0, 1).flatten()
+        patches.append(flatpatch)
+        assert np.allclose(flatpatch, m_patches[j])
+    patches = np.asarray(patches)
+    assert np.allclose(patches, m_patches)
+    return patches
+
+
+def coates_dictionary(X):
+    foo = scipy.io.loadmat(mpath('dictionary.mat'))
+    #print foo['dictionary_elems'][:, 0]
+    dictionary = X[foo['dictionary_elems'].flatten() - 1]
+    dictionary = dictionary / (np.sqrt((dictionary ** 2).sum(axis=1))[:, None] + 1e-20);
+    # tolerances are getting a little wacky, but the images look right
+    assert_allclose(dictionary, foo['dictionary'], atol=1e-6, rtol=0.03)
+    return dictionary
+
+
 def contrast_normalize(patches):
     X = patches
     N = X.shape[1]
@@ -280,7 +309,7 @@ def extract_features_theano(imgs, D, M, P, alpha, R, C,
     i = 0
     sXC_base.set_value(XC[i:i + batchsize])
     while i < len(imgs):
-        #print 'THEANO ITER', i
+        print 'THEANO ITER', i
         tt = time.time()
         s_imgs.set_value(
                 imgs[i:i + batchsize].transpose(0, 3, 1, 2).astype('float32'))
@@ -290,7 +319,7 @@ def extract_features_theano(imgs, D, M, P, alpha, R, C,
             #print foo
         XC[i:i + batchsize] = sXC_base.get_value()
         i += batchsize
-        #print 'TIME', time.time() - tt
+        print 'TIME', time.time() - tt
 
     return XC
 
@@ -306,67 +335,50 @@ def track_matlab():
     Mar 28 - this function gets exactly the same features as Adam Coates'
     matlab code.
     """
-    m_patches = scipy.io.loadmat(mpath('patches.mat'))['patches']
-    m_patches_rci = scipy.io.loadmat(mpath('patches_rci.mat'))['patches_rci']
-    print 'm_patches',
-    print m_patches.shape, m_patches.min(), m_patches.max()
 
     imgs, labels = CF10.img_classification_task(dtype='uint8')
-    patches = []
-    for j, (r, c, i) in enumerate(m_patches_rci):
-        patch = imgs[i - 1, c - 1:c + 5, r - 1:r + 5]
-        flatpatch = patch.transpose(2, 0, 1).flatten()
-        patches.append(flatpatch)
-        assert np.allclose(flatpatch, m_patches[j])
-    patches = np.asarray(patches) # -- matches m_patches
-    assert np.allclose(patches, m_patches)
-    M, P, X = patch_whitening_filterbank(patches, retX=True, reshape=False)
+    patches = coates_patches(imgs[:50000], 50000, 6, 6)
+    M, P, patches_cn = patch_whitening_filterbank(patches, retX=True, reshape=False)
 
-    X = np.dot(X - M, P)
+    patches_w = np.dot(patches_cn - M, P)
 
-    foo = scipy.io.loadmat(mpath('patches_final.mat'))
-    assert np.allclose(M, foo['M'].flatten())
-    assert np.allclose(P, foo['P'])
-    if 0:
-        print X.shape, foo['patches'].shape
-        print X[0].min(), foo['patches'][0].min()
-        print X[0].max(), foo['patches'][0].max()
-        print X[0].sum(), foo['patches'][0].sum()
-    assert_allclose(X[0], foo['patches'][0], atol=1e-6, rtol=1e-3)
-    assert_allclose(X, foo['patches'], atol=1e-6, rtol=1e-3)
+    if 1: # -- verify M, P and patches_w
+        foo = scipy.io.loadmat(mpath('patches_final.mat'))
+        assert_allclose(M, foo['M'].flatten())
+        assert_allclose(P, foo['P'])
+        assert_allclose(patches_w[0], foo['patches'][0], atol=1e-6, rtol=1e-3)
+        assert_allclose(patches_w, foo['patches'], atol=1e-6, rtol=1e-3)
+        del foo
 
-    foo = scipy.io.loadmat(mpath('dictionary.mat'))
-    print foo['dictionary_elems'][:, 0]
-    dictionary = X[foo['dictionary_elems'].flatten() - 1]
-    dictionary = dictionary / (np.sqrt((dictionary ** 2).sum(axis=1))[:, None] + 1e-20);
+    dictionary = coates_dictionary(patches_w)
 
     if 0:
         show_centroids(
                 dictionary.reshape(len(dictionary), 3, 6, 6).transpose(0, 3, 2,
                     1))
-    # tolerances are getting a little wacky, but the images look right
-    assert_allclose(dictionary, foo['dictionary'], atol=1e-6, rtol=0.03)
 
     m_trainXC = scipy.io.loadmat(mpath('trainXC5.mat'))['trainXC']
 
-    # -- check that float64 feature extraction works
     nF = len(dictionary)
+     # -- check that float64 feature extraction works
     trainXC = extract_features(imgs[:5], dictionary, M, P, .25, 6, 6,
             internal_dtype='float64')
     trainXCp = trainXC.transpose(0, 2, 3, 4, 1).reshape(5, -1)
     assert_allclose(trainXCp, m_trainXC, atol=1e-4, rtol=1e-4)
 
-    # -- check that float32 feature extraction is good enough
-    trainXC = extract_features(imgs[:5], dictionary, M, P, .25, 6, 6,
-            internal_dtype='float32')
-    trainXCp = trainXC.transpose(0, 2, 3, 4, 1).reshape(5, -1)
-    assert_allclose(trainXCp, m_trainXC, atol=1e-4, rtol=1e-4)
+    if 0:
+        # -- check that float32 feature extraction is good enough
+        trainXC = extract_features(imgs[:5], dictionary, M, P, .25, 6, 6,
+                internal_dtype='float32')
+        trainXCp = trainXC.transpose(0, 2, 3, 4, 1).reshape(5, -1)
+        assert_allclose(trainXCp, m_trainXC, atol=1e-4, rtol=1e-4)
 
-    # -- check that the theano version is correct
-    trainXC = extract_features_theano(imgs[:5], dictionary, M, P, .25, 6, 6,
-            internal_dtype='float64')
-    trainXCp = trainXC.transpose(0, 2, 3, 4, 1).reshape(5, -1)
-    assert_allclose(trainXCp, m_trainXC, atol=1e-4, rtol=1e-4)
+    if 0:
+        # -- check that the theano version is correct
+        trainXC = extract_features_theano(imgs[:5], dictionary, M, P, .25, 6, 6,
+                internal_dtype='float64')
+        trainXCp = trainXC.transpose(0, 2, 3, 4, 1).reshape(5, -1)
+        assert_allclose(trainXCp, m_trainXC, atol=1e-4, rtol=1e-4)
 
     # -- check that the theano version is correct-ish
     trainXC = extract_features_theano(imgs[:5], dictionary, M, P, .25, 6, 6,
@@ -374,96 +386,114 @@ def track_matlab():
     trainXCp = trainXC.transpose(0, 2, 3, 4, 1).reshape(5, -1)
     assert_allclose(trainXCp, m_trainXC, atol=5e-3, rtol=5e-3)
 
-def demo():
-    imgs, labels = CF10.img_classification_task(dtype='uint8')
-
+    # -- compute the whole thing
     try:
-        train_XC = np.load('train_XC.npy')
+        trainXC = np.load('train_XC.npy')
+        testXC = np.load('test_XC.npy')
     except IOError:
-        tt = time.time()
-        patches = random_patches(imgs[:10000], 50000, 6, 6)
-        print 'extracting patches took', time.time() - tt
-        M, P = patch_whitening_filterbank(patches)
-        print 'ZCA took', time.time() - tt
+        trainXC = extract_features_theano(imgs[:50000], dictionary, M, P, .25, 6, 6,
+                internal_dtype='float32', batchsize=100)
+        testXC = extract_features_theano(imgs[50000:], dictionary, M, P, .25, 6, 6,
+                internal_dtype='float32', batchsize=100)
+        np.save('train_XC.npy', trainXC)
+        np.save('test_XC.npy', testXC)
+
+    trainXC = trainXC.transpose(0, 2, 3, 4, 1).reshape(50000, -1)
+    testXC = testXC.transpose(0, 2, 3, 4, 1).reshape(10000, -1)
+    assert_allclose(trainXC[:5], m_trainXC, atol=5e-3, rtol=5e-3)
+    dct = scipy.io.loadmat( mpath('trainXC_picked.mat'))
+    for m_idx, m_fvec in zip(dct['picked_i'].flatten(), dct['trainXC_picked']):
+        print 'spot check', m_idx
+        assert_allclose(trainXC[m_idx - 1], m_fvec, atol=5e-3, rtol=5e-3)
+
+    xmean, xstd = mean_and_std(trainXC, remove_std0=False, unbiased=True)
+    xstd = np.sqrt(xstd ** 2 + 0.01) # -- hacky correction
+
+    print 'loading stats'
+    dct = scipy.io.loadmat(mpath('trainXCstats.mat'))
+
+    m_xmean = dct['trainXC_mean']
+    assert_allclose(xmean, trainXC.mean(0, dtype='float64'))
+    assert_allclose(m_xmean, xmean)
+
+    m_xstd = dct['trainXC_sd']
+    assert_allclose(m_xstd, xstd)
 
 
-        print 'P range', P.min(), P.max()
-        if 0:
-            P = (P - P.min()) / (P.max() - P.min())
-            glumpy_viewer(
-                    img_array=P,
-                    arrays_to_print=[],
-                    )
-
-        # -- use 'patches' dictionary-learning algorithm
-        D = np.dot(
-                patches[:1600].reshape((1600, -1)) - M.reshape(108),
-                P.reshape((108, 108)))
-        D = D / (np.sqrt(np.sum(D ** 2, axis=1)) + 1e-20)[:, None]
-        D = D.reshape(1600, 6, 6, 3)
-
-        print 'D range', D.min(), D.max()
-        if 0:
-            D = (D - D.min()) / (D.max() - D.min())
-            glumpy_viewer(
-                    img_array=D,
-                    arrays_to_print=[],
-                    )
-
-        # keep just 3 filters
-        #D = D[:10]
-        train_XC = extract_features_theano(imgs[:50000], D, M, P, alpha=.25,
-                batchsize=100)
-        if 0:
-            train_XC_theano = train_XC
-            train_XC = extract_features(imgs[:100], D, M, P, alpha=.25)
-            print 'XC th', train_XC_theano.min(), train_XC_theano.max()
-            print 'XC py', train_XC.min(), train_XC.max()
-            z = train_XC
-            Z = train_XC_theano
-            #print z
-            #print Z
-            print 'ATOL', abs(z - Z).max()
-            print 'RTOL', (abs(z - Z) / ((1e-12 + abs(z) + abs(Z)))).max()
-            assert np.allclose(train_XC_theano, train_XC)
-
-        np.save('train_XC.npy', train_XC)
-
-    try:
-        test_XC = np.load('test_XC.npy')
-    except IOError:
-        test_XC = extract_features_theano(imgs[50000:], D, M, P, alpha=.25,
-                batchsize=100)
-        np.save('test_XC.npy', test_XC)
-
+def coates_classif():
     from pyll_slm import fit_linear_svm, model_predict, error_rate
     from .utils import linear_kernel, mean_and_std
 
-    xmean, xstd = mean_and_std(train_XC, remove_std0=False)
-    xscale = 1.0 / np.sqrt(xstd ** 2 + 0.01)
-    train_XC -= xmean
-    train_XC *= xscale
-    test_XC -= xmean
-    test_XC *= xscale
-    svm = fit_linear_svm((train_XC, labels[:len(train_XC)]),
-        solver=(
-            'asgd.SparseUpdateRankASGD',
-            #'asgd.NaiveOVAASGD',
-            {
-                'sgd_step_size0': 0.01,
-                'dtype': 'float64',
-                'fit_n_partial': len(train_XC),
-                'fit_verbose': 1,
-                'cost_fn': "L2Huber",
-                #'cost_fn': "Hinge",
-                'max_observations': 10 * 50000,
-                }),
-        l2_regularization=1e-2 / len(train_XC))
+    imgs, labels = CF10.img_classification_task(dtype='uint8')
 
-    pred = model_predict(svm, train_XC)
+    trainXC = np.load('train_XC.npy')
+    testXC = np.load('test_XC.npy')
+
+    trainXC = trainXC.reshape((len(trainXC), -1))
+    testXC = testXC.reshape((len(testXC), -1))
+
+    xmean, xstd = mean_and_std(trainXC, remove_std0=False, unbiased=True)
+    xstd = np.sqrt(xstd ** 2 + 0.01) # -- hacky correction
+
+    trainXC -= xmean
+    trainXC /= xstd
+    testXC -= xmean
+    testXC /= xstd
+
+    svm = fit_linear_svm((trainXC, labels[:len(trainXC)]),
+        solver=(
+            #'asgd.SparseUpdateRankASGD',
+            'asgd.NaiveOVAASGD',
+            {
+                'auto_step_size0': True,
+                'auto_max_examples': 5000,
+                'sgd_step_size0': 1e-2,
+                'dtype': 'float64',
+                'fit_n_partial': len(trainXC)/5,
+                'fit_verbose': 1,
+                'cost_fn': "L2Half",
+                'min_observations': 50 * 50000,
+                'max_observations': 1000 * 50000,
+                }),
+        l2_regularization=0.0025)
+
+    pred = model_predict(svm, trainXC)
     print 'TRAIN ERR', error_rate(pred, labels[:50000])
 
-    pred = model_predict(svm, test_XC)
+    pred = model_predict(svm, testXC)
     print 'TEST ERR', error_rate(pred, labels[50000:])
 
+
+def coates_classif_theano():
+    from pyll_slm import fit_linear_svm, model_predict, error_rate
+    from .utils import linear_kernel, mean_and_std
+
+    from asgd.theano_asgd import TheanoOVAPartialFit
+
+
+    imgs, labels = CF10.img_classification_task(dtype='uint8')
+
+    trainXC = np.load('train_XC.npy')
+    testXC = np.load('test_XC.npy')
+
+    trainXC = trainXC.reshape((len(trainXC), -1))
+    testXC = testXC.reshape((len(testXC), -1))
+
+    xmean, xstd = mean_and_std(trainXC, remove_std0=False, unbiased=True)
+    xstd = np.sqrt(xstd ** 2 + 0.01) # -- hacky correction
+
+    trainXC -= xmean
+    trainXC /= xstd
+    yvecs = ((labels[:50000, None] == np.arange(10)) * 2 - 1).astype('float32')
+
+
+    n_features = trainXC.shape[1]
+    n_labels = 10
+
+    helper = TheanoOVAPartialFit(n_features, 10, .0025, 'float32')
+
+    params = np.zeros(n_features * n_labels + n_labels, dtype='float32')
+
+    from scipy.optimize.lbfgsb import fmin_l_bfgs_b
+    best = fmin_l_bfgs_b(helper, params, iprint=1, args=(trainXC, yvecs))
 
