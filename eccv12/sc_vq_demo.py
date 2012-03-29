@@ -446,7 +446,9 @@ def demo():
     test_XC -= xmean
     test_XC *= xscale
     svm = fit_linear_svm((train_XC, labels[:len(train_XC)]),
-        solver=('asgd.SparseUpdateRankASGD',
+        solver=(
+            'asgd.SparseUpdateRankASGD',
+            #'asgd.NaiveOVAASGD',
             {
                 'sgd_step_size0': 0.01,
                 'dtype': 'float64',
@@ -454,9 +456,9 @@ def demo():
                 'fit_verbose': 1,
                 'cost_fn': "L2Huber",
                 #'cost_fn': "Hinge",
-                'max_observations': 1 * 50000,
+                'max_observations': 10 * 50000,
                 }),
-        l2_regularization=5e-7)
+        l2_regularization=1e-2 / len(train_XC))
 
     pred = model_predict(svm, train_XC)
     print 'TRAIN ERR', error_rate(pred, labels[:50000])
