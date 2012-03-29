@@ -237,3 +237,17 @@ def mean_and_std(X, remove_std0=False):
     return fmean, fstd
 
 
+def assert_allclose(a, b, rtol=1e-05, atol=1e-08):
+    if not np.allclose(a, b, rtol=rtol, atol=atol):
+        adiff = abs(a - b).max(),
+        rdiff = (abs(a - b) / (abs(a) + abs(b) + 1e-15)).max()
+        raise ValueError('not close enough', (adiff, rdiff, {
+            'amax': a.max(),
+            'bmax': b.max(),
+            'amin': a.min(),
+            'bmin': b.min(),
+            'asum': a.sum(),
+            'bsum': b.sum(),
+            }))
+
+

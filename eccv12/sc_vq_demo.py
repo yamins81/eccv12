@@ -15,6 +15,7 @@ from theano.tensor.nnet import conv
 from pyll_slm import boxconv
 
 from .utils import mean_and_std
+from .utils import assert_allclose
 
 
 #@pyll.scope.define
@@ -35,8 +36,13 @@ def contrast_normalize(patches):
     X = patches
     N = X.shape[1]
     unbias = float(N) / (float(N) - 1)
-    X = (X - X.mean(1)[:, None]) / np.sqrt(unbias * X.var(1)[:, None] + 10)
+    xm = X.mean(1)
+    xv = unbias * X.var(1)
+    X = (X - xm[:, None]) / np.sqrt(xv[:, None] + 10)
     return X
+
+def summarize(msg, X):
+    print msg, X.shape, X.min(), X.max(), X.mean()
 
 
 #@pyll.scope.define_info(o_len=2)
@@ -127,13 +133,14 @@ def extract_features(imgs, D, M, P, alpha, R, C,
         patches_cn = contrast_normalize(patches)
         z = np.dot(patches_cn - M, PD)
 
+        summarize('z', z)
+
         if 0:
             aPDx = p_scale[:, None] * np.dot(patches, PD)
             aPDmmm = (p_scale * p_mean)[:, None] * PD.sum(0)
 
-
-            tmp_1 = np.dot((patches - p_mean[:, None]) * p_scale[:, None], PD)
-            tmp_2 = aPDx - aPDmmm
+            #tmp_1 = np.dot((patches - p_mean[:, None]) * p_scale[:, None], PD)
+            #tmp_2 = aPDx - aPDmmm
             #print 'tmp1', tmp_1
             #print 'tmp2', tmp_2
             #assert np.allclose(tmp_1, tmp_2)
@@ -147,7 +154,7 @@ def extract_features(imgs, D, M, P, alpha, R, C,
                     #-PDM,
                     #aPDx - aPDmmm,
                     #-aPDmmm - PDM,
-                    z,
+                    #z,
                     #Z,
                     ]:
                 print '->', foo.min(), foo.max(), foo.mean(), foo.shape
@@ -175,33 +182,32 @@ def extract_features(imgs, D, M, P, alpha, R, C,
     return XC
 
 
-def extract_features_theano(imgs, D, M, P, alpha, batchsize=10):
-    """
-    imgs, D, P are 4-tensors in channel-minor layout
-    M is the shape of a single patch (6, 6, 3)
-    alpha is a scalar
-    """
-
+def extract_features_theano(imgs, D, M, P, alpha, R, C,
+        internal_dtype='float64', batchsize=1):
     tt = time.time()
     N, H, W, F = imgs.shape
-    R, C = M.shape[:2]
     numBases = len(D)
-    M = M.astype('float32')
-    P = P.astype('float32')
-    D = D.astype('float32')
+    M = M.flatten().astype(internal_dtype)
+    P = P.reshape((R * C * 3, R * C * 3)).astype(internal_dtype)
     XC = np.zeros((N, len(D), 2, 2, 2), dtype='float32')
+    PD = np.dot(P, D.reshape(len(D), -1).T).astype(internal_dtype)
 
-    s_imgs = theano.shared(imgs[:batchsize].astype('float32'))
-
+    s_imgs = theano.shared(imgs[:batchsize].astype(internal_dtype))
+    sXC_base = sXC = theano.shared(XC[:2])
     x_shp = (batchsize, F, H, W)
     ker_shape = (R, C)
+
+    s_foo = []
 
     # -- calculate patch means, patch variances
     p_sum, _shp = boxconv((s_imgs, x_shp), ker_shape, channels=True)
     p_ssq, _shp = boxconv((s_imgs ** 2, x_shp), ker_shape, channels=True)
     p_mean = p_sum / (R * C * F)
-    p_var = p_ssq / (R * C * F - 1) - (p_sum / (R * C * F)) ** 2
-    p_scale = 1.0 / tensor.sqrt(p_var + 10)
+    p_var = p_ssq / (R * C * F) - (p_sum / (R * C * F)) ** 2
+    unbias = float(R * C * F) / (R * C * F - 1)
+    #s_foo.append(p_mean)
+    #s_foo.append(unbias * p_var)
+    p_scale = 1.0 / tensor.sqrt(unbias * p_var + 10)
     assert p_mean.ndim == 4
     assert p_scale.ndim == 4
     assert p_mean.broadcastable[1]
@@ -227,41 +233,26 @@ def extract_features_theano(imgs, D, M, P, alpha, batchsize=10):
     #   = (a x - a [m,m,m] - M) P D
     #   = a x P D - a [m,m,m] P D - M P D
     #
-    M1 = M.flatten()
-    P2 = P.reshape((108, 108))
-    assert D.shape[1:] == (6, 6, 3)
-    D2 = D.reshape(numBases, 108)
 
-    PD2 = np.dot(P2, D2.T)  # -- N.B. P is symmetric
-    PD_kerns = PD2.reshape(6, 6, 3, numBases)\
-            .transpose(3, 2, 0, 1)[:, :, ::-1, ::-1]
+    PD_kerns = PD.reshape(3, 6, 6, numBases)\
+            .transpose(3, 0, 1, 2)[:, :, ::-1, ::-1]
     s_PD_kerns = theano.shared(np.asarray(PD_kerns, order='C'))
 
     PDx = conv.conv2d(
-            s_imgs,
+            s_imgs - 128,
             s_PD_kerns,
             image_shape=x_shp,
             filter_shape=(numBases, 3, 6, 6),
             border_mode='valid')
 
-    s_PD2_sum = theano.shared(PD2.sum(0))
-    aPDmmm = p_scale * p_mean * s_PD2_sum.dimshuffle(0, 'x', 'x')
+    s_PD_sum = theano.shared(PD.sum(0))
+    PDmmm = (p_mean - 128) * s_PD_sum.dimshuffle(0, 'x', 'x')
 
-    s_PDM = theano.shared(np.dot(M1, PD2))  # -- vector
+    s_PDM = theano.shared(np.dot(M, PD))  # -- vector
 
-    z = p_scale * PDx - aPDmmm - s_PDM.dimshuffle(0, 'x', 'x')
+    z = p_scale * (PDx - PDmmm) - s_PDM.dimshuffle(0, 'x', 'x')
     assert z.ndim == 4
-
-    s_foo = [
-            #p_scale * PDx,
-            #- aPDmmm,
-            #- s_PDM.dimshuffle(0, 'x', 'x'),
-            #p_scale * PDx - aPDmmm,
-            #aPDmmm - s_PDM.dimshuffle(0, 'x', 'x'),
-            #z,
-            ]
-
-    sXC_base = sXC = theano.shared(XC[:2])
+    #s_foo.append(z)
 
     hr = int(np.round((H - R + 1) / 2.))
     hc = int(np.round((W - C + 1) / 2.))
@@ -301,22 +292,13 @@ def extract_features_theano(imgs, D, M, P, alpha, batchsize=10):
         i += batchsize
         #print 'TIME', time.time() - tt
 
-    XC = XC.reshape((len(XC), -1))
     return XC
 
 
-def assert_allclose(a, b, rtol=1e-05, atol=1e-08):
-    if not np.allclose(a, b, rtol=rtol, atol=atol):
-        adiff = abs(a - b).max(),
-        rdiff = (abs(a - b) / (abs(a) + abs(b) + 1e-15)).max()
-        raise ValueError('not close enough', (adiff, rdiff, {
-            'amax': a.max(),
-            'bmax': b.max(),
-            'amin': a.min(),
-            'bmin': b.min(),
-            'asum': a.sum(),
-            'bsum': b.sum(),
-            }))
+def mpath(name):
+    return os.path.join(
+        '/home/bergstra/.VENV/eccv12/src/sc_vq_demo/',
+        name)
 
 
 def track_matlab():
@@ -324,10 +306,6 @@ def track_matlab():
     Mar 28 - this function gets exactly the same features as Adam Coates'
     matlab code.
     """
-    def mpath(name):
-        return os.path.join(
-            '/home/bergstra/.VENV/eccv12/src/sc_vq_demo/',
-            name)
     m_patches = scipy.io.loadmat(mpath('patches.mat'))['patches']
     m_patches_rci = scipy.io.loadmat(mpath('patches_rci.mat'))['patches_rci']
     print 'm_patches',
@@ -370,11 +348,31 @@ def track_matlab():
     assert_allclose(dictionary, foo['dictionary'], atol=1e-6, rtol=0.03)
 
     m_trainXC = scipy.io.loadmat(mpath('trainXC5.mat'))['trainXC']
+
+    # -- check that float64 feature extraction works
     nF = len(dictionary)
-    trainXC = extract_features(imgs[:5], dictionary, M, P, .25, 6, 6)
+    trainXC = extract_features(imgs[:5], dictionary, M, P, .25, 6, 6,
+            internal_dtype='float64')
     trainXCp = trainXC.transpose(0, 2, 3, 4, 1).reshape(5, -1)
     assert_allclose(trainXCp, m_trainXC, atol=1e-4, rtol=1e-4)
 
+    # -- check that float32 feature extraction is good enough
+    trainXC = extract_features(imgs[:5], dictionary, M, P, .25, 6, 6,
+            internal_dtype='float32')
+    trainXCp = trainXC.transpose(0, 2, 3, 4, 1).reshape(5, -1)
+    assert_allclose(trainXCp, m_trainXC, atol=1e-4, rtol=1e-4)
+
+    # -- check that the theano version is correct
+    trainXC = extract_features_theano(imgs[:5], dictionary, M, P, .25, 6, 6,
+            internal_dtype='float64')
+    trainXCp = trainXC.transpose(0, 2, 3, 4, 1).reshape(5, -1)
+    assert_allclose(trainXCp, m_trainXC, atol=1e-4, rtol=1e-4)
+
+    # -- check that the theano version is correct-ish
+    trainXC = extract_features_theano(imgs[:5], dictionary, M, P, .25, 6, 6,
+            internal_dtype='float32')
+    trainXCp = trainXC.transpose(0, 2, 3, 4, 1).reshape(5, -1)
+    assert_allclose(trainXCp, m_trainXC, atol=5e-3, rtol=5e-3)
 
 def demo():
     imgs, labels = CF10.img_classification_task(dtype='uint8')
