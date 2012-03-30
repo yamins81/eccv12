@@ -9,7 +9,6 @@ try:
 except ImportError:
     pass
 
-from asgd import NaiveBinaryASGD
 from asgd.auto_step_size import binary_fit
 
 from .utils import linear_kernel

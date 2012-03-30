@@ -17,6 +17,7 @@ from pyll_slm import boxconv
 from .utils import mean_and_std
 from .utils import assert_allclose
 
+import asgd
 
 #@pyll.scope.define
 def random_patches(images, N, R, C):
@@ -440,8 +441,8 @@ def coates_classif():
     testXC -= xmean
     testXC /= xstd
 
-    svm = fit_linear_svm((trainXC, labels[:len(trainXC)]),
-        solver=(
+    if 1:
+        solver = (
             #'asgd.SparseUpdateRankASGD',
             'asgd.NaiveOVAASGD',
             {
@@ -452,48 +453,27 @@ def coates_classif():
                 'fit_n_partial': len(trainXC)/5,
                 'fit_verbose': 1,
                 'cost_fn': "L2Half",
-                'min_observations': 50 * 50000,
-                'max_observations': 1000 * 50000,
-                }),
-        l2_regularization=0.0025)
+                #'min_observations': 50 * 50000,
+                #'max_observations': 1000 * 50000,
+                'min_observations': 1 * 50000,
+                'max_observations': 1 * 50000,
+                })
+    else:
+        solver = ('asgd.TheanoOVA',
+                {
+                    'dtype': 'float32',
+                    'verbose': True,
+                    })
 
-    pred = model_predict(svm, trainXC)
+    svm = fit_linear_svm(
+            (trainXC, labels[:len(trainXC)]),
+            solver=solver,
+            l2_regularization=0.0025)
+
+    pred = svm(trainXC)
     print 'TRAIN ERR', error_rate(pred, labels[:50000])
 
-    pred = model_predict(svm, testXC)
+    pred = svm(testXC)
     print 'TEST ERR', error_rate(pred, labels[50000:])
 
-
-def coates_classif_theano():
-    from pyll_slm import fit_linear_svm, model_predict, error_rate
-    from .utils import linear_kernel, mean_and_std
-
-    from asgd.theano_asgd import TheanoOVAPartialFit
-
-
-    imgs, labels = CF10.img_classification_task(dtype='uint8')
-
-    trainXC = np.load('train_XC.npy')
-    testXC = np.load('test_XC.npy')
-
-    trainXC = trainXC.reshape((len(trainXC), -1))
-    testXC = testXC.reshape((len(testXC), -1))
-
-    xmean, xstd = mean_and_std(trainXC, remove_std0=False, unbiased=True)
-    xstd = np.sqrt(xstd ** 2 + 0.01) # -- hacky correction
-
-    trainXC -= xmean
-    trainXC /= xstd
-    yvecs = ((labels[:50000, None] == np.arange(10)) * 2 - 1).astype('float32')
-
-
-    n_features = trainXC.shape[1]
-    n_labels = 10
-
-    helper = TheanoOVAPartialFit(n_features, 10, .0025, 'float32')
-
-    params = np.zeros(n_features * n_labels + n_labels, dtype='float32')
-
-    from scipy.optimize.lbfgsb import fmin_l_bfgs_b
-    best = fmin_l_bfgs_b(helper, params, iprint=1, args=(trainXC, yvecs))
 

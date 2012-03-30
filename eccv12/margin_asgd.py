@@ -4,12 +4,12 @@ from itertools import izip
 import numpy as np
 from numpy import dot
 
-from asgd import NaiveBinaryASGD
+from asgd.naive_asgd import BaseASGD
 
-class MarginBinaryASGD(NaiveBinaryASGD):
+class MarginBinaryASGD(BaseASGD):
 
     def partial_fit(self, X, y, previous_decisions):
-        assert np.all(y**2 == 1)
+        assert np.all(y ** 2 == 1)
 
         assert len(X) == len(y) == len(previous_decisions)
 
