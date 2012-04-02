@@ -17,7 +17,8 @@ import hyperopt
 
 from skdata import larray
 
-from .utils import linear_kernel, mean_and_std
+from .utils import linear_kernel
+from .utils import mean_and_std
 from asgd import LinearSVM
 
 
@@ -25,6 +26,7 @@ class InvalidDescription(Exception):
     """Model description was invalid"""
 
 
+@pyll.scope.define
 def alloc_filterbank(n_filters, height, width, channels, dtype,
         method_name, method_kwargs, normalize=True, SLMP=None):
     """
@@ -101,20 +103,9 @@ def boxconv((x, x_shp), kershp, channels=False):
 
 
 @pyll.scope.define_info(o_len=2)
-def slm_fbcorr((x, x_shp), n_filters, ker_size,
-        min_out=None,
-        max_out=None,
-        stride=1,
-        mode='valid',
-        generate=None,
-        kerns=None,
-        ):
+def slm_fbcorr((x, x_shp), kerns, stride=1, mode='valid'):
     """
-    min_out - None or else a floor value for the output
-    max_out - None or else a ceiling value for the output
-    kerns - either None (automatically allocated using `generate`)
-        or else a filterbank with shape:
-        (n_filters, ker_size, ker_size, channels)
+    kerns - filterbank with shape (n_filters, ker_size, ker_size, channels)
 
     """
     assert x.dtype == 'float32'
@@ -123,15 +114,6 @@ def slm_fbcorr((x, x_shp), n_filters, ker_size,
     # ../pythor3/pythor3/operation/fbcorr_/plugins/scipy_naive/scipy_naive.py
     if stride != 1:
         raise NotImplementedError('stride is not used in reference impl.')
-
-    if kerns == None:
-        kerns = alloc_filterbank(n_filters=n_filters,
-                height=filter_shape[0],
-                width=filter_shape[1],
-                channels=x_shp[1],
-                dtype=x.dtype,
-                method_name=generate[0],
-                method_kwargs=generate[1])
 
     kerns = kerns.transpose(0, 3, 1, 2).copy()[:,:,::-1,::-1]
     kerns = theano.shared(kerns.astype(x.dtype))
@@ -152,6 +134,11 @@ def slm_fbcorr((x, x_shp), n_filters, ker_size,
     else:
         raise NotImplementedError('fbcorr mode', mode)
 
+    return x, x_shp
+
+
+@pyll.scope.define_info(o_len=2)
+def slm_clipout((x, x_shp), min_out, max_out):
     if min_out is None and max_out is None:
         return x, x_shp
     elif min_out is None:
@@ -249,10 +236,147 @@ def slm_lnorm((x, x_shp),
     if (hasattr(stretch, '__iter__') and (stretch != 1).any()) or stretch != 1:
         arr_num = arr_num * stretch
         arr_div = arr_div * stretch
+    # XXX: IS THIS 1.0 supposed to be (threshold + EPSILON) ??
     arr_div = tensor.switch(arr_div < (threshold + EPSILON), 1.0, arr_div)
 
     r = arr_num / arr_div
     r_shp = x_shp[0], x_shp[1], ssqshp[2], ssqshp[3]
+    return r, r_shp
+
+
+@pyll.scope.define_info(o_len=2)
+def slm_wnorm_fbcorr((x, x_shp),
+        w_means,    # -- e.g. from whitening
+        w_fb,       # -- e.g. from whitening and filterbank
+        remove_mean,
+        beta,
+        hard_beta,
+        ):
+    """
+    For each valid-mode patch (p) of the image (x), this transform computes
+
+    p_c = (p - mean(p)) if (remove_mean) else (p)
+    qA = p_c / sqrt(var(p_c) + beta)           # -- Coates' sc_vq_demo
+    qB = p_c / sqrt(max(sum(p_c ** 2), beta))  # -- Pinto's lnorm
+
+    There are two differences between qA and qB:
+
+    1. the denominator contains either addition or max
+
+    2. the denominator contains either var or sum of squares
+
+    The first difference corresponds to the hard_beta parameter.
+    The second difference amounts to a decision about the scaling of the
+    output, because for every function qA(beta_A) there is a function
+    qB(betaB) that is identical, except for a multiplicative factor of
+    sqrt(N - 1).
+
+    I think that in the context of stacked models, the factor of sqrt(N-1) is
+    undesirable because we want the dynamic range of all outputs to be as
+    similar as possible. So this function implements qB.
+
+    Coates' denominator had var(p_c) + 10, so what should the equivalent here
+    be?
+    p_c / sqrt(var(p_c) + 10)
+    = p_c / sqrt(sum(p_c ** 2) / (108 - 1) + 10)
+    = p_c / sqrt((sum(p_c ** 2) + 107 * 10) / 107)
+    = sqrt(107) * p_c / sqrt((sum(p_c ** 2) + 107 * 10))
+
+    So Coates' pre-processing has beta = 1070, hard_beta=False. This function
+    returns a result that is sqrt(107) ~= 10 times smaller than the Coates
+    whitening step.
+
+    """
+    assert x.dtype == 'float32'
+
+    beta = float(beta)
+
+    # -- kernel Number, Features, Rows, Cols
+    kN, kF, kR, kC = w_fb.shape
+
+    # -- patch-wise sums and sums-of-squares
+    p_sum, _shp = boxconv((x, x_shp), (kR, kC), channels=True)
+    p_mean = 0 if remove_mean else p_sum / (kF * kR * kC)
+    p_ssq, _shp = boxconv((x ** 2, x_shp), (kR, kC), channels=True)
+
+    # -- this is an important variable in the math above, but
+    #    it is not directly used in the fused lnorm_fbcorr
+    # p_c = x[:, :, xs - xs_inc:-xs, ys - ys_inc:-ys] - p_mean
+
+    # -- adjust the sum of squares to reflect remove_mean
+    p_c_sq = p_ssq - (p_mean ** 2) * (kF * kR * kC)
+    if hard_beta:
+        p_div2 = tensor.maximum(p_c_sq, beta)
+    else:
+        p_div2 = p_c_sq + beta
+
+    p_scale = 1.0 / tensor.sqrt(p_div2)
+
+    # --
+    # from whitening, we have a shift and linear transform (P)
+    # for each patch (as vector).
+    #
+    # let m be the vector [m m m m] that replicates p_mean
+    # let a be the scalar p_scale
+    # let x be an image patch from s_imgs
+    #
+    # Whitening means applying the affine transformation
+    #   (c - M) P
+    # to contrast-normalized patch c = a (x - m),
+    # where a = p_scale and m = p_mean.
+    #
+    # We also want to extract features in dictionary
+    #
+    #   (c - M) P
+    #   = (a (x - [m,m,m]) - M) P
+    #   = (a x - a [m,m,m] - M) P
+    #   = a x P - a [m,m,m] P - M P
+    #
+
+    P = theano.shared(
+            np.asarray(w_fb[:, :, ::-1, ::-1], order='C'))
+
+    Px = conv.conv2d(x, P,
+            image_shape=x_shp,
+            filter_shape=w_fb.shape,
+            border_mode='valid')
+
+    s_P_sum = theano.shared(w_fb.sum(3).sum(2).sum(1))
+    Pmmm = p_mean * s_P_sum.dimshuffle(0, 'x', 'x')
+    s_PM = theano.shared((w_means * w_fb).sum(3).sum(2).sum(1))
+    z = p_scale * (Px - Pmmm) - s_PM.dimshuffle(0, 'x', 'x')
+
+    assert z.dtype == x.dtype
+    return z, (_shp[0], kN, _shp[2], _shp[3])
+
+
+@pyll.scope.define_info(o_len=2)
+def slm_alpha_quantize((x, x_shp), alpha, use_mid=False):
+    """Crude vector quantization applied to X
+    """
+    #print 'QUANTIZE', x_shp
+    assert x.dtype == 'float32'
+    alpha = tensor.cast(alpha, dtype=x.dtype)
+    xpos = tensor.maximum(x - alpha, 0)
+    xmid = tensor.maximum(alpha - abs(x), 0)
+    xneg = tensor.maximum(-x - alpha, 0)
+    assert xpos.dtype == 'float32'
+    assert xmid.dtype == 'float32'
+    assert xneg.dtype == 'float32'
+    if use_mid:
+        z = tensor.concatenate([xpos, xneg], axis=1)
+        z_shp = x_shp[0], x_shp[1] * 2, x_shp[2], x_shp[3]
+    else:
+        z = tensor.concatenate([xpos, xmid, xneg], axis=1)
+        z_shp = x_shp[0], x_shp[1] * 3, x_shp[2], x_shp[3]
+    assert z.dtype == 'float32'
+    return z, z_shp
+
+
+@pyll.scope.define
+def slm_flatten((x, x_shp),):
+    r = tensor.flatten(x, 2)
+    r_shp = x_shp[0], np.prod(x_shp[1:])
     return r, r_shp
 
 
@@ -265,6 +389,7 @@ def slm_lpool_smallgrid((x, x_shp), grid_res=2, order=1):
     """
     assert x.dtype == 'float32'
     order=float(order)
+    #print 'LPOOL', x_shp
 
     if hasattr(order, '__iter__'):
         o1 = (order == 1).all()
@@ -302,6 +427,44 @@ def slm_lpool_smallgrid((x, x_shp), grid_res=2, order=1):
     r_shp = (x_shp[0], x_shp[1], grid_res, grid_res)
     r = r.reshape(r_shp)
 
+    return r, r_shp
+
+
+@pyll.scope.define_info(o_len=2)
+def slm_quantize_gridpool((x, x_shp), alpha,
+        use_mid=False,
+        order=1.0,
+        grid_res=2):
+    hr = int(np.round(x_shp[2] / grid_res))
+    hc = int(np.round(x_shp[3] / grid_res))
+    alpha = tensor.cast(alpha, dtype=x.dtype)
+    sXC_shp = (x_shp[0], x_shp[1], grid_res, grid_res, 3 if use_mid else 2)
+    sXC = tensor.zeros(sXC_shp, dtype=x.dtype)
+
+    for ri in range(grid_res):
+        if ri == grid_res - 1:
+            rslice = slice(ri * hr, None)
+        else:
+            rslice = slice(ri * hr, (ri + 1) * hr)
+        for ci in range(grid_res):
+            cslice = slice(ci * hc, (ci + 1) * hc)
+            if ci == grid_res - 1:
+                cslice = slice(ci * hc, None)
+            else:
+                cslice = slice(ci * hc, (ci + 1) * hc)
+            xi = x[:, :, rslice, cslice]
+            qs = []
+            qs.append(tensor.maximum(xi - alpha, 0))
+            qs.append(tensor.maximum(-xi - alpha, 0))
+            if use_mid:
+                qs.append(tensor.maximum(alpha - abs(xi), 0))
+
+            for qi, q in enumerate(qs):
+                sXC = tensor.set_subtensor(sXC[:, :, ri, ci, qi],
+                        (q ** order).sum([2, 3]) ** (1. / order))
+
+    r_shp = sXC_shp[0], np.prod(sXC_shp[1:])
+    r = sXC.reshape(r_shp)
     return r, r_shp
 
 
@@ -353,6 +516,106 @@ def slm_gnorm((x, x_shp),
     r = arr_num / arr_div
     r_shp = x_shp
     return r, r_shp
+
+
+@pyll.scope.define
+def contrast_normalize(patches, remove_mean, beta, hard_beta):
+    X = patches
+    if X.ndim != 2:
+        raise TypeError('contrast_normalize requires flat patches')
+    if remove_mean:
+        xm = X.mean(1)
+    else:
+        xm = X[0] * 0
+    Xc = X - xm[:, None]
+    l2 = (Xc * Xc).sum(axis=1)
+    if hard_beta:
+        div2 = np.maximum(l2, beta)
+    else:
+        div2 = l2 + beta
+    X = Xc / np.sqrt(div2[:, None])
+    return X
+
+
+@pyll.scope.define
+def random_patches(images, N, R, C, rng):
+    """Return a stack of N image patches"""
+    n_imgs, iR, iC, iF = images.shape
+    rval = np.empty((N, R, C, iF), dtype=images.dtype)
+    for rv_i in rval:
+        src = rng.randint(n_imgs)
+        roffset = rng.randint(iR - R)
+        coffset = rng.randint(iC - C)
+        rv_i[:] = images[src, roffset: roffset + R, coffset: coffset + C]
+    return rval
+
+
+@pyll.scope.define_info(o_len=3)
+def patch_whitening_filterbank_X(patches, o_ndim, gamma,
+        remove_mean, beta, hard_beta,
+        ):
+    """
+    patches - Image patches of uint8 pixels
+    o_ndim - 2 to get matrix outputs, 4 to get image-stack outputs
+    gamma - non-negative real to boost low-principle components
+
+    remove_mean - see contrast_normalize
+    beta - see contrast_normalize
+    hard_beta - see contrast_normalize
+
+    Returns: M, P, X
+        M - mean of contrast-normalized patches
+        P - whitening matrix / filterbank for contrast-normalized patches
+        X - contrast-normalized patches
+
+    """
+    # Algorithm from Coates' sc_vq_demo.m
+    assert str(patches.dtype) == 'uint8'
+
+    # -- patches -> column vectors
+    X = patches.reshape(len(patches), -1).astype('float64')
+
+    X = contrast_normalize(X,
+            remove_mean=remove_mean,
+            beta=beta,
+            hard_beta=hard_beta)
+
+    # -- ZCA whitening (with low-pass)
+    M, _std = mean_and_std(X)
+    Xm = X - M
+    assert Xm.shape == X.shape
+    C = np.dot(Xm.T, Xm) / (Xm.shape[0] - 1)
+    D, V = np.linalg.eigh(C)
+    P = np.dot(np.sqrt(1.0 / (D + gamma)) * V, V.T)
+
+    # -- return to image space
+    if o_ndim == 4:
+        M = M.reshape(patches.shape[1:])
+        P = P.reshape((P.shape[0],) + patches.shape[1:])
+        X = X.reshape((len(X),) + patches.shape[1:])
+    elif o_ndim == 2:
+        pass
+    else:
+        raise ValueError('o_ndim not in (2, 4)', o_ndim)
+
+    return M, P, X
+
+
+@pyll.scope.define_info(o_len=2)
+def fb_whitened_patches(patches, pwfX, n_filters, rseed):
+    """
+    pwfX is the output of patch_whitening_filterbank_X with reshape=False
+
+    """
+    M, P, patches_cn = pwfX
+    rng = np.random.RandomState(rseed)
+    d_elems = rng.randint(len(patches_cn), size=n_filters)
+    D = np.dot(patches_cn[d_elems] - M, P)
+    D = D / (np.sqrt((D ** 2).sum(axis=1))[:, None] + 1e-20)
+    fb = np.dot(D, P)
+    fb.shape = (n_filters,) + patches.shape[1:]
+    M.shape = patches.shape[1:]
+    return M, fb
 
 
 @pyll.scope.define
@@ -415,7 +678,8 @@ def pyll_theano_batched_lmap(pipeline, seq, batchsize,
         rval = np.zeros((len(X),) + oshp[1:], dtype=s_obatch.dtype)
         offset = 0
         while offset < len(X):
-            if print_progress:
+            if (print_progress and
+                    (0 == (offset // batchsize) % print_progress)):
                 print 'pyll_theano_batched_lmap.f_map', offset, len(X)
             xi = X[offset: offset + batchsize]
             rval[offset:offset + len(xi)] = fn(xi)
@@ -428,6 +692,10 @@ def pyll_theano_batched_lmap(pipeline, seq, batchsize,
 @pyll.scope.define
 def np_transpose(obj, arg):
     return obj.transpose(*arg)
+
+@pyll.scope.define
+def np_RandomState(rseed):
+    return np.random.RandomState(rseed)
 
 
 @pyll.scope.define
@@ -504,8 +772,8 @@ class HPBandit(hyperopt.Bandit):
 
 
 @pyll.scope.define
-def fit_linear_svm(data, l2_regularization, solver='auto'):
-    svm = LinearSVM(l2_regularization, solver=solver)
+def fit_linear_svm(data, l2_regularization, solver='auto', verbose=False):
+    svm = LinearSVM(l2_regularization, solver=solver, verbose=verbose)
     svm.fit(*data)
     return svm
 
@@ -521,4 +789,10 @@ def error_rate(pred, y):
 
 
 pyll.scope.define_info(o_len=2)(mean_and_std)
+
+
+@pyll.scope.define
+def print_ndarray_summary(msg, X):
+    print msg, X.shape, X.min(), X.max(), X.mean()
+    return X
 

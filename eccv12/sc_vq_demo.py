@@ -71,6 +71,7 @@ def contrast_normalize(patches):
     X = (X - xm[:, None]) / np.sqrt(xv[:, None] + 10)
     return X
 
+
 def summarize(msg, X):
     print msg, X.shape, X.min(), X.max(), X.mean()
 
@@ -436,12 +437,15 @@ def coates_classif():
     xmean, xstd = mean_and_std(trainXC, remove_std0=False, unbiased=True)
     xstd = np.sqrt(xstd ** 2 + 0.01) # -- hacky correction
 
+    summarize('Xmean', xmean)
+    summarize('Xstd', xstd)
+
     trainXC -= xmean
     trainXC /= xstd
     testXC -= xmean
     testXC /= xstd
 
-    if 1:
+    if 0:
         solver = (
             #'asgd.SparseUpdateRankASGD',
             'asgd.NaiveOVAASGD',

@@ -162,20 +162,23 @@ def cifar10_run_large(host, port, dbname, _id):
 
 def cifar10_bandit1_small():
     bandit = ec10.Cifar10Bandit1(n_train=100, n_valid=10, n_test=10)
+    print 'TEMPLATE'
+    print bandit.template
     config = pyll.stochastic.sample(bandit.template,
             np.random.RandomState(34))
     print 'CONFIG', config
-    bandit.evaluate(config, ctrl=None)
+    result = bandit.evaluate(config, ctrl=None)
+    print 'RESULT', result
 
 
-def cifar10_bandit1_medium():
+def cifar10_bandit1_medium(start=0, stop=5):
     bandit = ec10.Cifar10Bandit1(n_train=10000, n_valid=1000, n_test=100)
-    for i in range(5):
+    for i in range(int(start), int(stop)):
         config = pyll.stochastic.sample(bandit.template,
                 np.random.RandomState(i))
         print 'CONFIG', config
         result = bandit.evaluate(config, ctrl=None)
-        print result
+        print 'RESULT', result
 
 
 def cifar10_bandit3_large():
@@ -189,6 +192,36 @@ def cifar10_bandit3_large():
     print result
 
 
+def coates_icml2011_patches(frac=1.0):
+    config = {
+            'nfbf0_nfilters': 1600.0,
+            'nfb0_beta': 1070., # -- converted from var() + 10
+            'nfb0_algo_i': 2,
+            'nfb0_remove_mean': 1,
+            'nfb0_size': 6,
+            'nfb0_hard': 0,
+            'nfb0_wp_rseed': 1,
+            'nfb0_wp_gamma': 0.001, # -- should correspond to original .1
+            'qp_alpha': 0.25 / np.sqrt(107),
+            'qp_use_mid': 0,
+            'qp_order': 1.0,
+            'qp_order_logu': 1.0,
+            'qp_grid_res': 2,
+            'l2_reg': 0.0025,
+            # -- XXX: DELETE ME
+            'nfb0_af_rseed': 0,
+            'nfb0_af_normalize': 0,
+            'nfb0_pwf_gamma': 0.1,
+            'classif_squash_lowvar': 0.0001, # --original had .01
+            }
+    bandit = ec10.Cifar10Bandit1(
+            n_train=int(float(frac) * 49000),
+            n_valid=int(float(frac) *  1000),
+            n_test=int(float(frac) * 10000))
+    result = bandit.evaluate(config, ctrl=None)
+    print 'RESULT', result
+
+
 def coates_algo_debug1():
     import eccv12.sc_vq_demo
     eccv12.sc_vq_demo.track_matlab()
@@ -197,6 +230,3 @@ def coates_classif():
     import eccv12.sc_vq_demo
     eccv12.sc_vq_demo.coates_classif()
 
-def coates_classif_theano():
-    import eccv12.sc_vq_demo
-    eccv12.sc_vq_demo.coates_classif_theano()
