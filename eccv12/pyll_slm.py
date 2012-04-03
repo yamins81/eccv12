@@ -526,7 +526,7 @@ def contrast_normalize(patches, remove_mean, beta, hard_beta):
     if remove_mean:
         xm = X.mean(1)
     else:
-        xm = X[0] * 0
+        xm = X[:,0] * 0
     Xc = X - xm[:, None]
     l2 = (Xc * Xc).sum(axis=1)
     if hard_beta:
@@ -620,7 +620,9 @@ def fb_whitened_patches(patches, pwfX, n_filters, rseed):
 
 @pyll.scope.define
 def pyll_theano_batched_lmap(pipeline, seq, batchsize,
-        _debug_call_counts=None, print_progress=False):
+        _debug_call_counts=None, print_progress=False,
+        abort_on_rows_larger_than=None,
+        ):
     """
     This function returns a skdata.larray.lmap object whose function
     is defined by a theano expression.
@@ -643,6 +645,11 @@ def pyll_theano_batched_lmap(pipeline, seq, batchsize,
     #print '==='
     s_obatch, oshp = pyll.rec_eval(thing)
     assert oshp[0] == batchsize
+    if abort_on_rows_larger_than:
+        rowlen = np.prod(oshp[1:])
+        if rowlen > abort_on_rows_larger_than:
+            raise ValueError('rowlen %i exceeds limit %i' % (
+                rowlen, abort_on_rows_larger_than))
 
     # Compile a function that takes a variable number of elements in,
     # returns the same number of processed elements out,

@@ -94,11 +94,11 @@ def cifar10_suggest2small(dbname, port=44556, N=3):
 
 
 def cifar10_suggest1small(dbname, port=44556, N=3):
-    Bandit = ec10.Cifar10Bandit1Small
-    cmd = ('bandit_json evaluate', 'eccv12.cifar10.Cifar10Bandit1Small')
+    Bandit = ec10.Cifar10Bandit1
+    cmd = ('bandit_json evaluate', 'eccv12.cifar10.Cifar10Bandit1')
 
     trials = MongoTrials(
-            'mongo://localhost:%d/%s/jobs' % (port, dbname),
+            'mongo://localhost:%d/%s/jobs' % (int(port), dbname),
             refresh=True)
     algos = []
     keys = []
@@ -108,7 +108,7 @@ def cifar10_suggest1small(dbname, port=44556, N=3):
                 Bandit(),
                 cmd=cmd,
                 ))
-        keys.append('q1small_%i' % i)
+        keys.append('merge1_%i' % i)
     algo = InterleaveAlgo(algos, keys)
     exp = hyperopt.Experiment(trials, algo, poll_interval_secs=.1)
     exp.run(sys.maxint, block_until_done=True)

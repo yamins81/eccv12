@@ -180,13 +180,17 @@ class Cifar10Bandit1(pyll_slm.HPBandit):
                 partial(callpipe1, pipeline),
                 all_imgs_cmajor[:n_train + n_valid],
                 batchsize=batchsize,
-                print_progress=10)
+                print_progress=100,
+                abort_on_rows_larger_than=15000,
+                )
 
         test_features = pyll_theano_batched_lmap(
                 partial(callpipe1, pipeline),
                 all_imgs_cmajor[50000:50000 + n_test],
                 batchsize=batchsize,
-                print_progress=10)
+                print_progress=100,
+                abort_on_rows_larger_than=15000,
+                )
 
         cache_train = flatten_elems(screen_features[:n_train])
 
@@ -226,28 +230,6 @@ class Cifar10Bandit1(pyll_slm.HPBandit):
             outputs.append(HR(name + "_erate", erate))
         pyll_slm.HPBandit.__init__(self, pyll.as_apply(outputs))
 
-
-def Cifar10Bandit2():
-    return Cifar10Bandit1(nfilt_ubounds=[64])
-
-
-def Cifar10Bandit3():
-    return Cifar10Bandit1(nfilt_ubounds=[64, 128])
-
-
-def Cifar10Bandit1Small():
-    return Cifar10Bandit1(nfilt_ubounds=[],
-                          n_train=10000, n_valid=10000, n_test=1000)
-
-
-def Cifar10Bandit2Small():
-    return Cifar10Bandit1(nfilt_ubounds=[64],
-                          n_train=10000, n_valid=10000, n_test=1000)
-
-
-def Cifar10Bandit3Small():
-    return Cifar10Bandit1(nfilt_ubounds=[64, 128],
-                          n_train=10000, n_valid=10000, n_test=1000)
 
 
 if 0:
