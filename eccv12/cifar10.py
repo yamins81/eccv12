@@ -227,7 +227,10 @@ class Cifar10Bandit1(pyll_slm.HPBandit):
         svm = fit_linear_svm(trn_xy,
                 l2_regularization=HP('l2_reg', logu_range(1e-6, 1e-1)),
                 verbose=True,
-                solver=('asgd.TheanoOVA', {'dtype': 'float32'})
+                solver=('asgd.SubsampledTheanoOVA', {
+                    'dtype': 'float32',
+                    'verbose': 1,
+                    })
                 )
 
         outputs = []
