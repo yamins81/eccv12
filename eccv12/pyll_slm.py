@@ -754,9 +754,18 @@ class HPBandit(hyperopt.Bandit):
                 label = node.arg['label'].obj
                 memo[node] = config[label]
         assert len(memo) == len(config)
-        r_expr, r_dct = pyll.rec_eval(
-                [self.result_expr, self.s_result_dct],
-                memo=memo)
+        try:
+            r_expr, r_dct = pyll.rec_eval(
+                    [self.result_expr, self.s_result_dct],
+                    memo=memo)
+        except Exception, e:
+            n_match = 0
+            for match, match_pair in self.exceptions:
+                if match(e):
+                    r_expr, r_dct = match_pair(e)
+                    n_match += 1
+            if n_match == 0:
+                raise
         r_dct['rval'] = r_expr
         r_dct.setdefault('loss', r_expr)
         r_dct.setdefault('status', hyperopt.STATUS_OK)

@@ -462,11 +462,29 @@ def coates_classif():
                 'min_observations': 1 * 50000,
                 'max_observations': 1 * 50000,
                 })
-    else:
-        solver = ('asgd.TheanoOVA',
+    elif 0:
+        # -- This solver works on CPU and is most accurate,
+        #    and takes about 2 hours
+        solver = ('asgd.BlockedTheanoOVA',
                 {
                     'dtype': 'float32',
                     'verbose': True,
+                    'GPU_blocksize': float('inf')
+                    })
+    elif 0:
+        solver = ('asgd.BlockedTheanoOVA',
+                {
+                    'dtype': 'float32',
+                    'verbose': True,
+                    })
+    else:
+        # -- This solver works on GPU and is slightly less accurate,
+        #    and takes about 1 minute
+        solver = ('asgd.SubsampledTheanoOVA',
+                {
+                    'dtype': 'float32',
+                    'verbose': True,
+                    'cost_fn': 'L2Huber',
                     })
 
     svm = fit_linear_svm(

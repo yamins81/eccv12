@@ -88,6 +88,14 @@ def cifar10_img_classification_task(dtype):
 
 
 class Cifar10Bandit1(pyll_slm.HPBandit):
+    exceptions = [
+            (lambda e: isinstance(e, ValueError),
+                lambda e: (None, {
+                    'loss': float('inf'),
+                    'status': hyperopt.STATUS_FAIL,
+                    'failure': repr(e)
+                }))
+            ]
     def __init__(self, n_train=40000, n_valid=10000, n_test=10000,
             batchsize=20,
             ):
@@ -228,8 +236,8 @@ class Cifar10Bandit1(pyll_slm.HPBandit):
             if name == 'val':
                 erate = HR('loss', erate)
             outputs.append(HR(name + "_erate", erate))
-        pyll_slm.HPBandit.__init__(self, pyll.as_apply(outputs))
 
+        pyll_slm.HPBandit.__init__(self, pyll.as_apply(outputs))
 
 
 if 0:
