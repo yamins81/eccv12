@@ -153,16 +153,15 @@ def list_errors(host, port, dbname, key=None, spec=0):
             print doc['spec']
 
 
-def delete_all(dbname):
+def delete_trials(host, port, dbname):
     # TODO: replace this with an input() y/n type thing
     y, n = 'y', 'n'
-    db = 'mongo://localhost:44556/%s/jobs' % dbname
+    db = 'mongo://%s:%s/%s/jobs' % (host, port, dbname)
     print 'Are you sure you want to delete ALL trials from %s?' % db
     if input() != y:
         return
-    trials = MongoTrials(db)
-    B = main_lfw_driver(trials)
-    B.delete_all()
+    mongo_trials = MongoTrials(db)
+    mongo_trials.delete_all()
 
 
 def snapshot(dbname, ofilename=None, plevel=-1):
