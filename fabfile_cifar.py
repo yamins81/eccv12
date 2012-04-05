@@ -16,20 +16,18 @@ import eccv12.cifar10 as ec10
 from eccv12.experiments import InterleaveAlgo
 
 
-def cifar10_launch_workers(dbname, N, walltime='24:00:00'):
+def cifar10_launch_workers(host, port, dbname, N, walltime='24:00:00'):
     text = """#!/bin/bash
-
     export SCIKIT_DATA=/scratch_local/skdata
     L=$SCIKIT_DATA/cifar10
     mkdir -p $L
     rsync -a ~/.skdata/cifar10/ $L/
-
     . VENV/eccv12/bin/activate
     VENV/eccv12/src/eccv12/hyperopt/bin/hyperopt-mongo-worker \
-        --mongo=honeybadger:44556/%(dbname)s \
+        --mongo=%(host)s:%(port)s/%(dbname)s \
         --workdir=/scratch_local/eccv12.workdir \
         --reserve-timeout=180.0 \
-        --max-consecutive-failures=3
+        --max-consecutive-failures=4
     """ % locals()
 
     qsub_script_name = '.worker.sh.%.3f' % time.time()
@@ -51,64 +49,23 @@ def cifar10_launch_workers(dbname, N, walltime='24:00:00'):
     subprocess.check_call(qsub_cmd)
 
 
-def cifar10_suggest3small(dbname, port=44556, N=3):
-    Bandit = ec10.Cifar10Bandit3Small
-    cmd = ('bandit_json evaluate', 'eccv12.cifar10.Cifar10Bandit3Small')
-
-    trials = MongoTrials(
-            'mongo://localhost:%d/%s/jobs' % (port, dbname),
-            refresh=True)
-    algos = []
-    keys = []
-    for i in range(int(N)):
-        algos.append(
-            TreeParzenEstimator(
-                Bandit(),
-                cmd=cmd,
-                ))
-        keys.append('q3small_%i' % i)
-    algo = InterleaveAlgo(algos, keys)
-    exp = hyperopt.Experiment(trials, algo, poll_interval_secs=.1)
-    exp.run(sys.maxint, block_until_done=True)
-
-
-def cifar10_suggest2small(dbname, port=44556, N=3):
-    Bandit = ec10.Cifar10Bandit2Small
-    cmd = ('bandit_json evaluate', 'eccv12.cifar10.Cifar10Bandit2Small')
-
-    trials = MongoTrials(
-            'mongo://localhost:%d/%s/jobs' % (port, dbname),
-            refresh=True)
-    algos = []
-    keys = []
-    for i in range(int(N)):
-        algos.append(
-            TreeParzenEstimator(
-                Bandit(),
-                cmd=cmd,
-                ))
-        keys.append('q2small_%i' % i)
-    algo = InterleaveAlgo(algos, keys)
-    exp = hyperopt.Experiment(trials, algo, poll_interval_secs=.1)
-    exp.run(sys.maxint, block_until_done=True)
-
-
-def cifar10_suggest1small(dbname, port=44556, N=3):
+def cifar10_suggest1(host, port, dbname, N=3):
     Bandit = ec10.Cifar10Bandit1
     cmd = ('bandit_json evaluate', 'eccv12.cifar10.Cifar10Bandit1')
 
     trials = MongoTrials(
-            'mongo://localhost:%d/%s/jobs' % (int(port), dbname),
+            'mongo://%s:%d/%s/jobs' % (host, int(port), dbname),
             refresh=True)
     algos = []
     keys = []
     for i in range(int(N)):
-        algos.append(
-            TreeParzenEstimator(
+        algo = TreeParzenEstimator(
                 Bandit(),
                 cmd=cmd,
-                ))
-        keys.append('merge1_%i' % i)
+                )
+        algo.n_EI_candidates = 16
+        algos.append(algo)
+        keys.append('suggest1_sqrtgcap_%i' % i)
     algo = InterleaveAlgo(algos, keys)
     exp = hyperopt.Experiment(trials, algo, poll_interval_secs=.1)
     exp.run(sys.maxint, block_until_done=True)
