@@ -101,6 +101,9 @@ class Cifar10Bandit1(pyll_slm.HPBandit):
             ):
         all_imgs, all_labels = scope.cifar10_img_classification_task(dtype='uint8')
 
+        #TODO: make the nfb0_size depend on the grid_res used in the grouping
+        #      at the end,
+        #      otherwise the search space is obviously multi-modal
         nfb0_size = HP('nfb0_size', rfilter_size(2, 8))
         nfb0_remove_mean = HP('nfb0_remove_mean', maybe())
         nfb0_beta = HP('nfb0_beta', logu_range(1, 1e4))
@@ -152,6 +155,9 @@ class Cifar10Bandit1(pyll_slm.HPBandit):
             # TODO: RBM/sDAA/ssRBM
             ])
 
+
+        #TODO: make the parameters of each fb algo conditioned on the *choice*
+        #      of algo
         M0_FB0_i = HP('nfb0_algo_i',
                 one_of(*range(len(M0_FB0_options.pos_args))))
         M0_FB0 = M0_FB0_options[M0_FB0_i]
