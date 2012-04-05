@@ -144,7 +144,9 @@ def list_errors(host, port, dbname, key=None, spec=0):
         query = {'exp_key': exp_key}
     query['state'] = hyperopt.JOB_STATE_ERROR
     retrieve = {'tid': 1, 'state': 1, 'result.status':1, 'misc.cmd': 1,
-            'spec': int(spec)}
+            'book_time': 1, 'error': 1}
+    if int(spec):
+        retrieve['spec'] = 1
     for doc in conn[dbname]['jobs'].find(query, retrieve):
         print doc['_id'], doc['tid'], doc['book_time'], doc['error']
         if int(spec):
