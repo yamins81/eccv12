@@ -153,15 +153,25 @@ def list_errors(host, port, dbname, key=None, spec=0):
             print doc['spec']
 
 
-def delete_trials(host, port, dbname):
+def delete_trials(host, port, dbname, key=None):
     # TODO: replace this with an input() y/n type thing
     y, n = 'y', 'n'
     db = 'mongo://%s:%s/%s/jobs' % (host, port, dbname)
-    print 'Are you sure you want to delete ALL trials from %s?' % db
-    if input() != y:
-        return
-    mongo_trials = MongoTrials(db)
-    mongo_trials.delete_all()
+    if key is None:
+        print 'Are you sure you want to delete ALL trials from %s? (y/n)' % db
+        if input() != y:
+            print 'Aborting'
+            return
+        mongo_trials = MongoTrials(db)
+        mongo_trials.delete_all()
+    else:
+        mongo_trials = MongoTrials(db, exp_key=key)
+        print 'Confirm: delete %i trials matching %s? (y/n)' % (
+            len(mongo_trials), key)
+        if input() != y:
+            print 'Aborting'
+            return
+        mongo_trials.delete_all()
 
 
 def snapshot(dbname, ofilename=None, plevel=-1):
