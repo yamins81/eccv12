@@ -61,7 +61,7 @@ def show_history(host, port, dbname, key=None):
     plt.show()
 
 
-def show_vars(host, port, dbname, key):
+def show_vars(host, port, dbname, key, colorize_best=-1):
     """
     Show loss vs. time scatterplots for one experiment or all experiments in a
     database.
@@ -98,7 +98,9 @@ def show_vars(host, port, dbname, key):
     print 'bandit', bandit
 
     trials = hyperopt.trials_from_docs(docs, validate=False)
-    hyperopt.plotting.main_plot_vars(trials, bandit=bandit)
+    hyperopt.plotting.main_plot_vars(trials, bandit=bandit,
+            colorize_best=int(colorize_best),
+            )
 
 
 def list_dbs(host, port, dbname=None):
