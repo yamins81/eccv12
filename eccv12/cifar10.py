@@ -240,13 +240,17 @@ class Cifar10Bandit1(pyll_slm.HPBandit):
                 )
 
         outputs = []
-        for name, xy in ('trn', trn_xy), ('val', val_xy), ('tst', tst_xy):
-            erate = error_rate(model_predict(svm, xy[0]), xy[1])
-            if name == 'val':
-                erate = HR('loss', erate)
-            outputs.append(HR(name + "_erate", erate))
+        trn_erate = error_rate(model_predict(svm, trn_xy[0]), trn_xy[1])
+        val_erate = error_rate(model_predict(svm, val_xy[0]), val_xy[1])
+        tst_erate = error_rate(model_predict(svm, tst_xy[0]), tst_xy[1])
+        outputs.append(HR("trn_erate", trn_erate))
+        outputs.append(HR("val_erate", HR("loss", val_erate)))
+        outputs.append(HR("tst_erate", tst_erate))
 
         pyll_slm.HPBandit.__init__(self, pyll.as_apply(outputs))
+
+        self._init_locals = locals()
+        del self._init_locals['self']
 
 
 if 0:
