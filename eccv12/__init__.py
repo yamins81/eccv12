@@ -18,12 +18,12 @@ if 'THEANO_FLAGS' not in os.environ:
         )
     my_gpu = proc.communicate()[0]
     if my_gpu:
-        THEANO_FLAGS = 'device=gpu%i' % int(my_gpu)
+        NEW_THEANO_FLAGS = ['device=gpu%i' % int(my_gpu)]
     else:
-        THEANO_FLAGS = ''
+        NEW_THEANO_FLAGS = []
     if os.path.exists('/scratch_local'):
-        THEANO_FLAGS += ',base_compiledir=/scratch_local/eccv12.theano'
-    os.environ['THEANO_FLAGS'] = THEANO_FLAGS
+        NEW_THEANO_FLAGS += ['base_compiledir=/scratch_local/bergstra/eccv12.theano']
+    os.environ['THEANO_FLAGS'] = ','.join(NEW_THEANO_FLAGS)
 
     print 'N.B. HACKING IN env["THEANO_FLAGS"] =', os.environ['THEANO_FLAGS']
 
