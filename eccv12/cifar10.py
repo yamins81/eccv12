@@ -18,6 +18,7 @@ pyll.scope.import_(globals(),
     'callpipe1',
     'asarray',
     'sqrt',
+    'str_join',
     #
     # -- misc. from ./pyll_slm.py
     'pyll_theano_batched_lmap',
@@ -61,6 +62,8 @@ pyll.scope.import_(globals(),
     **{
     # NEW NAME:         ORIG NAME
     's_int':           'int',
+    'pyll_len':        'len',
+    'pyll_map':        'map',
     'HP':              'hyperopt_param',
     'HR':              'hyperopt_result',
     })
@@ -241,13 +244,18 @@ class Cifar10Bandit1(pyll_slm.HPBandit):
 
         outputs = []
         trn_erate = error_rate(model_predict(svm, trn_xy[0]), trn_xy[1])
-        val_erate = error_rate(model_predict(svm, val_xy[0]), val_xy[1])
+
+        val_pred = model_predict(svm, val_xy[0])
+        val_erate = error_rate(val_pred, val_xy[1])
         tst_erate = error_rate(model_predict(svm, tst_xy[0]), tst_xy[1])
         outputs.append(HR("trn_erate", trn_erate))
         outputs.append(HR("val_erate", HR("loss", val_erate)))
         outputs.append(HR("tst_erate", tst_erate))
 
-        pyll_slm.HPBandit.__init__(self, pyll.as_apply(outputs))
+        outputs.append(HR("val_pred",
+                          str_join('', pyll_map(str, val_pred))))
+
+        pyll_slm.HPBandit.__init__(self, pyll_len(outputs))
 
         self._init_locals = locals()
         del self._init_locals['self']
