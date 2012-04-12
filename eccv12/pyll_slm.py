@@ -608,7 +608,6 @@ def fb_whitened_projections(patches, pwfX, n_filters, rseed):
     pwfX is the output of patch_whitening_filterbank_X with reshape=False
 
     """
-    print 'fb_whitened_projections', patches.shape
     M, P, patches_cn = pwfX
     if M.ndim != 1:
         raise TypeError('wrong shape for pwfX args. M should be vector',
@@ -628,7 +627,6 @@ def fb_whitened_patches(patches, pwfX, n_filters, rseed):
     pwfX is the output of patch_whitening_filterbank_X with reshape=False
 
     """
-    print 'fb_whitened_patches', patches.shape
     M, P, patches_cn = pwfX
     rng = np.random.RandomState(rseed)
     d_elems = rng.randint(len(patches_cn), size=n_filters)
@@ -720,7 +718,6 @@ def pyll_theano_batched_lmap(pipeline, seq, batchsize,
 
 @pyll.scope.define
 def np_transpose(obj, arg):
-    print 'np_transpose', obj.shape, arg
     return obj.transpose(*arg)
 
 
