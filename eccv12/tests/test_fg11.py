@@ -184,9 +184,9 @@ def load_official_view2_dump(test_fold, comparison):
 
 def closeish(msg, A, B, atol=.25):
     AmB = abs(A - B)
-    print msg, AmB.max(), (AmB / (abs(A) + abs(B))).max()
-    print A[:3, :3]
-    print B[:3, :3]
+    print msg, AmB.max(), (AmB / (abs(A) + abs(B))).max(), AmB.mean(), (AmB / (abs(A) + abs(B))).mean()
+    #print A[:3, :3]
+    #print B[:3, :3]
     # -- these numbers are typically pretty big, but a few are close to zero,
     #    so relative error is as much as .5 but I think it's OK.
     if atol:
@@ -251,11 +251,23 @@ def test_fg11_view1_from_saved_features():
 @only_on_honeybadger
 def test_sclas():
     foo = cPickle.load(open('/home/jbergstra/cvs/sclas/ofoo.mat.pkl'))
+    for ii in range(10):
+        foo2 = load_official_view2_dump(ii, 'absdiff')
+        K1 = foo['kernel_traintrain']
+        K2 = foo2['kernel_traintrain']
+        closeish('ofoo dump matches official data', K1, K2, atol=None)
+        print 'tr: %e %s' % (K1.trace(), K2.trace())
+        print 'sum: %e %s' % (K1.sum(), K2.sum())
+        print 'max: %e %s' % (K1.max(), K2.max())
+        print 'min: %e %s' % (K1.min(), K2.min())
+        print 'sum_abs: %e %s' % (abs(K1).sum(), abs(K2).sum())
+
+
     foo2 = load_official_view2_dump(9, 'absdiff')
     K1 = foo['kernel_traintrain']
     K2 = foo2['kernel_traintrain']
     print 'tr: %e %s' % (K1.trace(), K2.trace())
-    print 'sum: %e %s' % (K1.sum() * 2, K2.sum())
+    print 'sum: %e %s' % (K1.sum(), K2.sum())
 
     train_y = [-1 if l == 'same' else 1 for l in foo['train_labels']]
     test_y = [-1 if l == 'same' else 1 for l in foo['test_labels']]
