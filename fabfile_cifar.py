@@ -50,8 +50,8 @@ def cifar10_launch_workers(host, port, dbname, N, walltime='24:00:00'):
 
 
 def cifar10_suggest1(host, port, dbname, N=3):
-    Bandit = ec10.Cifar10Bandit1
-    cmd = ('bandit_json evaluate', 'eccv12.cifar10.Cifar10Bandit1')
+    Bandit = ec10.cifar10bandit
+    cmd = ('bandit_json evaluate', 'eccv12.cifar10.cifar10bandit')
 
     trials = MongoTrials(
             'mongo://%s:%d/%s/jobs' % (host, int(port), dbname),
@@ -63,9 +63,8 @@ def cifar10_suggest1(host, port, dbname, N=3):
                 Bandit(),
                 cmd=cmd,
                 )
-        algo.n_EI_candidates = 16
         algos.append(algo)
-        keys.append('suggest1_sqrtgcap_%i' % i)
+        keys.append('full_%i' % i)
     algo = InterleaveAlgo(algos, keys)
     exp = hyperopt.Experiment(trials, algo, poll_interval_secs=.1)
     exp.run(sys.maxint, block_until_done=True)

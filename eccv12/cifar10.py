@@ -107,8 +107,8 @@ def cifar10_img_classification_task(dtype, n_train, n_valid, n_test,
         print 'pulling out label', label
         train[label] = trn_images[trn_labels == label]
         test[label] = tst_images[tst_labels == label]
-        assert len(train[label]) == len(trn_labels) / 10
-        assert len(test[label]) == len(tst_labels) / 10
+        assert len(train[label]) == len(trn_labels) / n_classes
+        assert len(test[label]) == len(tst_labels) / n_classes
 
     if np.any(np.asarray([n_train, n_valid, n_test]) % len(label_set)):
         raise NotImplementedError()
@@ -160,12 +160,11 @@ def cifar10_img_classification_task(dtype, n_train, n_valid, n_test,
             'tst_labels': tst_labels,
             }
 
-    return imgs, labels
-
 
 @hyperopt.as_bandit(
         exceptions=[
             (
+                # -- this is raised when the n. of features > max_n_features
                 lambda e: isinstance(e, ValueError),
                 lambda e: {
                     'loss': float('inf'),
