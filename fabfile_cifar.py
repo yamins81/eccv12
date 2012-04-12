@@ -117,14 +117,15 @@ def cifar10_run_large(host, port, dbname, _id):
     print result
 
 
-def cifar10_bandit1_small():
-    bandit = ec10.Cifar10Bandit1(n_train=100, n_valid=10, n_test=10)
-    print 'TEMPLATE'
-    print bandit.template
-    config = pyll.stochastic.sample(bandit.template,
+def cifar10_bandit1_sample(n_train=100, n_valid=100, n_test=10):
+    bandit = ec10.cifar10bandit(
+            n_train=int(n_train),
+            n_valid=int(n_valid),
+            n_test=int(n_test))
+    print 'EXPR'
+    print bandit.expr
+    result = pyll.stochastic.sample(bandit.expr,
             np.random.RandomState(34))
-    print 'CONFIG', config
-    result = bandit.evaluate(config, ctrl=None)
     print 'RESULT', result
 
 
@@ -148,6 +149,86 @@ def cifar10_bandit3_large():
     result = bandit.evaluate(config, ctrl=None)
     print result
 
+
+def cifar10_compare_verrs(host, port, dbname, *keys):
+    conn = pm.Connection(host=host, port=int(port))
+    J = conn[dbname]['jobs']
+
+    from skdata.cifar10 import CIFAR10
+    import matplotlib.pyplot as plt
+    from skdata.utils.glviewer import glumpy_viewer
+
+    imgs, labels = CIFAR10().img_classification_task('uint8')
+    imgs = imgs[40000: 50000]
+    itarg = labels[40000: 50000]
+    targ = np.asarray(list(''.join(str(i) for i in itarg)))
+    print 'training   label counts:', np.bincount(labels[:40000])
+    print 'validation label counts:', np.bincount(itarg)
+
+    all_preds = []
+    vpreds = {}
+    for jj, key in enumerate(keys):
+        docs = J.find({'exp_key': key, 'result.status': 'ok'})
+        vpreds[key] = trial_preds = []
+        for ii, doc in enumerate(docs):
+            trial_preds.append(list(str(doc['result']['val_pred'])))
+            #print ii, doc['result']['loss']
+            assert np.allclose(
+                    doc['result']['loss'],
+                    np.mean(targ != trial_preds[-1]))
+        all_preds.extend(trial_preds)
+        trial_preds = np.asarray(trial_preds)
+        np.save('val_preds_%s.npy' % key, trial_preds)
+        errmat = (trial_preds != targ)
+        if 0:
+            svd = np.linalg.svd(errmat)
+            eigvals = np.linalg.svd(errmat, compute_uv=False)
+            plt.plot(eigvals)
+            plt.show()
+        avg_per_vimg = errmat.mean(axis=0)
+        easy_to_hard = np.argsort(avg_per_vimg)
+
+        if 0:
+            glumpy_viewer(imgs[easy_to_hard],
+                    [
+                        avg_per_vimg[easy_to_hard],
+                        itarg[easy_to_hard],
+                        ])
+
+            # first 221 images are birds!
+            # image 221 is the most horse-looking image ever.
+            #
+            # last images are mainly unusual compositions - the subject is off
+            # to the side, or presented at a funny angle.
+
+        for k, size in enumerate((15, 100, 1000)):
+            trial_preds_limited = trial_preds[:size]
+            baseline = np.random.rand(*trial_preds_limited.shape) < .2
+            baseline = np.sort(baseline.mean(axis=0))
+
+            avg_per_vimg = (trial_preds_limited != targ).mean(axis=0)
+            avg_per_vimg = np.sort(avg_per_vimg)
+            #plt.subplot(1, 3, k + 1)
+            plt.plot(avg_per_vimg, label='%s (%i)' % (key, size))
+            #plt.plot(baseline, c='k')
+        #plt.show()
+
+    all_preds = np.asarray(all_preds)
+    avg_per_vimg = (all_preds != targ).mean(axis=0)
+    avg_per_vimg = np.sort(avg_per_vimg)
+    plt.plot(avg_per_vimg, '--', label='all runs', )
+
+    plt.xlabel('validation example')
+    plt.ylabel('fraction of models that got it wrong')
+    plt.legend(loc='upper left')
+    plt.show()
+
+
+
+
+
+
+##############################################################################
 
 def coates_icml2011_patches(frac=1.0):
     config = {
@@ -182,6 +263,7 @@ def coates_icml2011_patches(frac=1.0):
 def coates_algo_debug1():
     import eccv12.sc_vq_demo
     eccv12.sc_vq_demo.track_matlab()
+
 
 def coates_classif():
     import eccv12.sc_vq_demo
