@@ -25,25 +25,26 @@ pyll.scope.import_(globals(),
     'callpipe1',
     'asarray',
     'sqrt',
-    'str_join',
-    'switch',
     #
     # -- misc. from ./pyll_slm.py
     'pyll_theano_batched_lmap',
     'fit_linear_svm',
     'model_predict',
+    'model_decisions',
     'error_rate',
     'mean_and_std',
     'flatten_elems',
     'np_transpose',
     'np_RandomState',
     'print_ndarray_summary',
+    'pickle_dumps',
     #
     # -- filterbank allocators  (./pyll.slm.py)
     'random_patches',
     'alloc_filterbank',
     'patch_whitening_filterbank_X',
     'fb_whitened_patches',
+    'fb_whitened_projections',
     'slm_uniform_M_FB',
     #
     # -- pipeline elements  (./pyll.slm.py)
@@ -83,9 +84,84 @@ def hp_TF(label):
 
 
 @pyll.scope.define_info(o_len=2)
-def cifar10_img_classification_task(dtype):
-    imgs, labels = CF10.img_classification_task(dtype=dtype)
+def cifar10_img_classification_task(dtype, n_train, n_valid, n_test,
+        label_set=range(10), shuffle_seed=None):
+    images, labels = CF10.img_classification_task(dtype=dtype)
+    n_classes = 10
+    assert n_train + n_valid <= 50000
+    assert n_test <= 10000
+
+    # -- divide up the dataset as it was meant: train / test
+    trn_images = images[:50000]
+    trn_labels = labels[:50000]
+    tst_images = images[50000:]
+    tst_labels = labels[50000:]
+
+    # -- now carve it up so that we have balanced classes for fitting and
+    #    validation
+
+    train = {}
+    test = {}
+    print 're-indexing dataset'
+    for label in label_set:
+        print 'pulling out label', label
+        train[label] = trn_images[trn_labels == label]
+        test[label] = tst_images[tst_labels == label]
+        assert len(train[label]) == len(trn_labels) / 10
+        assert len(test[label]) == len(tst_labels) / 10
+
+    if np.any(np.asarray([n_train, n_valid, n_test]) % len(label_set)):
+        raise NotImplementedError()
+    else:
+        trn_K = n_train // len(label_set)
+        val_K = n_valid // len(label_set)
+        tst_K = n_test // len(label_set)
+        trn_images = np.concatenate([train[label][:trn_K]
+            for label in label_set])
+        trn_labels = np.concatenate([[label] * trn_K
+            for label in label_set])
+
+        assert len(trn_images) == len(trn_labels)
+        assert trn_images.shape == (n_train, 32, 32, 3)
+        assert trn_labels.shape == (n_train,)
+
+        val_images = np.concatenate([train[label][trn_K:trn_K + val_K]
+            for label in label_set])
+        val_labels = np.concatenate([[label] * val_K
+            for label in label_set])
+
+        assert len(val_images) == len(val_labels)
+        assert val_images.shape == (n_valid, 32, 32, 3)
+        assert val_labels.shape == (n_valid,)
+
+        tst_images = np.concatenate([test[label][:tst_K]
+            for label in label_set])
+        tst_labels = np.concatenate([[label] * tst_K
+            for label in label_set])
+
+        assert len(tst_images) == len(tst_labels)
+        assert tst_images.shape == (n_test, 32, 32, 3)
+        assert tst_labels.shape == (n_test,)
+
+
+    print 'done re-indexing dataset'
+    if shuffle_seed:
+        # -- my idea here was to use RandomState.shuffle to mix up each set
+        #    so that the classes aren't all contiguous.  SGD in particular
+        #    benefits from that.
+        raise NotImplementedError()
+
+    return {
+            'trn_images': trn_images,
+            'trn_labels': trn_labels,
+            'val_images': val_images,
+            'val_labels': val_labels,
+            'tst_images': tst_images,
+            'tst_labels': tst_labels,
+            }
+
     return imgs, labels
+
 
 @hyperopt.as_bandit(
         exceptions=[
@@ -98,9 +174,14 @@ def cifar10_img_classification_task(dtype):
                 }
             )
         ])
-def cifar10bandit(n_train=40000, n_valid=10000, n_test=10000, batchsize=20):
+def cifar10bandit(n_train=40000, n_valid=10000, n_test=10000, batchsize=20,
+        max_n_features=13000):
 
-    all_imgs, all_labels = scope.cifar10_img_classification_task(dtype='uint8')
+    data = scope.cifar10_img_classification_task(
+            dtype='uint8',
+            n_train=n_train,
+            n_valid=n_valid,
+            n_test=n_test)
 
     fb0_size = rfilter_size('fb0_size', 2, 8)
 
@@ -141,35 +222,44 @@ def cifar10bandit(n_train=40000, n_valid=10000, n_test=10000, batchsize=20):
     fb0_beta = logu_range('fb0_beta', 1., 1e4)
     fb0_hard_beta = hp_TF('fb0_hard')
 
-    patches = random_patches(all_imgs[:n_train], 50000, fb0_size, fb0_size,
+    patches = random_patches(data['trn_images'], 50000, fb0_size, fb0_size,
             rng=np_RandomState(3214))
 
-    M0_FB0 = hp_choice('fb0_algo_i', [
-        # -- Pinto's SLM filterbank initialization
+    M0_FB0 = hp_choice('fb0_algo', [
+        # -- Pinto's SLM filterbank initialization (random in pixel space)
+        #    (verified to match Pythor3)
         slm_uniform_M_FB(
             nfilters=fb0_nfilters,
             size=fb0_size,
-            rseed=hp_choice('fb0_af_rseed', range(1, 6)),
-            normalize=hp_TF('fb0_af_normalize')),
-        # -- simply return whitened pixel values
-        patch_whitening_filterbank_X(patches,
-            gamma=logu_range('fb0_pwf_gamma', 1e-4, 1.0),
-            o_ndim=4,
-            remove_mean=fb0_remove_mean,
-            beta=fb0_beta,
-            hard_beta=fb0_hard_beta,
-            )[:2],
-        # -- Coates et al. ICML2011 patch-based initialization
+            rseed=hp_choice('fb0_pr_rseed', range(1, 6)),
+            normalize=hp_TF('fb0_pr_normalize'),
+            ),
+        # -- Coates et al. ICML2011 random projections initialization
+        #    (XXX: unverified)
+        fb_whitened_projections(patches,
+            patch_whitening_filterbank_X(patches,
+                gamma=logu_range('fb0_wr_gamma', 1e-4, 1.0),
+                o_ndim=2,
+                remove_mean=fb0_remove_mean,  # match wfb0 partial below
+                beta=fb0_beta,                # ...
+                hard_beta=fb0_hard_beta,      # ...
+                ),
+            n_filters=fb0_nfilters,
+            rseed=hp_choice('fb0_wr_rseed', range(6, 11)),
+            ),
+        # -- Coates et al. ICML2011 patch-based initialization (imprinting)
+        #    (verified to match matlab demo code)
         fb_whitened_patches(patches,
             patch_whitening_filterbank_X(patches,
                 gamma=logu_range('fb0_wp_gamma', 1e-4, 1.0),
                 o_ndim=2,
-                remove_mean=fb0_remove_mean,
-                beta=fb0_beta,
-                hard_beta=fb0_hard_beta,
+                remove_mean=fb0_remove_mean,  # match wfb0 partial below
+                beta=fb0_beta,                # ...
+                hard_beta=fb0_hard_beta,      # ...
                 ),
             n_filters=fb0_nfilters,
-            rseed=hp_choice('fb0_wp_rseed', range(6, 11))),
+            rseed=hp_choice('fb0_wp_rseed', range(6, 11)),
+            ),
         # --> MORE FB LEARNING ALGOS HERE <--
         # TODO: V1-like filterbank (with whitening matrix)
         # TODO: random matrix multiplied by whitening matrix
@@ -201,52 +291,29 @@ def cifar10bandit(n_train=40000, n_valid=10000, n_test=10000, batchsize=20):
     #   pipeline = hp_choice('pipe_len',
     #         [pipeline1, pipeline2, pipeline3])
     pipeline = pyll.as_apply(pipeline)
+    features = {}
+    for split in 'trn', 'val', 'tst':
+        features[split] = pyll_theano_batched_lmap(
+                partial(callpipe1, pipeline),
+                np_transpose(data['%s_images' % split], (0, 3, 1, 2)),
+                batchsize=batchsize,
+                print_progress=100,
+                abort_on_rows_larger_than=max_n_features,
+                )
 
-    assert n_train + n_valid <= 50000
-    assert n_test <= 10000
+    # load full training set into memory
+    cache_train = flatten_elems(features['trn'][:])
 
-    # -- map cifar10 through the pipeline
-    all_imgs_cmajor = np_transpose(all_imgs, (0, 3, 1, 2))
-
-    screen_features = pyll_theano_batched_lmap(
-            partial(callpipe1, pipeline),
-            all_imgs_cmajor[:n_train + n_valid],
-            batchsize=batchsize,
-            print_progress=100,
-            abort_on_rows_larger_than=13000,
-            )
-
-    test_features = pyll_theano_batched_lmap(
-            partial(callpipe1, pipeline),
-            all_imgs_cmajor[50000:50000 + n_test],
-            batchsize=batchsize,
-            print_progress=100,
-            abort_on_rows_larger_than=13000,
-            )
-
-    cache_train = flatten_elems(screen_features[:n_train])
-
-    xmean, xstd = mean_and_std(
-            cache_train,
-            remove_std0=True)
+    xmean, xstd = mean_and_std(cache_train, remove_std0=hp_TF('remove_std0'))
     xmean = print_ndarray_summary('Xmean', xmean)
     xstd = print_ndarray_summary('Xstd', xstd)
 
-    xstd_inc = logu_range('classif_squash_lowvar', 1e-6, 1e-1)
+    xstd_inc = logu_range('classif_squash_lowvar', 1e-10, 1.)
     xstd = sqrt(xstd ** 2 + xstd_inc)
 
-    trn_xy=(
-        (cache_train - xmean) / xstd,
-        all_labels[:n_train])
-
-    val_xy = (
-        (screen_features[n_train:n_train + n_valid]
-            - xmean) / xstd,
-        all_labels[n_train:n_train + n_valid])
-
-    tst_xy = (
-        (test_features[:] - xmean) / xstd,
-        all_labels[50000:50000 + n_test])
+    trn_xy=((cache_train - xmean) / xstd, data['trn_labels'])
+    val_xy = ((features['val'] - xmean) / xstd, data['val_labels'])
+    tst_xy = ((features['tst'] - xmean) / xstd, data['tst_labels'])
 
     svm = fit_linear_svm(trn_xy,
             l2_regularization=logu_range('l2_reg', 1e-6, 1e-1),
@@ -256,22 +323,22 @@ def cifar10bandit(n_train=40000, n_valid=10000, n_test=10000, batchsize=20):
                 'verbose': 1,
                 })
             )
-
-    outputs = []
-    trn_erate = error_rate(model_predict(svm, trn_xy[0]), trn_xy[1])
-
-    val_pred = model_predict(svm, val_xy[0])
-    val_erate = error_rate(val_pred, val_xy[1])
-    tst_erate = error_rate(model_predict(svm, tst_xy[0]), tst_xy[1])
+    val_erate = error_rate(model_predict(svm, val_xy[0]), val_xy[1]),
     result = {
             # -- criterion to optimize
             'loss': val_erate,
             # -- other error rates
-            'trn_erate': trn_erate,
+            'trn_erate': error_rate(model_predict(svm, trn_xy[0]), trn_xy[1]),
             'val_erate': val_erate,
-            'tst_erate': tst_erate,
-            # -- other stats to save
-            'val_pred': str_join('', pyll_map(str, val_pred)),
+            'tst_erate': error_rate(model_predict(svm, tst_xy[0]), tst_xy[1]),
+            # -- larger stats to save
+            'attachments': {
+                'val_decisions.npy.pkl': pickle_dumps(
+                    asarray(
+                        model_decisions(svm, val_xy[0]),
+                        dtype='float32'),
+                    protocol=-1)
+                }
             }
     return result
 

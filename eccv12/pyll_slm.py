@@ -6,6 +6,7 @@ migrate upstream.
 
 """
 import copy
+import cPickle
 
 import numpy as np
 import theano
@@ -602,6 +603,25 @@ def patch_whitening_filterbank_X(patches, o_ndim, gamma,
 
 
 @pyll.scope.define_info(o_len=2)
+def fb_whitened_projections(patches, pwfX, n_filters, rseed):
+    """
+    pwfX is the output of patch_whitening_filterbank_X with reshape=False
+
+    """
+    M, P, patches_cn = pwfX
+    if M.ndim != 1:
+        raise TypeError('wrong shape for pwfX args. M should be vector',
+                M.shape)
+    rng = np.random.RandomState(rseed)
+    D = rng.randn(n_filters, patches_cn.shape[1])
+    D = D / (np.sqrt((D ** 2).sum(axis=1))[:, None] + 1e-20)
+    fb = np.dot(D, P)
+    fb.shape = (n_filters,) + patches.shape[1:]
+    M.shape = patches.shape[1:]
+    return M, fb
+
+
+@pyll.scope.define_info(o_len=2)
 def fb_whitened_patches(patches, pwfX, n_filters, rseed):
     """
     pwfX is the output of patch_whitening_filterbank_X with reshape=False
@@ -721,6 +741,19 @@ def fit_linear_svm(data, l2_regularization, solver='auto', verbose=False):
 @pyll.scope.define
 def model_predict(mdl, X):
     return mdl.predict(X)
+
+
+@pyll.scope.define
+def model_decisions(mdl, X):
+    return mdl.decisions(X)
+
+
+@pyll.scope.define
+def pickle_dumps(obj, protocol=None):
+    if protocol is None:
+        return cPickle.dumps(obj)
+    else:
+        return cPickle.dumps(obj, protocol=protocol)
 
 
 @pyll.scope.define

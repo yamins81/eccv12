@@ -126,7 +126,14 @@ def cifar10_bandit1_sample(n_train=100, n_valid=100, n_test=10):
     print bandit.expr
     result = pyll.stochastic.sample(bandit.expr,
             np.random.RandomState(34))
+    # attachments are big and binary,
+    # don't print them explicitly
+    attachments = result.pop('attachments', {})
     print 'RESULT', result
+    if attachments:
+        print "RESULT attachments keys"
+        for k, v in attachments.items():
+            print '  name=%s, size=%i' % (k, len(v))
 
 
 def cifar10_bandit1_medium(start=0, stop=5):
