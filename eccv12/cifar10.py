@@ -1,11 +1,18 @@
 import time
 import numpy as np
 
-import hyperopt
 import pyll
 from pyll import scope
 from pyll.base import Lambda
 from pyll import as_apply
+
+import hyperopt
+from hyperopt.pyll_utils import hp_normal
+from hyperopt.pyll_utils import hp_choice
+from hyperopt.pyll_utils import hp_uniform
+from hyperopt.pyll_utils import hp_quniform
+from hyperopt.pyll_utils import hp_loguniform
+from hyperopt.pyll_utils import hp_qloguniform
 
 from skdata.cifar10 import CIFAR10
 CF10 = CIFAR10()
@@ -18,24 +25,27 @@ pyll.scope.import_(globals(),
     'callpipe1',
     'asarray',
     'sqrt',
-    'str_join',
     #
     # -- misc. from ./pyll_slm.py
     'pyll_theano_batched_lmap',
     'fit_linear_svm',
     'model_predict',
+    'model_decisions',
     'error_rate',
     'mean_and_std',
     'flatten_elems',
     'np_transpose',
     'np_RandomState',
     'print_ndarray_summary',
+    'pickle_dumps',
     #
     # -- filterbank allocators  (./pyll.slm.py)
     'random_patches',
     'alloc_filterbank',
     'patch_whitening_filterbank_X',
     'fb_whitened_patches',
+    'fb_whitened_projections',
+    'slm_uniform_M_FB',
     #
     # -- pipeline elements  (./pyll.slm.py)
     'slm_lnorm',
@@ -48,242 +58,287 @@ pyll.scope.import_(globals(),
     'slm_quantize_gridpool',
     'slm_flatten',
     #
-    # -- /begin distributions that hyperopt can tune
-    'uniform',
-    'quniform',
-    'loguniform',
-    'qloguniform',
-    'normal',
-    'one_of',
-    'choice',
-    # -- /end distributions that hyperopt can tune
-    #
     # -- renamed symbols
     **{
     # NEW NAME:         ORIG NAME
     's_int':           'int',
     'pyll_len':        'len',
     'pyll_map':        'map',
-    'HP':              'hyperopt_param',
-    'HR':              'hyperopt_result',
     })
 
 
-def rfilter_size(smin, smax, q=1):
+def rfilter_size(label, smin, smax, q=1):
     """Return an integer size from smin to smax inclusive with equal prob
     """
-    return s_int(quniform(smin - q / 2.0 + 1e-5, smax + q / 2.0, q))
+    return s_int(hp_quniform(label, smin - q / 2.0 + 1e-5, smax + q / 2.0, q))
 
 
-def logu_range(lower, upper):
+def logu_range(label, lower, upper):
     """Return a continuous replacement for one_of(.1, 1, 10)"""
-    return loguniform(np.log(lower), np.log(upper))
+    return hp_loguniform(label, np.log(lower), np.log(upper))
 
 
-def maybe():
-    return one_of(0, 1)
+# move to hyperopt.pyll_util
+def hp_TF(label):
+    return hp_choice(label, [0, 1])
 
 
 @pyll.scope.define_info(o_len=2)
-def cifar10_img_classification_task(dtype):
-    imgs, labels = CF10.img_classification_task(dtype=dtype)
+def cifar10_img_classification_task(dtype, n_train, n_valid, n_test,
+        label_set=range(10), shuffle_seed=None):
+    images, labels = CF10.img_classification_task(dtype=dtype)
+    n_classes = 10
+    assert n_train + n_valid <= 50000
+    assert n_test <= 10000
+
+    # -- divide up the dataset as it was meant: train / test
+    trn_images = images[:50000]
+    trn_labels = labels[:50000]
+    tst_images = images[50000:]
+    tst_labels = labels[50000:]
+
+    # -- now carve it up so that we have balanced classes for fitting and
+    #    validation
+
+    train = {}
+    test = {}
+    print 're-indexing dataset'
+    for label in label_set:
+        print 'pulling out label', label
+        train[label] = trn_images[trn_labels == label]
+        test[label] = tst_images[tst_labels == label]
+        assert len(train[label]) == len(trn_labels) / 10
+        assert len(test[label]) == len(tst_labels) / 10
+
+    if np.any(np.asarray([n_train, n_valid, n_test]) % len(label_set)):
+        raise NotImplementedError()
+    else:
+        trn_K = n_train // len(label_set)
+        val_K = n_valid // len(label_set)
+        tst_K = n_test // len(label_set)
+        trn_images = np.concatenate([train[label][:trn_K]
+            for label in label_set])
+        trn_labels = np.concatenate([[label] * trn_K
+            for label in label_set])
+
+        assert len(trn_images) == len(trn_labels)
+        assert trn_images.shape == (n_train, 32, 32, 3)
+        assert trn_labels.shape == (n_train,)
+
+        val_images = np.concatenate([train[label][trn_K:trn_K + val_K]
+            for label in label_set])
+        val_labels = np.concatenate([[label] * val_K
+            for label in label_set])
+
+        assert len(val_images) == len(val_labels)
+        assert val_images.shape == (n_valid, 32, 32, 3)
+        assert val_labels.shape == (n_valid,)
+
+        tst_images = np.concatenate([test[label][:tst_K]
+            for label in label_set])
+        tst_labels = np.concatenate([[label] * tst_K
+            for label in label_set])
+
+        assert len(tst_images) == len(tst_labels)
+        assert tst_images.shape == (n_test, 32, 32, 3)
+        assert tst_labels.shape == (n_test,)
+
+
+    print 'done re-indexing dataset'
+    if shuffle_seed:
+        # -- my idea here was to use RandomState.shuffle to mix up each set
+        #    so that the classes aren't all contiguous.  SGD in particular
+        #    benefits from that.
+        raise NotImplementedError()
+
+    return {
+            'trn_images': trn_images,
+            'trn_labels': trn_labels,
+            'val_images': val_images,
+            'val_labels': val_labels,
+            'tst_images': tst_images,
+            'tst_labels': tst_labels,
+            }
+
     return imgs, labels
 
 
-class Cifar10Bandit1(pyll_slm.HPBandit):
-    exceptions = [
-            (lambda e: isinstance(e, ValueError),
-                lambda e: (None, {
+@hyperopt.as_bandit(
+        exceptions=[
+            (
+                lambda e: isinstance(e, ValueError),
+                lambda e: {
                     'loss': float('inf'),
                     'status': hyperopt.STATUS_FAIL,
                     'failure': repr(e)
-                }))
-            ]
-    def __init__(self, n_train=40000, n_valid=10000, n_test=10000,
-            batchsize=20,
-            ):
-        all_imgs, all_labels = scope.cifar10_img_classification_task(dtype='uint8')
+                }
+            )
+        ])
+def cifar10bandit(n_train=40000, n_valid=10000, n_test=10000, batchsize=20,
+        max_n_features=13000):
 
-        #TODO: make the nfb0_size depend on the grid_res used in the grouping
-        #      at the end,
-        #      otherwise the search space is obviously multi-modal
-        nfb0_size = HP('nfb0_size', rfilter_size(2, 8))
-        nfb0_remove_mean = HP('nfb0_remove_mean', maybe())
-        nfb0_beta = HP('nfb0_beta', logu_range(1, 1e4))
-        nfb0_hard_beta = HP('nfb0_hard', maybe())
-        nfb0_nfilters=s_int(
-                        HP('nfbf0_nfilters', qloguniform(
-                            np.log(16 / 2.0) + 1e-5,
-                            np.log(1600),   # LAYER BY LAYER DIFFERENT
-                            q=16)))
-        patches = random_patches(all_imgs[:n_train], 50000, nfb0_size, nfb0_size,
-                rng=np_RandomState(3214))
+    data = scope.cifar10_img_classification_task(
+            dtype='uint8',
+            n_train=n_train,
+            n_valid=n_valid,
+            n_test=n_test)
 
-        M0_FB0_options = as_apply([
-            # -- Pinto's SLM filterbank initialization
+    fb0_size = rfilter_size('fb0_size', 2, 8)
+
+    # duplicate the variables that depend critically on the grid-resolution
+    # so that the output nfilters can be tuned separately for each grid res.
+
+    # XXX - modify pyll's choice fn to inspect the o_len of each option. If
+    # they all match, then set its own o_len to that too... this would permit
+    # unpacking: grid_res, nfilters, use_mid = hp_choice(...)
+    out_shape_info = hp_choice('grid_res',
             [
-                np.asarray(0).reshape((1, 1, 1)),
-                alloc_filterbank(
-                    nfb0_nfilters, nfb0_size, nfb0_size, 3, 'float32',
-                    method_name='random:uniform',
-                    method_kwargs={
-                        'rseed': HP('nfb0_af_rseed',
-                                one_of(1, 2, 3, 4, 5)),
-                            },
-                    normalize=HP('nfb0_af_normalize', maybe()))
-            ],
-            # -- simply return whitened pixel values
-            patch_whitening_filterbank_X(patches,
-                gamma=HP('nfb0_pwf_gamma', logu_range(1e-4, 1.0)),
-                o_ndim=4,
-                remove_mean=nfb0_remove_mean,
-                beta=nfb0_beta,
-                hard_beta=nfb0_hard_beta,
-                )[:2],
-            # -- Coates et al. ICML2011 patch-based initialization
-            fb_whitened_patches(
-                patches,
-                patch_whitening_filterbank_X(patches,
-                    gamma=HP('nfb0_wp_gamma', logu_range(1e-4, 1.0)),
-                    o_ndim=2,
-                    remove_mean=nfb0_remove_mean,
-                    beta=nfb0_beta,
-                    hard_beta=nfb0_hard_beta,
-                    ),
-                n_filters=nfb0_nfilters,
-                rseed=HP('nfb0_wp_rseed', one_of(1, 2, 3, 4, 5))),
-            # --> MORE FB LEARNING ALGOS HERE <--
-            # TODO: V1-like filterbank (with whitening matrix)
-            # TODO: random matrix multiplied by whitening matrix
-            # TODO: RBM/sDAA/ssRBM
+                [
+                    2,
+                    s_int(
+                        hp_qloguniform(
+                            'fbf0_nfilters2',
+                            np.log(16 / 2.0) + 1e-5,
+                            np.log(1600),
+                            q=16)),
+                    hp_TF('qp_use_mid2'),
+                ],
+                [
+                    3,
+                    s_int(
+                        hp_qloguniform(
+                            'fbf0_nfilters3',
+                            np.log(16 / 2.0) + 1e-5,
+                            np.log(1600),
+                            q=16)),
+                    hp_TF('qp_use_mid3'),
+                ]
             ])
+    qp_grid_res = out_shape_info[0]
+    fb0_nfilters = out_shape_info[1]
+    qp_use_mid = out_shape_info[2]
 
+    fb0_remove_mean = hp_TF('fb0_remove_mean')
+    fb0_beta = logu_range('fb0_beta', 1., 1e4)
+    fb0_hard_beta = hp_TF('fb0_hard')
 
-        #TODO: make the parameters of each fb algo conditioned on the *choice*
-        #      of algo
-        M0_FB0_i = HP('nfb0_algo_i',
-                one_of(*range(len(M0_FB0_options.pos_args))))
-        M0_FB0 = M0_FB0_options[M0_FB0_i]
+    patches = random_patches(data['trn_images'], 50000, fb0_size, fb0_size,
+            rng=np_RandomState(3214))
 
-        wfb0 = partial(slm_wnorm_fbcorr,
-                w_means=np_transpose(
-                    asarray(M0_FB0[0], 'float32'),
-                    (2, 0, 1)),
-                w_fb=np_transpose(
-                    asarray(M0_FB0[1], 'float32'),
-                    (0, 3, 1, 2)),
-                remove_mean=nfb0_remove_mean,
-                beta=nfb0_beta,
-                hard_beta=nfb0_hard_beta)
+    M0_FB0 = hp_choice('fb0_algo', [
+        # -- Pinto's SLM filterbank initialization (random in pixel space)
+        #    (verified to match Pythor3)
+        slm_uniform_M_FB(
+            nfilters=fb0_nfilters,
+            size=fb0_size,
+            rseed=hp_choice('fb0_pr_rseed', range(1, 6)),
+            normalize=hp_TF('fb0_pr_normalize'),
+            ),
+        # -- Coates et al. ICML2011 random projections initialization
+        #    (XXX: unverified)
+        fb_whitened_projections(patches,
+            patch_whitening_filterbank_X(patches,
+                gamma=logu_range('fb0_wr_gamma', 1e-4, 1.0),
+                o_ndim=2,
+                remove_mean=fb0_remove_mean,  # match wfb0 partial below
+                beta=fb0_beta,                # ...
+                hard_beta=fb0_hard_beta,      # ...
+                ),
+            n_filters=fb0_nfilters,
+            rseed=hp_choice('fb0_wr_rseed', range(6, 11)),
+            ),
+        # -- Coates et al. ICML2011 patch-based initialization (imprinting)
+        #    (verified to match matlab demo code)
+        fb_whitened_patches(patches,
+            patch_whitening_filterbank_X(patches,
+                gamma=logu_range('fb0_wp_gamma', 1e-4, 1.0),
+                o_ndim=2,
+                remove_mean=fb0_remove_mean,  # match wfb0 partial below
+                beta=fb0_beta,                # ...
+                hard_beta=fb0_hard_beta,      # ...
+                ),
+            n_filters=fb0_nfilters,
+            rseed=hp_choice('fb0_wp_rseed', range(6, 11)),
+            ),
+        # --> MORE FB LEARNING ALGOS HERE <--
+        # TODO: V1-like filterbank (with whitening matrix)
+        # TODO: random matrix multiplied by whitening matrix
+        # TODO: RBM/sDAA/ssRBM
+        ])
 
-        qp = partial(slm_quantize_gridpool,
-                alpha=HP('qp_alpha', normal(0.0, 1.0)),
-                use_mid=HP('qp_use_mid', maybe()),
-                grid_res=HP('qp_grid_res', one_of(2, 3)),
-                order=HP('qp_order', one_of(1.0, 2.0, logu_range(.1, 10.))),
-                )
-        pipeline = [wfb0, qp]
+    wfb0 = partial(slm_wnorm_fbcorr,
+            w_means=np_transpose(
+                asarray(M0_FB0[0], 'float32'),
+                (2, 0, 1)),
+            w_fb=np_transpose(
+                asarray(M0_FB0[1], 'float32'),
+                (0, 3, 1, 2)),
+            remove_mean=fb0_remove_mean,
+            beta=fb0_beta,
+            hard_beta=fb0_hard_beta)
 
-        #print pipeline
-        pipeline = pyll.as_apply(pipeline)
+    qp = partial(slm_quantize_gridpool,
+            alpha=hp_normal('qp_alpha', 0.0, 1.0),
+            use_mid=qp_use_mid,
+            grid_res=qp_grid_res,
+            order=hp_choice('qp_order', [
+                1.0, 2.0, logu_range('qp_order_free', .1, 10.)]))
+    pipeline = [wfb0, qp]
 
-        assert n_train + n_valid <= 50000
-        assert n_test <= 10000
-
-        # -- map cifar10 through the pipeline
-        all_imgs_cmajor = np_transpose(all_imgs, (0, 3, 1, 2))
-
-        screen_features = pyll_theano_batched_lmap(
+    #print pipeline
+    #
+    # TODO:
+    #   pipeline = hp_choice('pipe_len',
+    #         [pipeline1, pipeline2, pipeline3])
+    pipeline = pyll.as_apply(pipeline)
+    features = {}
+    for split in 'trn', 'val', 'tst':
+        features[split] = pyll_theano_batched_lmap(
                 partial(callpipe1, pipeline),
-                all_imgs_cmajor[:n_train + n_valid],
+                np_transpose(data['%s_images' % split], (0, 3, 1, 2)),
                 batchsize=batchsize,
                 print_progress=100,
-                abort_on_rows_larger_than=15000,
+                abort_on_rows_larger_than=max_n_features,
                 )
 
-        test_features = pyll_theano_batched_lmap(
-                partial(callpipe1, pipeline),
-                all_imgs_cmajor[50000:50000 + n_test],
-                batchsize=batchsize,
-                print_progress=100,
-                abort_on_rows_larger_than=15000,
-                )
+    # load full training set into memory
+    cache_train = flatten_elems(features['trn'][:])
 
-        cache_train = flatten_elems(screen_features[:n_train])
+    xmean, xstd = mean_and_std(cache_train, remove_std0=hp_TF('remove_std0'))
+    xmean = print_ndarray_summary('Xmean', xmean)
+    xstd = print_ndarray_summary('Xstd', xstd)
 
-        xmean, xstd = mean_and_std(
-                cache_train,
-                remove_std0=True)
-        xmean = print_ndarray_summary('Xmean', xmean)
-        xstd = print_ndarray_summary('Xstd', xstd)
+    xstd_inc = logu_range('classif_squash_lowvar', 1e-10, 1.)
+    xstd = sqrt(xstd ** 2 + xstd_inc)
 
-        xstd_inc = HP('classif_squash_lowvar', logu_range(1e-6, 1e-1))
-        xstd = sqrt(xstd ** 2 + xstd_inc)
+    trn_xy=((cache_train - xmean) / xstd, data['trn_labels'])
+    val_xy = ((features['val'] - xmean) / xstd, data['val_labels'])
+    tst_xy = ((features['tst'] - xmean) / xstd, data['tst_labels'])
 
-        trn_xy=(
-            (cache_train - xmean) / xstd,
-            all_labels[:n_train])
-
-        val_xy = (
-            (screen_features[n_train:n_train + n_valid]
-                - xmean) / xstd,
-            all_labels[n_train:n_train + n_valid])
-
-        tst_xy = (
-            (test_features[:] - xmean) / xstd,
-            all_labels[50000:50000 + n_test])
-
-        svm = fit_linear_svm(trn_xy,
-                l2_regularization=HP('l2_reg', logu_range(1e-6, 1e-1)),
-                verbose=True,
-                solver=('asgd.SubsampledTheanoOVA', {
-                    'dtype': 'float32',
-                    'verbose': 1,
-                    })
-                )
-
-        outputs = []
-        trn_erate = error_rate(model_predict(svm, trn_xy[0]), trn_xy[1])
-
-        val_pred = model_predict(svm, val_xy[0])
-        val_erate = error_rate(val_pred, val_xy[1])
-        tst_erate = error_rate(model_predict(svm, tst_xy[0]), tst_xy[1])
-        outputs.append(HR("trn_erate", trn_erate))
-        outputs.append(HR("val_erate", HR("loss", val_erate)))
-        outputs.append(HR("tst_erate", tst_erate))
-
-        outputs.append(HR("val_pred",
-                          str_join('', pyll_map(str, val_pred))))
-
-        pyll_slm.HPBandit.__init__(self, pyll_len(outputs))
-
-        self._init_locals = locals()
-        del self._init_locals['self']
-
-
-if 0:
-    pipeline = []
-    for ii, nfu in enumerate(nfilt_ubounds):
-        ll = ii + 1
-        # this is an interior layer, pool like normal SLM
-        fbcorr1 = partial(fbcorr,
-                ker_size=HP('f%i_size' % ll, rfilter_size(2, 6)),
-                foo=foo,
-                generate=('random:uniform',
-                    {'rseed': HP('f%i_seed' % ll,
-                        choice(range(10, 15)))}))
-        lpool1 = partial(lpool,
-                ker_size=HP('p%i_size' % ll, rfilter_size(2, 5)),
-                order=HP('p%i_order' % ll,
-                    loguniform(np.log(1), np.log(10))),
-                stride=HP('p%i_stride' % ll, 1))
-
-        lnorm1 = partial(lnorm,
-                ker_size = HP('n%i_size' % ll, rfilter_size(2, 5)),
-                remove_mean=HP('n%i_nomean' % ll, one_of(0, 1)),
-                stretch=HP('n%i_stretch' % ll, logu_range(.1/3, 10.*3)),
-                threshold=HP('n%i_thresh' % ll, logu_range(.1/3, 10.*3)))
-
-        pipeline.extend([fbcorr1, lpool1, lnorm1])
-
+    svm = fit_linear_svm(trn_xy,
+            l2_regularization=logu_range('l2_reg', 1e-6, 1e-1),
+            verbose=True,
+            solver=('asgd.SubsampledTheanoOVA', {
+                'dtype': 'float32',
+                'verbose': 1,
+                })
+            )
+    val_erate = error_rate(model_predict(svm, val_xy[0]), val_xy[1]),
+    result = {
+            # -- criterion to optimize
+            'loss': val_erate,
+            # -- other error rates
+            'trn_erate': error_rate(model_predict(svm, trn_xy[0]), trn_xy[1]),
+            'val_erate': val_erate,
+            'tst_erate': error_rate(model_predict(svm, tst_xy[0]), tst_xy[1]),
+            # -- larger stats to save
+            'attachments': {
+                'val_decisions.npy.pkl': pickle_dumps(
+                    asarray(
+                        model_decisions(svm, val_xy[0]),
+                        dtype='float32'),
+                    protocol=-1)
+                }
+            }
+    return result
 

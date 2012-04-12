@@ -6,6 +6,7 @@ migrate upstream.
 
 """
 import copy
+import cPickle
 
 import numpy as np
 import theano
@@ -602,6 +603,25 @@ def patch_whitening_filterbank_X(patches, o_ndim, gamma,
 
 
 @pyll.scope.define_info(o_len=2)
+def fb_whitened_projections(patches, pwfX, n_filters, rseed):
+    """
+    pwfX is the output of patch_whitening_filterbank_X with reshape=False
+
+    """
+    M, P, patches_cn = pwfX
+    if M.ndim != 1:
+        raise TypeError('wrong shape for pwfX args. M should be vector',
+                M.shape)
+    rng = np.random.RandomState(rseed)
+    D = rng.randn(n_filters, patches_cn.shape[1])
+    D = D / (np.sqrt((D ** 2).sum(axis=1))[:, None] + 1e-20)
+    fb = np.dot(D, P)
+    fb.shape = (n_filters,) + patches.shape[1:]
+    M.shape = patches.shape[1:]
+    return M, fb
+
+
+@pyll.scope.define_info(o_len=2)
 def fb_whitened_patches(patches, pwfX, n_filters, rseed):
     """
     pwfX is the output of patch_whitening_filterbank_X with reshape=False
@@ -700,6 +720,7 @@ def pyll_theano_batched_lmap(pipeline, seq, batchsize,
 def np_transpose(obj, arg):
     return obj.transpose(*arg)
 
+
 @pyll.scope.define
 def np_RandomState(rseed):
     return np.random.RandomState(rseed)
@@ -708,83 +729,6 @@ def np_RandomState(rseed):
 @pyll.scope.define
 def flatten_elems(obj):
     return obj.reshape(len(obj), -1)
-
-
-@pyll.scope.define
-def hyperopt_param(label, obj):
-    return obj
-
-
-@pyll.scope.define
-def hyperopt_result(label, obj):
-    return obj
-
-
-class HPBandit(hyperopt.Bandit):
-    """ Create a hyperopt.Bandit from a pyll program that has been annotated
-    with hyperopt_param (HP) expressions.
-    """
-
-    def __init__(self, result_expr):
-        # -- need a template: which is a dictionary with all the HP nodes
-        template = {}
-        s_result_dct = {}
-        for node in pyll.dfs(result_expr):
-            if node.name == 'hyperopt_param':
-                key = node.arg['label'].obj
-                val = node.arg['obj']
-                if template.get(key, val) != val:
-                    raise KeyError('duplicate key', key)
-                template[key] = val
-            if node.name == 'hyperopt_result':
-                key = node.arg['label'].obj
-                val = node.arg['obj']
-                if s_result_dct.get(key, val) != val:
-                    raise KeyError('duplicate key', (key, val, template[key]))
-                s_result_dct[key] = val
-        hyperopt.Bandit.__init__(self, template)
-        self.result_expr = result_expr
-        self.s_result_dct = s_result_dct
-
-    def evaluate(self, config, ctrl):
-        # -- config is a dict with values for all the HP nodes
-        memo = {}
-        for node in pyll.dfs(self.result_expr):
-            if node.name == 'hyperopt_param':
-                label = node.arg['label'].obj
-                memo[node] = config[label]
-        assert len(memo) == len(config)
-        try:
-            r_expr, r_dct = pyll.rec_eval(
-                    [self.result_expr, self.s_result_dct],
-                    memo=memo)
-        except Exception, e:
-            n_match = 0
-            for match, match_pair in self.exceptions:
-                if match(e):
-                    r_expr, r_dct = match_pair(e)
-                    n_match += 1
-            if n_match == 0:
-                raise
-        r_dct['rval'] = r_expr
-        r_dct.setdefault('loss', r_expr)
-        r_dct.setdefault('status', hyperopt.STATUS_OK)
-        return r_dct
-
-        if 0:
-
-            #TODO: move this logic to general nested-key-setting pyll fn
-            # N.B. this function modifies dct in-place,
-            #     but doesn't change any of the
-            #     existing keys... so it's probably safe not to copy dct.
-            keys = key.split('.')
-            obj = dct
-            for key in keys:
-                obj = obj[key]
-            dct.setdefault('loss', obj)
-            if obj != dct['loss']:
-                raise KeyError('loss already set')
-            return dct
 
 
 @pyll.scope.define
@@ -800,6 +744,19 @@ def model_predict(mdl, X):
 
 
 @pyll.scope.define
+def model_decisions(mdl, X):
+    return mdl.decisions(X)
+
+
+@pyll.scope.define
+def pickle_dumps(obj, protocol=None):
+    if protocol is None:
+        return cPickle.dumps(obj)
+    else:
+        return cPickle.dumps(obj, protocol=protocol)
+
+
+@pyll.scope.define
 def error_rate(pred, y):
     return np.mean(pred != y)
 
@@ -811,4 +768,15 @@ pyll.scope.define_info(o_len=2)(mean_and_std)
 def print_ndarray_summary(msg, X):
     print msg, X.shape, X.min(), X.max(), X.mean()
     return X
+
+
+@pyll.scope.define_info(o_len=2)
+def slm_uniform_M_FB(nfilters, size, rseed, normalize):
+    M = np.asarray(0).reshape((1, 1, 1)),
+    FB = alloc_filterbank(
+                    nfilters, size, size, 3, 'float32',
+                    method_name='random:uniform',
+                    method_kwargs={'rseed': rseed},
+                    normalize=normalize)
+    return M, FB
 
