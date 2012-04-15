@@ -23,6 +23,9 @@ from .utils import mean_and_std
 from asgd import LinearSVM
 
 
+pyll.scope.define_info(o_len=2)(mean_and_std)
+
+
 class InvalidDescription(Exception):
     """Model description was invalid"""
 
@@ -246,13 +249,7 @@ def slm_lnorm((x, x_shp),
 
 
 @pyll.scope.define_info(o_len=2)
-def slm_wnorm_fbcorr((x, x_shp),
-        w_means,    # -- e.g. from whitening
-        w_fb,       # -- e.g. from whitening and filterbank
-        remove_mean,
-        beta,
-        hard_beta,
-        ):
+def slm_fbncc((x, x_shp), m_fb, remove_mean, beta, hard_beta):
     """
     For each valid-mode patch (p) of the image (x), this transform computes
 
@@ -289,6 +286,7 @@ def slm_wnorm_fbcorr((x, x_shp),
 
     """
     assert x.dtype == 'float32'
+    w_means, w_fb = m_fb
 
     beta = float(beta)
 
@@ -470,6 +468,42 @@ def slm_quantize_gridpool((x, x_shp), alpha,
 
 
 @pyll.scope.define_info(o_len=2)
+def slm_lpool_alpha((x, x_shp),
+        ker_size=3,
+        order=1,
+        stride=1,
+        alpha=0.0,
+        ):
+    """
+    lpool but with alpha-half-rectification
+    """
+    assert x.dtype == 'float32'
+    order=float(order)
+
+    ker_shape = (ker_size, ker_size)
+
+    xp = tensor.maximum(x - alpha, 0)
+    xn = tensor.maximum(-x - alpha, 0)
+    rp, r_shp = boxconv((xp ** order, x_shp), ker_shape) ** (1. / order)
+    rn, r_shp = boxconv((xn ** order, x_shp), ker_shape) ** (1. / order)
+
+    if stride > 1:
+        # -- theano optimizations should turn this stride into conv2d
+        #    subsampling
+        rp = rp[:, :, ::stride, ::stride]
+        rn = rn[:, :, ::stride, ::stride]
+        # intdiv is tricky... so just use numpy
+        r_shp = np.empty(r_shp)[:, :, ::stride, ::stride].shape
+
+    z_shp = (r_shp[0], 2 * r_shp[1], r_shp[2], r_shp[3])
+    z = tensor.zeros(z_shp, dtype=x.dtype)
+    z = tensor.set_subtensor(z[:, :r_shp[1]], rp)
+    z = tensor.set_subtensor(z[:, r_shp[1]:], rn)
+
+    return z, z_shp
+
+
+@pyll.scope.define_info(o_len=2)
 def slm_gnorm((x, x_shp),
         remove_mean= False,
         div_method='euclidean',
@@ -603,7 +637,7 @@ def patch_whitening_filterbank_X(patches, o_ndim, gamma,
 
 
 @pyll.scope.define_info(o_len=2)
-def fb_whitened_projections(patches, pwfX, n_filters, rseed):
+def fb_whitened_projections(patches, pwfX, n_filters, rseed, dtype):
     """
     pwfX is the output of patch_whitening_filterbank_X with reshape=False
 
@@ -618,11 +652,13 @@ def fb_whitened_projections(patches, pwfX, n_filters, rseed):
     fb = np.dot(D, P)
     fb.shape = (n_filters,) + patches.shape[1:]
     M.shape = patches.shape[1:]
+    M = M.astype(dtype).transpose(2, 0, 1)
+    fb = fb.astype(dtype).transpose(3, 0, 1, 2)
     return M, fb
 
 
 @pyll.scope.define_info(o_len=2)
-def fb_whitened_patches(patches, pwfX, n_filters, rseed):
+def fb_whitened_patches(patches, pwfX, n_filters, rseed, dtype):
     """
     pwfX is the output of patch_whitening_filterbank_X with reshape=False
 
@@ -635,6 +671,8 @@ def fb_whitened_patches(patches, pwfX, n_filters, rseed):
     fb = np.dot(D, P)
     fb.shape = (n_filters,) + patches.shape[1:]
     M.shape = patches.shape[1:]
+    M = M.astype(dtype).transpose(2, 0, 1)
+    fb = fb.astype(dtype).transpose(3, 0, 1, 2)
     return M, fb
 
 
@@ -761,9 +799,6 @@ def error_rate(pred, y):
     return np.mean(pred != y)
 
 
-pyll.scope.define_info(o_len=2)(mean_and_std)
-
-
 @pyll.scope.define
 def print_ndarray_summary(msg, X):
     print msg, X.shape, X.min(), X.max(), X.mean()
@@ -771,12 +806,13 @@ def print_ndarray_summary(msg, X):
 
 
 @pyll.scope.define_info(o_len=2)
-def slm_uniform_M_FB(nfilters, size, rseed, normalize):
-    M = np.asarray(0).reshape((1, 1, 1))
+def slm_uniform_M_FB(nfilters, size, rseed, normalize, dtype):
+    M = np.asarray(0).reshape((1, 1, 1)).astype(dtype)
     FB = alloc_filterbank(
                     nfilters, size, size, 3, 'float32',
                     method_name='random:uniform',
                     method_kwargs={'rseed': rseed},
                     normalize=normalize)
-    return M, FB
+    return M, FB.transpose(0, 3, 1, 2)
+
 
