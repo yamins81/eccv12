@@ -1,3 +1,4 @@
+import sys
 import time
 import numpy as np
 
@@ -7,12 +8,13 @@ from pyll.base import Lambda
 from pyll import as_apply
 
 import hyperopt
-from hyperopt.pyll_utils import hp_normal
 from hyperopt.pyll_utils import hp_choice
 from hyperopt.pyll_utils import hp_uniform
 from hyperopt.pyll_utils import hp_quniform
 from hyperopt.pyll_utils import hp_loguniform
 from hyperopt.pyll_utils import hp_qloguniform
+from hyperopt.pyll_utils import hp_normal
+from hyperopt.pyll_utils import hp_lognormal
 
 from skdata.cifar10 import CIFAR10
 CF10 = CIFAR10()
@@ -25,6 +27,7 @@ pyll.scope.import_(globals(),
     'callpipe1',
     'asarray',
     'sqrt',
+    'switch',
     #
     # -- misc. from ./pyll_slm.py
     'pyll_theano_batched_lmap',
@@ -63,6 +66,7 @@ pyll.scope.import_(globals(),
     's_int':           'int',
     'pyll_len':        'len',
     'pyll_map':        'map',
+    'pyll_getattr':    'getattr',
     })
 
 
@@ -165,7 +169,6 @@ def new_fbncc_layer(layer_num, X, n_patches, n_filters, size):
 
     patches = random_patches(X, n_patches, size, size,
             rng=np_RandomState(123 + layer_num))
-    assert max_filters > 16
 
     remove_mean = hp_TF(lab('remove_mean'))
     beta = hp_lognormal(lab('beta'), np.log(100), np.log(100))
@@ -176,7 +179,7 @@ def new_fbncc_layer(layer_num, X, n_patches, n_filters, size):
     # -- random projections filterbank allocation
     random_projections = partial(slm_fbncc,
         m_fb=slm_uniform_M_FB(
-            nfilters=fb0_nfilters,
+            nfilters=n_filters,
             size=size,
             channels=pyll_getattr(X, 'shape')[3],
             rseed=hp_choice(lab('r_rseed'), range(1, 6)),
@@ -196,7 +199,7 @@ def new_fbncc_layer(layer_num, X, n_patches, n_filters, size):
                     beta=beta,
                     hard_beta=hard_beta,
                     ),
-                n_filters=nfilters,
+                n_filters=n_filters,
                 rseed=hp_choice(lab('rw_rseed'), range(6, 11)),
                 ),
             remove_mean=remove_mean,
@@ -213,7 +216,7 @@ def new_fbncc_layer(layer_num, X, n_patches, n_filters, size):
                     beta=beta,
                     hard_beta=hard_beta,
                     ),
-                n_filters=nfilters,
+                n_filters=n_filters,
                 rseed=hp_choice(lab('wp_rseed'), range(6, 11)),
                 ),
             remove_mean=remove_mean,
@@ -235,9 +238,10 @@ def new_fbncc_layer(layer_num, X, n_patches, n_filters, size):
 
 
 def pipeline_extension(layer_num, X, n_patches, max_filters):
+    assert max_filters > 16
     f_layer = new_fbncc_layer(layer_num, X, n_patches,
             n_filters=s_int(
-                hp_qloguniform(f('nfilters'),
+                hp_qloguniform('l%ifb_nfilters' % layer_num,
                     np.log(8.01), np.log(max_filters), q=16)),
             size=rfilter_size('l%ifb_size' % layer_num, 3, 8),
             )
@@ -262,12 +266,12 @@ def pipeline_exits(pipeline, layer_num, X, n_patches, max_n_features):
 
     grid_res = hp_choice(lab('grid_res'), [2, 3])
     grid_features_per_filter = 2 * (grid_res ** 2)
-    grid_nfilters = max_features // grid_features_per_filter
+    grid_nfilters = max_n_features // grid_features_per_filter
 
     grid_filtering = new_fbncc_layer(layer_num,
             X=X,
             n_patches=n_patches,
-            nfilters=grid_nfilters,
+            n_filters=grid_nfilters,
             size=fsize,
             )
 
@@ -280,21 +284,35 @@ def pipeline_exits(pipeline, layer_num, X, n_patches, max_n_features):
 
     rval.append(pipeline + [grid_filtering, grid_pooling])
 
+    #
     # -- now set up the lpool_alpha option
-    filtering_res = Xrows - fsize + 1
+    filtering_res = pyll_getattr(X, 'shape')[2] - fsize + 1
     # -- N.B. Xrows depends on other params, so we can't use it to set the
     #         upper bound on lpsize. We can only sample independently, and
     #         then fail below with non-positive number of features.
     lpool_size = rfilter_size(lab('lpsize'), 1, 5)
     lpool_res = scope.max(filtering_res - lpool_size + 1, 0)
-    lpool_nfilters = switch(lpool_res > 0,
-            max_features // (2 * (lpool_res ** 2)),
+    if 0:
+        # XXX: This is a smarter way to pick the n_filters, but it triggers
+        # a bug in hyperopt.vectorize_helper.  The build_idxs_vals function
+        # there needs to be smarter -- to recognize when wanted_idxs is a
+        # necessarily subset of the all_idxs, and then not to append
+        # wanted_idxs to the union defining all_idxs... because that creates a
+        # cycle.  The trouble is specifically that lpool_res is used in the
+        # switch statement below both in the condition and the response.
+        lpool_nfilters = switch(lpool_res > 0,
+            max_n_features // (2 * (lpool_res ** 2)),
             scope.Raise(ValueError, 'Non-positive number of features'))
+    else:
+        # this is less good because it risks dividing by zero,
+        # and forces the bandit to catch weirder errors from new_fbncc_layer
+        # caused by negative nfilters
+        lpool_nfilters = max_n_features // (2 * (lpool_res ** 2))
 
     local_filtering = new_fbncc_layer(layer_num,
             X=X,
             n_patches=n_patches,
-            nfilters=local_nfilters,
+            n_filters=lpool_nfilters,
             size=fsize,
             )
 
@@ -307,6 +325,7 @@ def pipeline_exits(pipeline, layer_num, X, n_patches, max_n_features):
 
     rval.append(pipeline + [local_filtering, local_pooling])
 
+    print 'EXITS RVAL DFS LEN', len(pyll.toposort(as_apply(rval)))
     return rval
 
 
@@ -346,9 +365,15 @@ def choose_pipeline(X, n_patches, batchsize,
         elapsed = time.time() - start_time
         if elapsed > time_limit:
             raise RuntimeError('pipeline creation is taking too long')
-        exits.extend(pipeline_exits(layer_i + 1, pipeline, X, max_n_features))
+        exits.extend(
+                pipeline_exits(
+                    pipeline=pipeline,
+                    layer_num=layer_i + 1,
+                    X=X,
+                    n_patches=n_patches,
+                    max_n_features=max_n_features))
 
-    return hp_switch("feature_algo", exits)
+    return hp_choice("feature_algo", exits)
 
 
 @hyperopt.as_bandit(
@@ -395,7 +420,7 @@ def cifar10bandit(
         #    (This includes processing time for computing patches)
         pipeline_timeout=60.0,
         # -- max n. filterbank elements going into another layer
-        max_layer_sizes=[64, 128, 256],
+        max_layer_sizes=[64, 128],
         ):
 
     data = scope.cifar10_img_classification_task(
@@ -408,7 +433,10 @@ def cifar10bandit(
     pipeline = choose_pipeline(
             X=data['trn_images'][:n_imgs_for_patches],
             n_patches=50000,
-            max_out_features=max_n_features,
+            batchsize=batchsize,
+            max_n_features=max_n_features,
+            max_layer_sizes=max_layer_sizes,
+            time_limit=pipeline_timeout,
             )
     #print pipeline
 

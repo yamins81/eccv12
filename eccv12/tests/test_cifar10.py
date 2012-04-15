@@ -85,16 +85,14 @@ def test_partial_callpipe():
 
 
 def test_sampling_distribution():
+    def evaluate(config, ctrl):
+        return  {'loss': 9.0, 'status': hyperopt.STATUS_OK}
 
-    class CifarNoEval(cifar10bandit):
-        def evaluate(self, config, ctrl):
-            print 'hello'
-
-
-    t = Trials()
-    bandit = CifarNoEval()
+    trials = Trials()
+    bandit = cifar10bandit(max_layer_sizes=[])
+    bandit.evaluate = evaluate
     algo = Random(bandit)
-    exp = Experiment(algo, trials)
+    exp = Experiment(trials, algo)
     exp.catch_bandit_exceptions = False
 
     exp.run(10)
