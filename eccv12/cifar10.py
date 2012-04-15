@@ -41,7 +41,7 @@ pyll.scope.import_(globals(),
     #
     # -- filterbank allocators  (./pyll.slm.py)
     'random_patches',
-    'alloc_filterbank',
+    'alloc_random_uniform_filterbank',
     'patch_whitening_filterbank_X',
     'fb_whitened_patches',
     'fb_whitened_projections',
@@ -50,11 +50,10 @@ pyll.scope.import_(globals(),
     # -- pipeline elements  (./pyll.slm.py)
     'slm_lnorm',
     'slm_lpool',
-    'slm_lpool_smallgrid',
+    'slm_lpool_alpha',
     'slm_gnorm',
     'slm_fbcorr',
-    'slm_wnorm_fbcorr',
-    'slm_alpha_quantize',
+    'slm_fbncc',
     'slm_quantize_gridpool',
     'slm_flatten',
     #
@@ -179,6 +178,7 @@ def new_fbncc_layer(layer_num, X, n_patches, n_filters, size):
         m_fb=slm_uniform_M_FB(
             nfilters=fb0_nfilters,
             size=size,
+            channels=pyll_getattr(X, 'shape')[3],
             rseed=hp_choice(lab('r_rseed'), range(1, 6)),
             normalize=hp_TF(lab('r_normalize')),
             ),
@@ -247,8 +247,7 @@ def pipeline_extension(layer_num, X, n_patches, max_filters):
             order=hp_choice('l%ip_order' % layer_num,
                 [1, 2, hp_lognormal('l%ip_order_real' % layer_num,
                     mu=np.log(1), sigma=np.log(3))]),
-            ker_size=rfilter_size('l%ip_size', 2, 8),
-            ))
+            ker_size=rfilter_size('l%ip_size', 2, 8))
 
     return [f_layer, p_layer]
 
@@ -342,7 +341,7 @@ def choose_pipeline(X, n_patches, batchsize,
                 batchsize=batchsize,
                 print_progress=100,
                 abort_on_rows_larger_than=memlimit / scope.len(X)
-                ))[:]  # -- indexing computes all the values (during rec_eval)
+                )[:]  # -- indexing computes all the values (during rec_eval)
 
         elapsed = time.time() - start_time
         if elapsed > time_limit:
