@@ -1,9 +1,12 @@
-
+import cPickle
 import unittest
 
+import nose.plugins.attrib
 from eccv12.cifar10 import *
 from eccv12 import pyll_slm
 
+import hyperopt
+import hyperopt.plotting
 from hyperopt import Random, Experiment, Trials
 
 class TestPTBL(unittest.TestCase):
@@ -84,7 +87,56 @@ def test_partial_callpipe():
     assert 22 <= feats.shape[3] < 32
 
 
-def test_sampling_distribution():
+def test_fuzz(test_len, catch_exceptions=False):
+    bandit = cifar10bandit(
+            # -- all-different numbers, small enough to be fast hopefully
+            n_train=100,
+            n_valid=50,
+            n_test=40,
+            n_imgs_for_patches=100,
+            n_patches=1000,
+            batchsize=10,
+            # -- one-layer model tests the pipeline_exits and
+            # pipeline_extension code
+            max_layer_sizes=[64])
+    algo = Random(bandit)
+    # -- based on test_sampling_distribution this is
+    trials = Trials()
+    for i in range(test_len):
+        try:
+            trials = cPickle.load(open('test_fuzz_trials_%i.pkl' % i))
+        except IOError:
+            pass
+            exp = Experiment(trials, algo)
+            exp.catch_bandit_exceptions = catch_exceptions
+            print '-' * 80
+            print 'FUZZ ROUND', i
+            print '-' * 80
+            exp.run(1)
+            cPickle.dump(trials, open('test_fuzz_trials_%i.pkl' % i, 'w'), -1)
+    hyperopt.plotting.main_plot_vars(trials, bandit)
+
+def test_foo():
+    trials = cPickle.load(open('test_fuzz_trials_%i.pkl' % 80))
+    bandit = cifar10bandit(
+            # -- all-different numbers, small enough to be fast hopefully
+            n_train=100,
+            n_valid=50,
+            n_test=40,
+            n_imgs_for_patches=100,
+            n_patches=1000,
+            batchsize=10,
+            # -- one-layer model tests the pipeline_exits and
+            # pipeline_extension code
+            max_layer_sizes=[64])
+    #hyperopt.plotting.main_plot_vars(trials, bandit)
+    hyperopt.plotting.main_plot_history(trials, bandit)
+
+@nose.plugins.attrib.attr('slow')
+def test_fuzz100():
+    test_fuzz(100, catch_exceptions=False)
+
+def test_sampling_distribution1():
     def evaluate(config, ctrl):
         return  {'loss': 9.0, 'status': hyperopt.STATUS_OK}
 
@@ -95,4 +147,37 @@ def test_sampling_distribution():
     exp = Experiment(trials, algo)
     exp.catch_bandit_exceptions = False
 
-    exp.run(10)
+    exp.run(100)
+
+    hyperopt.plotting.main_plot_vars(trials, bandit)
+
+
+def test_sampling_distribution2():
+    def evaluate(config, ctrl):
+        return  {'loss': 9.0, 'status': hyperopt.STATUS_OK}
+
+    trials = Trials()
+    bandit = cifar10bandit(max_layer_sizes=[64])
+    bandit.evaluate = evaluate
+    algo = Random(bandit)
+    exp = Experiment(trials, algo)
+    exp.catch_bandit_exceptions = False
+
+    exp.run(100)
+
+    hyperopt.plotting.main_plot_vars(trials, bandit)
+
+def test_sampling_distribution3():
+    def evaluate(config, ctrl):
+        return  {'loss': 9.0, 'status': hyperopt.STATUS_OK}
+
+    trials = Trials()
+    bandit = cifar10bandit(max_layer_sizes=[64, 128])
+    bandit.evaluate = evaluate
+    algo = Random(bandit)
+    exp = Experiment(trials, algo)
+    exp.catch_bandit_exceptions = False
+
+    exp.run(100)
+
+    hyperopt.plotting.main_plot_vars(trials, bandit)

@@ -230,10 +230,6 @@ def cifar10_compare_verrs(host, port, dbname, *keys):
     plt.show()
 
 
-
-
-
-
 ##############################################################################
 
 def coates_icml2011_patches(frac=1.0):

@@ -55,8 +55,7 @@ pyll.scope.import_(globals(),
     'slm_lpool',
     'slm_lpool_alpha',
     'slm_gnorm',
-    'slm_fbcorr',
-    'slm_fbncc',
+    'slm_fbncc_chmaj',
     'slm_quantize_gridpool',
     'slm_flatten',
     #
@@ -150,8 +149,7 @@ def cifar10_img_classification_task(dtype, n_train, n_valid, n_test,
     def shuffle(X, s):
         if shuffle_seed:
             np.random.RandomState(shuffle_seed + s).shuffle(X)
-        else:
-            return X
+        return X
 
     return {
             'trn_images': shuffle(trn_images, 0),
@@ -163,12 +161,12 @@ def cifar10_img_classification_task(dtype, n_train, n_valid, n_test,
             }
 
 
-def new_fbncc_layer(layer_num, X, n_patches, n_filters, size):
+def new_fbncc_layer(prefix, Xcm, n_patches, n_filters, size):
     def lab(msg):
-        return 'l%i_fbncc_%s' % (layer_num, msg)
+        return '%s_fbncc_%s' % (prefix, msg)
 
-    patches = random_patches(X, n_patches, size, size,
-            rng=np_RandomState(123 + layer_num))
+    patches = random_patches(Xcm, n_patches, size, size,
+            rng=np_RandomState(hash(prefix)), channel_major=True)
 
     remove_mean = hp_TF(lab('remove_mean'))
     beta = hp_lognormal(lab('beta'), np.log(100), np.log(100))
@@ -177,37 +175,40 @@ def new_fbncc_layer(layer_num, X, n_patches, n_filters, size):
     # TODO: use different nfilters, beta etc. for each algo
 
     # -- random projections filterbank allocation
-    random_projections = partial(slm_fbncc,
+    random_projections = partial(slm_fbncc_chmaj,
         m_fb=slm_uniform_M_FB(
             nfilters=n_filters,
             size=size,
-            channels=pyll_getattr(X, 'shape')[3],
+            channels=pyll_getattr(Xcm, 'shape')[1],
             rseed=hp_choice(lab('r_rseed'), range(1, 6)),
             normalize=hp_TF(lab('r_normalize')),
+            dtype='float32',
+            ret_cmajor=True,
             ),
         remove_mean=remove_mean,
         beta=beta,
         hard_beta=hard_beta)
 
     # -- random whitened projections filterbank allocation
-    random_whitened_projections = partial(slm_fbncc,
+    random_whitened_projections = partial(slm_fbncc_chmaj,
             m_fb=fb_whitened_projections(patches,
                 patch_whitening_filterbank_X(patches,
-                    gamma=logu_range(lab('rw_gamma'), 1e-4, 1.0),
+                    gamma=logu_range(lab('wr_gamma'), 1e-4, 1.0),
                     o_ndim=2,
                     remove_mean=remove_mean,
                     beta=beta,
                     hard_beta=hard_beta,
                     ),
                 n_filters=n_filters,
-                rseed=hp_choice(lab('rw_rseed'), range(6, 11)),
+                rseed=hp_choice(lab('wr_rseed'), range(6, 11)),
+                dtype='float32',
                 ),
             remove_mean=remove_mean,
             beta=beta,
             hard_beta=hard_beta)
 
     # -- whitened patches filterbank allocation
-    whitened_patches = partial(slm_fbncc,
+    whitened_patches = partial(slm_fbncc_chmaj,
             m_fb=fb_whitened_patches(patches,
                 patch_whitening_filterbank_X(patches,
                     gamma=logu_range(lab('wp_gamma'), 1e-4, 1.0),
@@ -218,6 +219,7 @@ def new_fbncc_layer(layer_num, X, n_patches, n_filters, size):
                     ),
                 n_filters=n_filters,
                 rseed=hp_choice(lab('wp_rseed'), range(6, 11)),
+                dtype='float32',
                 ),
             remove_mean=remove_mean,
             beta=beta,
@@ -237,26 +239,26 @@ def new_fbncc_layer(layer_num, X, n_patches, n_filters, size):
     return rchoice
 
 
-def pipeline_extension(layer_num, X, n_patches, max_filters):
+def pipeline_extension(prefix, X, n_patches, max_filters):
     assert max_filters > 16
-    f_layer = new_fbncc_layer(layer_num, X, n_patches,
+    f_layer = new_fbncc_layer(prefix, X, n_patches,
             n_filters=s_int(
-                hp_qloguniform('l%ifb_nfilters' % layer_num,
+                hp_qloguniform('%sfb_nfilters' % prefix,
                     np.log(8.01), np.log(max_filters), q=16)),
-            size=rfilter_size('l%ifb_size' % layer_num, 3, 8),
+            size=rfilter_size('%sfb_size' % prefix, 3, 8),
             )
 
     p_layer = partial(slm_lpool,
-            stride=hp_choice('l%ip_stride' % layer_num, [1, 2]),
-            order=hp_choice('l%ip_order' % layer_num,
-                [1, 2, hp_lognormal('l%ip_order_real' % layer_num,
+            stride=hp_choice('%sp_stride' % prefix, [1, 2]),
+            order=hp_choice('%sp_order' % prefix,
+                [1, 2, hp_lognormal('%sp_order_real' % prefix,
                     mu=np.log(1), sigma=np.log(3))]),
-            ker_size=rfilter_size('l%ip_size', 2, 8))
+            ker_size=rfilter_size('%sp_size' % prefix, 2, 8))
 
     return [f_layer, p_layer]
 
 
-def pipeline_exits(pipeline, layer_num, X, n_patches, max_n_features):
+def pipeline_exits(pipeline, layer_num, Xcm, n_patches, max_n_features):
     def lab(msg):
         return 'l%i_out_%s' % (layer_num, msg)
 
@@ -268,8 +270,9 @@ def pipeline_exits(pipeline, layer_num, X, n_patches, max_n_features):
     grid_features_per_filter = 2 * (grid_res ** 2)
     grid_nfilters = max_n_features // grid_features_per_filter
 
-    grid_filtering = new_fbncc_layer(layer_num,
-            X=X,
+    grid_filtering = new_fbncc_layer(
+            prefix='l%ieg' % layer_num,
+            Xcm=Xcm,
             n_patches=n_patches,
             n_filters=grid_nfilters,
             size=fsize,
@@ -282,11 +285,18 @@ def pipeline_exits(pipeline, layer_num, X, n_patches, max_n_features):
             order=hp_choice(lab('grid_order'), [
                 1.0, 2.0, logu_range(lab('grid_order_real'), .1, 10.)]))
 
-    rval.append(pipeline + [grid_filtering, grid_pooling])
+    rval.append({
+        'pipe': pipeline + [grid_filtering, grid_pooling],
+        'remove_std0': hp_TF(lab('grid_classif_remove_std0')),
+        'varthresh': hp_lognormal(lab('grid_classif_varthresh'),
+            np.log(1e-4), np.log(1000)),
+        'l2_reg': hp_lognormal(lab('grid_classif_l2_reg'),
+            np.log(1e-3), np.log(100)),
+        })
 
     #
     # -- now set up the lpool_alpha option
-    filtering_res = pyll_getattr(X, 'shape')[2] - fsize + 1
+    filtering_res = pyll_getattr(Xcm, 'shape')[2] - fsize + 1
     # -- N.B. Xrows depends on other params, so we can't use it to set the
     #         upper bound on lpsize. We can only sample independently, and
     #         then fail below with non-positive number of features.
@@ -309,8 +319,9 @@ def pipeline_exits(pipeline, layer_num, X, n_patches, max_n_features):
         # caused by negative nfilters
         lpool_nfilters = max_n_features // (2 * (lpool_res ** 2))
 
-    local_filtering = new_fbncc_layer(layer_num,
-            X=X,
+    local_filtering = new_fbncc_layer(
+            prefix='l%iel' % layer_num,
+            Xcm=Xcm,
             n_patches=n_patches,
             n_filters=lpool_nfilters,
             size=fsize,
@@ -319,22 +330,30 @@ def pipeline_exits(pipeline, layer_num, X, n_patches, max_n_features):
     local_pooling = partial(slm_lpool_alpha,
             ker_size=lpool_size,
             alpha=hp_normal(lab('local_alpha'), 0.0, 1.0),
-            grid_res=grid_res,
             order=hp_choice(lab('local_order'), [
                 1.0, 2.0, logu_range(lab('local_order_real'), .1, 10.)]))
 
-    rval.append(pipeline + [local_filtering, local_pooling])
+    rval.append({
+        'pipe': pipeline + [local_filtering, local_pooling],
+        'remove_std0': hp_TF(lab('local_classif_remove_std0')),
+        'varthresh': hp_lognormal(lab('local_classif_varthresh'),
+            np.log(1e-4), np.log(1000)),
+        'l2_reg': hp_lognormal(lab('local_classif_l2_reg'),
+            np.log(1e-3), np.log(100)),
+        })
 
     print 'EXITS RVAL DFS LEN', len(pyll.toposort(as_apply(rval)))
     return rval
 
 
-def choose_pipeline(X, n_patches, batchsize,
+def choose_pipeline(Xcm, n_patches, batchsize,
         max_n_features, max_layer_sizes, time_limit,
         memlimit=1000 * (1024 ** 2)):
     """
     This function works by creating a linear pipeline, with multiple exit
     points that could be the feature representation for classification.
+
+    Xcm - channel-major images from which patches are to be extracted.
 
     The function returns a switch among all of these exit points.
     """
@@ -344,22 +363,23 @@ def choose_pipeline(X, n_patches, batchsize,
     exits = pipeline_exits(
             pipeline,
             layer_num=0,
-            X=X,
+            Xcm=Xcm,
             n_patches=n_patches,
             max_n_features=max_n_features)
     for layer_i, max_layer_size in enumerate(max_layer_sizes):
         elapsed = time.time() - start_time
         if elapsed > time_limit:
             raise RuntimeError('pipeline creation is taking too long')
-        extension = pipeline_extension(layer_i, X, n_patches, max_layer_size)
+        extension = pipeline_extension(
+                'l%i' % layer_i, Xcm, n_patches, max_layer_size)
 
         pipeline.extend(extension)
-        X = pyll_theano_batched_lmap(
+        Xcm = pyll_theano_batched_lmap(
                 partial(callpipe1, extension),
-                X,
+                Xcm,
                 batchsize=batchsize,
                 print_progress=100,
-                abort_on_rows_larger_than=memlimit / scope.len(X)
+                abort_on_rows_larger_than=memlimit / scope.len(Xcm)
                 )[:]  # -- indexing computes all the values (during rec_eval)
 
         elapsed = time.time() - start_time
@@ -369,7 +389,7 @@ def choose_pipeline(X, n_patches, batchsize,
                 pipeline_exits(
                     pipeline=pipeline,
                     layer_num=layer_i + 1,
-                    X=X,
+                    Xcm=Xcm,
                     n_patches=n_patches,
                     max_n_features=max_n_features))
 
@@ -380,7 +400,9 @@ def choose_pipeline(X, n_patches, batchsize,
         exceptions=[
             (
                 # -- this is raised when the n. of features > max_n_features
-                lambda e: isinstance(e, ValueError),
+                lambda e: (isinstance(e, ValueError)
+                    and 'rowlen' in str(e)
+                    and 'exceeds limit' in str(e)),
                 lambda e: {
                     'loss': float('inf'),
                     'status': hyperopt.STATUS_FAIL,
@@ -416,6 +438,7 @@ def cifar10bandit(
         n_imgs_for_patches=10000,
         # -- maximum n. features per example coming out of the pipeline
         max_n_features=16000,
+        n_patches=50000,
         # -- seconds allocated to pipeline creation
         #    (This includes processing time for computing patches)
         pipeline_timeout=60.0,
@@ -431,8 +454,10 @@ def cifar10bandit(
             shuffle_seed=5)
 
     pipeline = choose_pipeline(
-            X=data['trn_images'][:n_imgs_for_patches],
-            n_patches=50000,
+            Xcm=np_transpose(
+                data['trn_images'][:n_imgs_for_patches],
+                (0, 3, 1, 2)),
+            n_patches=n_patches,
             batchsize=batchsize,
             max_n_features=max_n_features,
             max_layer_sizes=max_layer_sizes,
@@ -443,7 +468,7 @@ def cifar10bandit(
     features = {}
     for split in 'trn', 'val', 'tst':
         features[split] = pyll_theano_batched_lmap(
-                partial(callpipe1, pipeline),
+                partial(callpipe1, pipeline['pipe']),
                 np_transpose(data['%s_images' % split], (0, 3, 1, 2)),
                 batchsize=batchsize,
                 print_progress=100,
@@ -453,26 +478,27 @@ def cifar10bandit(
     # load full training set into memory
     cache_train = flatten_elems(features['trn'][:])
 
-    xmean, xstd = mean_and_std(cache_train, remove_std0=hp_TF('remove_std0'))
+    xmean, xstd = mean_and_std(cache_train, remove_std0=pipeline['remove_std0'])
     xmean = print_ndarray_summary('Xmean', xmean)
     xstd = print_ndarray_summary('Xstd', xstd)
 
-    xstd_inc = hp_lognormal('classif_squash_lowvar', np.log(1e-4), np.log(1000))
-    xstd = sqrt(xstd ** 2 + xstd_inc)
+    xstd = sqrt(xstd ** 2 + pipeline['varthresh'])
 
     trn_xy=((cache_train - xmean) / xstd, data['trn_labels'])
-    val_xy = ((features['val'] - xmean) / xstd, data['val_labels'])
-    tst_xy = ((features['tst'] - xmean) / xstd, data['tst_labels'])
+    val_xy = ((flatten_elems(features['val'][:]) - xmean) / xstd,
+            data['val_labels'])
+    tst_xy = ((flatten_elems(features['tst'][:]) - xmean) / xstd,
+            data['tst_labels'])
 
     svm = fit_linear_svm(trn_xy,
-            l2_regularization=hp_lognormal('l2_reg', np.log(1e-3), np.log(100)),
+            l2_regularization=pipeline['l2_reg'],
             verbose=True,
             solver=('asgd.SubsampledTheanoOVA', {
                 'dtype': 'float32',
                 'verbose': 1,
                 })
             )
-    val_erate = error_rate(model_predict(svm, val_xy[0]), val_xy[1]),
+    val_erate = error_rate(model_predict(svm, val_xy[0]), val_xy[1])
     result = {
             # -- criterion to optimize
             'loss': val_erate,
