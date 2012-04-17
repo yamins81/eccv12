@@ -103,6 +103,40 @@ def show_vars(host, port, dbname, key, colorize_best=-1):
             )
 
 
+def show_runtime(host, port, dbname, key):
+    """
+    Show runtime vs. trial_id
+    """
+    conn = pm.Connection(host=host, port=int(port))
+    K = [k for k  in conn[dbname]['jobs'].distinct('exp_key')]
+    print 'Experiments in database', dbname
+    for k in K:
+        print '* ', k
+    docs = list(
+            conn[dbname]['jobs'].find(
+                {'exp_key': key},
+                {
+                    'tid': 1,
+                    'state': 1,
+                    'book_time': 1,
+                    'refresh_time': 1,
+                    #'result.loss':1,
+                    #'result.status':1,
+                    #'spec':1,
+                    #'misc.cmd': 1,
+                    #'misc.tid':1,
+                    #'misc.idxs':1,
+                    #'misc.vals': 1,
+                }))
+    x = [d['tid'] for d in docs]
+    y = [(d['refresh_time'] - d['book_time']).total_seconds()
+         for d in docs]
+
+    import matplotlib.pyplot as plt
+    plt.scatter(x, y)
+    plt.show()
+
+
 def list_dbs(host, port, dbname=None):
     """
     List the databases and experiments being hosted by a mongo server
@@ -135,22 +169,18 @@ def transfer_trials(fromdb, todb):
 
 
 def list_errors(host, port, dbname, key=None, spec=0):
-    trials = MongoTrials(
-            'mongo://%s:%s/%s/jobs' % (host, port, dbname),
-            refresh=False)
     conn = pm.Connection(host=host, port=int(port))
-    jobs = conn[dbname]['jobs']
     if key is None:
         query = {}
     else:
-        query = {'exp_key': exp_key}
+        query = {'exp_key': key}
     query['state'] = hyperopt.JOB_STATE_ERROR
     retrieve = {'tid': 1, 'state': 1, 'result.status':1, 'misc.cmd': 1,
-            'book_time': 1, 'error': 1}
+                'book_time': 1, 'error': 1, 'owner': 1}
     if int(spec):
         retrieve['spec'] = 1
     for doc in conn[dbname]['jobs'].find(query, retrieve):
-        print doc['_id'], doc['tid'], doc['book_time'], doc['error']
+        print doc['_id'], doc['tid'], doc['book_time'], doc['owner'], doc['error']
         if int(spec):
             print doc['spec']
 
