@@ -399,22 +399,16 @@ def choose_pipeline(Xcm, n_patches, batchsize,
 @hyperopt.as_bandit(
         exceptions=[
             (
-                # -- this is raised when the n. of features > max_n_features
-                lambda e: (isinstance(e, ValueError)
-                    and 'rowlen' in str(e)
-                    and 'exceeds limit' in str(e)),
+                lambda e: (
+                    isinstance(e, pyll_slm.InvalidDescription)
+                    or isinstance(e, ZeroDivisionError)
+                    or isinstance(e, MemoryError)
+                    or (isinstance(e, ValueError)
+                        and 'rowlen' in str(e)
+                        and 'exceeds limit' in str(e))
+                ),
                 lambda e: {
-                    'loss': float('inf'),
-                    'status': hyperopt.STATUS_FAIL,
-                    'failure': repr(e)
-                }
-            ),
-            (
-                # -- this often doesn't work because Python can get screwed
-                #    up by memory errors, but it's worth a try.
-                lambda e: isinstance(e, MemoryError),
-                lambda e: {
-                    'loss': float('inf'),
+                    'loss': float(1.0),
                     'status': hyperopt.STATUS_FAIL,
                     'failure': repr(e)
                 }
@@ -441,7 +435,7 @@ def cifar10bandit(
         n_patches=50000,
         # -- seconds allocated to pipeline creation
         #    (This includes processing time for computing patches)
-        pipeline_timeout=60.0,
+        pipeline_timeout=90.0,
         # -- max n. filterbank elements going into another layer
         max_layer_sizes=[64, 128],
         ):
