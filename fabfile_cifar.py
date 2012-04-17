@@ -65,7 +65,7 @@ def cifar10_suggest1(host, port, dbname, N=3):
                 n_startup_jobs=25,
                 )
         algos.append(algo)
-        keys.append('full_%i' % i)
+        keys.append('l3_%i' % i)
     algo = InterleaveAlgo(algos, keys)
     exp = hyperopt.Experiment(trials, algo, poll_interval_secs=.1)
     exp.run(sys.maxint, block_until_done=True)
