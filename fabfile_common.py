@@ -53,7 +53,7 @@ def show_history(host, port, dbname, key=None):
             plt.ylim(0, 1)
             iii += 1
     else:
-        losses = kl_items[key]
+        losses = by_key[key]
         plt.title(key)
         plt.scatter(range(len(losses)), losses)
         plt.ylim(0, 1)
