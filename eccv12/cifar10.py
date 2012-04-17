@@ -406,6 +406,8 @@ def choose_pipeline(Xcm, n_patches, batchsize,
                     or (isinstance(e, ValueError)
                         and 'rowlen' in str(e)
                         and 'exceeds limit' in str(e))
+                    or (isinstance(e, ValueError)
+                        and 'low >= high' in str(e))
                 ),
                 lambda e: {
                     'loss': float(1.0),
@@ -415,8 +417,13 @@ def choose_pipeline(Xcm, n_patches, batchsize,
             ),
             (
                 # -- this is raised when computations are taking too long
-                lambda e: (isinstance(e, RuntimeError)
-                    and 'taking too long' in str(e)),
+                lambda e: (
+                    (isinstance(e, RuntimeError)
+                        and 'taking too long' in str(e))
+                    or (isinstance(e, RuntimeError)
+                        and 'allocate memory' in str(e))
+                
+                ),
                 lambda e: {
                     'loss': float('inf'),
                     'status': hyperopt.STATUS_FAIL,
