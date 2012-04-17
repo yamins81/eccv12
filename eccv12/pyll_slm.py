@@ -22,6 +22,13 @@ from .utils import linear_kernel
 from .utils import mean_and_std
 from asgd import LinearSVM
 
+_theano_fA = tensor.fmatrix()
+_theano_fB = tensor.fmatrix()
+dot_f32 = theano.function(
+        [_theano_fA, _theano_fB],
+        tensor.dot(_theano_fA, _theano_fB),
+        allow_input_downcast=True)
+
 
 pyll.scope.define_info(o_len=2)(mean_and_std)
 
@@ -600,11 +607,15 @@ def patch_whitening_filterbank_X(patches, o_ndim, gamma,
             hard_beta=hard_beta)
 
     # -- ZCA whitening (with low-pass)
+    print 'patch_whitening_filterbank_X starting ZCA'
     M, _std = mean_and_std(X)
     Xm = X - M
     assert Xm.shape == X.shape
-    C = np.dot(Xm.T, Xm) / (Xm.shape[0] - 1)
+    print 'patch_whitening_filterbank_X starting ZCA: dot', Xm.shape
+    C = dot_f32(Xm.T, Xm) / (Xm.shape[0] - 1)
+    print 'patch_whitening_filterbank_X starting ZCA: eigh'
     D, V = np.linalg.eigh(C)
+    print 'patch_whitening_filterbank_X starting ZCA: done'
     P = np.dot(np.sqrt(1.0 / (D + gamma)) * V, V.T)
 
     # -- return to image space
