@@ -87,7 +87,7 @@ def test_partial_callpipe():
     assert 22 <= feats.shape[3] < 32
 
 
-def test_fuzz(test_len, catch_exceptions=False):
+def test_fuzz(test_len=1, catch_exceptions=False):
     bandit = cifar10bandit(
             # -- all-different numbers, small enough to be fast hopefully
             n_train=100,
