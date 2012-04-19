@@ -35,6 +35,7 @@ if 'THEANO_FLAGS' not in os.environ:
         import theano
         import numpy as np
         testvar = theano.shared(np.ones(2, dtype='float32'))
-        assert isinstance(testvar.type, theano.sandbox.cuda.CudaNdarrayType)
+        got_gpu = isinstance(testvar.type, theano.sandbox.cuda.CudaNdarrayType)
+        assert got_gpu, 'failed to load CUDA'
         del testvar
 
