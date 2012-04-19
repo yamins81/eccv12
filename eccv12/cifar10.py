@@ -418,13 +418,16 @@ def choose_pipeline(Xcm, n_patches, batchsize,
                 }
             ),
             (
-                # -- this is raised when computations are taking too long
                 lambda e: (
                     (isinstance(e, RuntimeError)
                         and 'taking too long' in str(e))
                     or (isinstance(e, RuntimeError)
                         and 'allocate memory' in str(e))
-                
+                    or (isinstance(e, RuntimeError)
+                        and 'kernel_reduce_sum' in str(e)
+                        and 'block: 0 x' in str(e))
+                    or (isinstance(e, RuntimeError)
+                        and 'CudaNdarray has dim 0' in str(e))
                 ),
                 lambda e: {
                     'loss': float('inf'),
