@@ -62,7 +62,8 @@ def cifar10_suggest1(host, port, dbname, N=3):
         algo = TreeParzenEstimator(
                 Bandit(),
                 cmd=cmd,
-                n_startup_jobs=25,
+                n_startup_jobs=50,
+                gamma=.25
                 )
         algos.append(algo)
         keys.append('l3_%i' % i)

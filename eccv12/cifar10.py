@@ -193,7 +193,8 @@ def new_fbncc_layer(prefix, Xcm, n_patches, n_filters, size):
     random_whitened_projections = partial(slm_fbncc_chmaj,
             m_fb=fb_whitened_projections(patches,
                 patch_whitening_filterbank_X(patches,
-                    gamma=logu_range(lab('wr_gamma'), 1e-4, 1.0),
+                    gamma=hp_lognormal(lab('wr_gamma'),
+                                       np.log(1e-2), np.log(100)),
                     o_ndim=2,
                     remove_mean=remove_mean,
                     beta=beta,
@@ -211,7 +212,8 @@ def new_fbncc_layer(prefix, Xcm, n_patches, n_filters, size):
     whitened_patches = partial(slm_fbncc_chmaj,
             m_fb=fb_whitened_patches(patches,
                 patch_whitening_filterbank_X(patches,
-                    gamma=logu_range(lab('wp_gamma'), 1e-4, 1.0),
+                    gamma=hp_lognormal(lab('wp_gamma'),
+                                       np.log(1e-2), np.log(100)),
                     o_ndim=2,
                     remove_mean=remove_mean,
                     beta=beta,
@@ -416,13 +418,16 @@ def choose_pipeline(Xcm, n_patches, batchsize,
                 }
             ),
             (
-                # -- this is raised when computations are taking too long
                 lambda e: (
                     (isinstance(e, RuntimeError)
                         and 'taking too long' in str(e))
                     or (isinstance(e, RuntimeError)
                         and 'allocate memory' in str(e))
-                
+                    or (isinstance(e, RuntimeError)
+                        and 'kernel_reduce_sum' in str(e)
+                        and 'block: 0 x' in str(e))
+                    or (isinstance(e, RuntimeError)
+                        and 'CudaNdarray has dim 0' in str(e))
                 ),
                 lambda e: {
                     'loss': float('inf'),
