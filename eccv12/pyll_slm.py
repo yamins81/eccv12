@@ -441,8 +441,9 @@ def slm_quantize_gridpool((x, x_shp), alpha,
                 qs.append(tensor.maximum(alpha - abs(xi), 0))
 
             for qi, q in enumerate(qs):
-                sXC = tensor.set_subtensor(sXC[:, :, ri, ci, qi],
-                        (q ** order).sum([2, 3]) ** (1. / order))
+                inc = (q ** order).sum([2, 3]) ** (1. / order)
+                assert inc.dtype == q.dtype
+                sXC = tensor.set_subtensor(sXC[:, :, ri, ci, qi], inc)
 
     r_shp = sXC_shp[0], np.prod(sXC_shp[1:])
     r = sXC.reshape(r_shp)
@@ -799,7 +800,7 @@ def error_rate(pred, y):
 
 @pyll.scope.define
 def print_ndarray_summary(msg, X):
-    print msg, X.shape, X.min(), X.max(), X.mean()
+    print msg, X.dtype, X.shape, X.min(), X.max(), X.mean()
     return X
 
 
@@ -818,3 +819,6 @@ def slm_uniform_M_FB(nfilters, size, channels, rseed, normalize, dtype,
         return M, FB
 
 
+@pyll.scope.define
+def larray_cache_memory(obj):
+    return larray.cache_memory(obj)

@@ -129,12 +129,22 @@ def show_runtime(host, port, dbname, key):
                     #'misc.idxs':1,
                     #'misc.vals': 1,
                 }))
-    x = [d['tid'] for d in docs]
-    y = [(d['refresh_time'] - d['book_time']).total_seconds()
-         for d in docs]
-
     import matplotlib.pyplot as plt
-    plt.scatter(x, y)
+    for state in hyperopt.JOB_STATES:
+        x = [d['tid'] for d in docs if d['state'] == state]
+        if state != hyperopt.JOB_STATE_NEW:
+            y = [(d['refresh_time'] - d['book_time']).total_seconds() / 60.0
+                 for d in docs if d['state'] == state]
+        else:
+            y = [0] * len(x)
+
+        if x:
+            plt.scatter(x, y,
+                    c=['g', 'b', 'k', 'r'][state],
+                    label=['NEW', 'RUNNING', "DONE", "ERROR"][state])
+    plt.ylabel('runtime (minutes)')
+    plt.xlabel('trial identifier')
+    plt.legend(loc='upper left')
     plt.show()
 
 

@@ -167,6 +167,7 @@ def test_sampling_distribution2():
 
     hyperopt.plotting.main_plot_vars(trials, bandit)
 
+
 def test_sampling_distribution3():
     def evaluate(config, ctrl):
         return  {'loss': 9.0, 'status': hyperopt.STATUS_OK}

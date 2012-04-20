@@ -232,6 +232,54 @@ def cifar10_compare_verrs(host, port, dbname, *keys):
     plt.show()
 
 
+def cifar10_best_test_errs(host, port, dbname, key):
+    conn = pm.Connection(host=host, port=int(port))
+    docs = list(
+            conn[dbname]['jobs'].find(
+                {'exp_key': key},
+                {
+                    'tid': 1,
+                    'state': 1,
+                    'result.status': 1,
+                    'result.loss':1,
+                    'result.tst_erate':1,
+                }))
+    docs = [(d['result']['loss'], d['result']['tst_erate'], d['_id'])
+        for d in docs if (
+            d['state'] == hyperopt.JOB_STATE_DONE
+            and d['result']['status'] == hyperopt.STATUS_OK)]
+
+    docs.sort()
+    print docs[:10]
+
+
+def cifar10_retrain_full(host, port, dbname, _id):
+    trials = MongoTrials(
+            'mongo://%s:%s/%s/jobs' % (host, port, dbname),
+            refresh=False)
+    doc = trials.handle.jobs.find_one({'_id': bson.objectid.ObjectId(_id)})
+
+    batchsize=20
+    bandit = ec10.cifar10bandit(n_train=50000-batchsize, n_valid=batchsize,
+            n_test=10000,
+            svm_solver=('asgd.SubsampledTheanoOVA', {
+            'dtype': 'float32',
+            'verbose': 1,
+            # XXX why does setting n_runs=1 give a poorer solution?
+            #     test error jumped from .2 to .25
+            #     on cifar10_apr_12,4f9014dfd17d6661e40001de
+            #     no fun to debug because float64, n_runs=1 takes like
+            #     1.5 hours to run.
+            'n_runs': None,  # -- 1 to train all at once
+            })
+            )
+
+    spec = hyperopt.base.spec_from_misc(doc['misc'])
+    result = bandit.evaluate(config=spec, ctrl=None)
+    del result['attachments']
+    print result
+
+
 ##############################################################################
 
 def coates_icml2011_patches(frac=1.0):

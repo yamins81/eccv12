@@ -8,14 +8,13 @@ class ImgLoaderResizer(object):
     """
     def __init__(self, shape=None, ndim=None, dtype='float32', normalize=True,
                  crop=None):
-        assert len(shape) == 2
         shape = tuple(shape)
         assert len(crop) == 4
         crop = tuple(crop)
         l, t, r, b = crop
         assert 0 <= l < r <= 250
-        assert 0 <= t < b <= 250 
-        self._crop = crop   
+        assert 0 <= t < b <= 250
+        self._crop = crop
         assert dtype == 'float32'
         self._shape = shape
         if ndim is None:
@@ -41,13 +40,18 @@ class ImgLoaderResizer(object):
             im = im.crop(self._crop)
         l, t, r, b = self._crop
         assert im.size == (r - l, b - t)
-        if max(im.size) != self._shape[0]:
-            m = self._shape[0]/float(max(im.size))
+        try:
+            o_rows, o_cols = self._shape
+            o_channels = 1
+        except:
+            o_channels, o_rows, o_cols = self._shape
+        if max(im.size) != o_rows:
+            m = o_rows/float(max(im.size))
             new_shape = (int(round(im.size[0]*m)), int(round(im.size[1]*m)))
             im = im.resize(new_shape, Image.ANTIALIAS)
         imval = np.asarray(im, 'float32')
-        rval = np.zeros(self._shape)
-        ctr = self._shape[0]/2
+        rval = np.zeros((o_rows, o_cols), dtype=self._dtype)
+        ctr = o_rows/2
         cxmin = ctr - imval.shape[0] / 2
         cxmax = ctr - imval.shape[0] / 2 + imval.shape[0]
         cymin = ctr - imval.shape[1] / 2
@@ -58,7 +62,10 @@ class ImgLoaderResizer(object):
             rval /= max(rval.std(), 1e-3)
         else:
             rval /= 255.0
+        if len(self._shape) == 3:
+            rval = rval[None, :, :]
         assert rval.shape == self._shape
+        assert rval.dtype == self._dtype
         return rval
 
 
@@ -182,8 +189,7 @@ def mean_and_std(X, remove_std0=False, unbiased=False,
     if `remove_std0` is True, then 0 elements of the std vector will be
     switched to 1. This is typically what you want for feature normalization.
     """
-    fshape = X.shape
-    X.shape = fshape[0], -1
+    X = X.reshape(X.shape[0], -1)
     npoints, ndims = X.shape
 
     if npoints < MEAN_MAX_NPOINTS:
