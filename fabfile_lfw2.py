@@ -21,7 +21,7 @@ def lfw2_bandit_sample(rseed=1):
     #print bandit.expr
     result = pyll.stochastic.sample(bandit.expr,
             np.random.RandomState(int(rseed)),
-            print_trace=True)
+            print_trace=False)
     # attachments are big and binary,
     # don't print them explicitly
     attachments = result.pop('attachments', {})
