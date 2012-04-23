@@ -15,38 +15,17 @@ from hyperopt.mongoexp import MongoTrials
 import eccv12.cifar10 as ec10
 from eccv12.experiments import InterleaveAlgo
 
+import fabfile_common
 
 def cifar10_launch_workers(host, port, dbname, N, walltime='24:00:00'):
-    text = """#!/bin/bash
+    rsync_data_local = """
     export SCIKIT_DATA=/scratch_local/skdata
     L=$SCIKIT_DATA/cifar10
     mkdir -p $L
     rsync -a ~/.skdata/cifar10/ $L/
-    . VENV/eccv12/bin/activate
-    VENV/eccv12/src/eccv12/hyperopt/bin/hyperopt-mongo-worker \
-        --mongo=%(host)s:%(port)s/%(dbname)s \
-        --workdir=/scratch_local/eccv12.workdir \
-        --reserve-timeout=180.0 \
-        --max-consecutive-failures=4
-    """ % locals()
-
-    qsub_script_name = '.worker.sh.%.3f' % time.time()
-
-    script = open(qsub_script_name, 'w')
-    script.write(text)
-    script.close()
-
-    subprocess.check_call(['chmod', '+x', qsub_script_name])
-    qsub_cmd = ['qsub', '-lnodes=1:gpus=1', '-lwalltime=%s' % walltime]
-    qsub_cmd.extend(
-            ['-e', os.path.expanduser('~/.qsub/%s.err' % qsub_script_name)])
-    qsub_cmd.extend(
-            ['-o', os.path.expanduser('~/.qsub/%s.out' % qsub_script_name)])
-    if int(N) > 1:
-        qsub_cmd.extend(['-t', '1-%s' % N])
-    qsub_cmd.append(qsub_script_name)
-    print qsub_cmd
-    subprocess.check_call(qsub_cmd)
+    """
+    return fabfile_common.launch_workers_helper(host, port, dbname, N,
+                                                walltime, rsync_data_local)
 
 
 def cifar10_suggest1(host, port, dbname, N=3):

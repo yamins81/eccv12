@@ -2,7 +2,9 @@ import copy
 import cPickle
 import logging
 import os
+import subprocess
 import sys
+import time
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
@@ -232,5 +234,35 @@ def snapshot(dbname, ofilename=None, plevel=-1):
     print 'saving to', ofilename
     ofile = open(ofilename, 'w')
     cPickle.dump(to_trials, ofile, int(plevel))
+
+
+def launch_workers_helper(host, port, dbname, N, walltime, rsync_data_local):
+    text = """#!/bin/bash
+    %(rsync_data_local)s
+    . VENV/eccv12/bin/activate
+    VENV/eccv12/src/eccv12/hyperopt/bin/hyperopt-mongo-worker \
+        --mongo=%(host)s:%(port)s/%(dbname)s \
+        --workdir=/scratch_local/eccv12.workdir \
+        --reserve-timeout=180.0 \
+        --max-consecutive-failures=4
+    """ % locals()
+
+    qsub_script_name = '.worker.sh.%.3f' % time.time()
+
+    script = open(qsub_script_name, 'w')
+    script.write(text)
+    script.close()
+
+    subprocess.check_call(['chmod', '+x', qsub_script_name])
+    qsub_cmd = ['qsub', '-lnodes=1:gpus=1', '-lwalltime=%s' % walltime]
+    qsub_cmd.extend(
+            ['-e', os.path.expanduser('~/.qsub/%s.err' % qsub_script_name)])
+    qsub_cmd.extend(
+            ['-o', os.path.expanduser('~/.qsub/%s.out' % qsub_script_name)])
+    if int(N) > 1:
+        qsub_cmd.extend(['-t', '1-%s' % N])
+    qsub_cmd.append(qsub_script_name)
+    print qsub_cmd
+    subprocess.check_call(qsub_cmd)
 
 
