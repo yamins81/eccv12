@@ -200,7 +200,7 @@ def worth_calculating_view2(ctrl, loss, thresh_rank=3):
 
 
 @scope.define
-def lfw_view2_results(data, pipeline, results):
+def lfw_view2_results(data, pipeline, results, solver):
     """
     """
 
@@ -239,7 +239,7 @@ def lfw_view2_results(data, pipeline, results):
                 [train_X, train_y],
                 verbose=True,
                 l2_regularization=pipeline['l2_reg'],
-                #solver=('asgd.SubsampledTheanoOVA', { 'dtype': 'float32', 'verbose': 1, })
+                solver=solver,
                 )
 
         train_predictions = svm.predict(train_X)
@@ -258,6 +258,7 @@ def lfw_view2_results(data, pipeline, results):
         attachments['view2_tst_%i.npy.pkl' % ind] = cPickle.dumps(
                     np.asarray(test_predictions, dtype='float32'),
                     protocol=-1)
+        del svm
 
     train_err_mean = np.mean(train_errs)
     print 'train err mean', train_err_mean
@@ -276,9 +277,10 @@ def lfw_view2_results(data, pipeline, results):
     return results
 
 @scope.define
-def do_view2_if_promising(result, ctrl, devtst_erate, view2_xy, pipeline):
+def do_view2_if_promising(result, ctrl, devtst_erate, view2_xy, pipeline,
+        solver):
     if worth_calculating_view2(ctrl, devtst_erate):
-        return lfw_view2_results(view2_xy, pipeline, result)
+        return lfw_view2_results(view2_xy, pipeline, result, solver)
     else:
         return result
 
@@ -323,10 +325,12 @@ def lfw_bandit(
         max_n_features=16000,
         max_layer_sizes=[64, 128],
         pipeline_timeout=90.0,
-        svm_solver=('asgd.SubsampledTheanoOVA', {
-            'dtype': 'float32',
-            'verbose': 1,
-            }),
+        svm_solver=('asgd.BinarySubsampledTheanoOVA', {
+                'dtype': 'float32',
+                'verbose': 1,
+                'bfgs_factr': 1e8,
+                'feature_bytes': 500 * (1024 ** 2),  # unit: bytes
+                }),
         screen_comparison='sqrtabsdiff',
         ):
     """
@@ -334,6 +338,11 @@ def lfw_bandit(
     """
     ctrl = hyperopt.Bandit.pyll_ctrl
     decisions_devtrn, decisions_devtst = scope.get_decisions(ctrl)
+
+    # -- add the decisions_devtrn to the svm_solver kwargs
+    svm_solver_name, svm_solver_kwargs = svm_solver
+    svm_solver_kwargs = scope.dict(svm_solver_kwargs, decisions=decisions_devtrn)
+    svm_solver = pyll.as_apply([svm_solver_name, svm_solver_kwargs])
 
     images = scope.lfw_aligned_images(
             dtype='float32',
@@ -399,11 +408,7 @@ def lfw_bandit(
             devtrn_xy,
             verbose=True,
             l2_regularization=pipeline['l2_reg'],
-            #solver=('asgd.SubsampledTheanoOVA', {
-                #'dtype': 'float32',
-                #'verbose': 1,
-                #'decisions': decisions_devtrn,
-                #})
+            solver=svm_solver,
             )
 
     devtrn_d = model_decisions(svm, devtrn_xy[0]) + decisions_devtrn
@@ -435,15 +440,20 @@ def lfw_bandit(
     # -- VIEW2 stuff
     view2_xy = {}
     for fold in range(10):
+        fold_vp = scope.lfw_verification_pairs(split='fold_%i' % fold,
+            subset=n_view2_per_split,
+            interleaved=True)
         for comparison in ['mult', 'sqdiff', 'sqrtabsdiff', 'absdiff']:
-            pd = pairs_dataset('fold_%i' % fold, comparison, n_view2_per_split)
+            pd = scope.cache_feature_pairs(fold_vp, image_features,
+                comparison_name=comparison)
             view2_xy.setdefault(fold, {}).setdefault(comparison, pd)
 
     if 1:
         # -- this is done without using switch to work around the
         # cycle-creating bug
         result = scope.do_view2_if_promising(result,
-                                         ctrl, devtst_erate, view2_xy, pipeline)
+                                         ctrl, devtst_erate, view2_xy,
+                                         pipeline, svm_solver)
     else:
         # --  the switch here triggers cycle-creation in
         # hyperopt.vectorize_helper.
