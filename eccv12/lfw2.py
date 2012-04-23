@@ -421,6 +421,7 @@ def lfw_bandit(
     devtst_erate = error_rate(devtst_pred, devtst_xy[1])
 
     result = {
+            'status': hyperopt.STATUS_OK,
             # -- criterion to optimize
             'loss': devtst_erate,
             # -- other error rates
