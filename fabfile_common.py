@@ -198,6 +198,26 @@ def list_errors(host, port, dbname, key=None, spec=0):
             print doc['spec']
 
 
+def list_failures(host, port, dbname, key=None, spec=0):
+    conn = pm.Connection(host=host, port=int(port))
+    if key is None:
+        query = {}
+    else:
+        query = {'exp_key': key}
+    query['state'] = hyperopt.JOB_STATE_DONE
+    query['result.status'] = hyperopt.STATUS_FAIL
+    retrieve = {'tid': 1,
+            'result.failure':1,
+            'misc.cmd': 1, 'book_time': 1, 'owner': 1}
+    if int(spec):
+        retrieve['spec'] = 1
+    for doc in conn[dbname]['jobs'].find(query, retrieve):
+        print doc['_id'], doc['tid'], doc['book_time'], doc['owner'],
+        print doc['result']['failure']
+        if int(spec):
+            print doc['spec']
+
+
 def delete_trials(host, port, dbname, key=None):
     # TODO: replace this with an input() y/n type thing
     y, n = 'y', 'n'
