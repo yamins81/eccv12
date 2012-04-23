@@ -135,6 +135,8 @@ class PairFeaturesFn(object):
     def __init__(self, X, fn_name):
         self.X = X
         self.fn = getattr(comparisons, fn_name)
+        self.n_calls = 0
+        self.fn_name = fn_name
 
     def rval_getattr(self, attr, objs):
         if attr == 'shape':
@@ -146,7 +148,10 @@ class PairFeaturesFn(object):
         raise AttributeError()
 
     def __call__(self, li, ri):
-        print 'PairFeature', li, ri
+        self.n_calls += 1
+        if 0 == (self.n_calls % 100):
+            print ('PairFeatureFn{%s} %i calls' % (self.fn_name,
+                self.n_calls))
         lx = self.X[li]
         rx = self.X[ri]
         rval = self.fn(lx, rx)
