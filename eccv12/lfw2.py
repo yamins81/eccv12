@@ -350,7 +350,7 @@ def lfw_bandit(
         max_n_features=16000,
         max_layer_sizes=[64, 128],
         pipeline_timeout=90.0,
-        pair_timelimit=15 * 60 / 3200.0, # -- seconds per image pair
+        pair_timelimit=20 * 60 / 3200.0, # -- seconds per image pair
         svm_solver=('asgd.BinarySubsampledTheanoOVA', {
                 'dtype': 'float32',
                 'verbose': 0,  # -1 is silent, 0 is terse, 1 is verbose

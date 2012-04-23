@@ -26,7 +26,8 @@ def lfw2_launch_workers(host, port, dbname, N, walltime='24:00:00'):
     rsync -a ~/.skdata/lfw/aligned/ $L/
     """
     return fabfile_common.launch_workers_helper(host, port, dbname, N,
-                                                walltime, rsync_data_local)
+                                                walltime, rsync_data_local,
+                                               mem='6G')
 
 
 def lfw2_tpe_l3(host, port, dbname, N=3):
@@ -42,7 +43,7 @@ def lfw2_tpe_l3(host, port, dbname, N=3):
         algo = TreeParzenEstimator(
                 bandit,
                 cmd=cmd,
-                n_startup_jobs=50,
+                n_startup_jobs=20, # -- random draws fail a lot
                 gamma=.25
                 )
         algos.append(algo)

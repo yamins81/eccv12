@@ -256,7 +256,8 @@ def snapshot(dbname, ofilename=None, plevel=-1):
     cPickle.dump(to_trials, ofile, int(plevel))
 
 
-def launch_workers_helper(host, port, dbname, N, walltime, rsync_data_local):
+def launch_workers_helper(host, port, dbname, N, walltime, rsync_data_local,
+                          mem=None):
     text = """#!/bin/bash
     %(rsync_data_local)s
     . VENV/eccv12/bin/activate
@@ -275,6 +276,8 @@ def launch_workers_helper(host, port, dbname, N, walltime, rsync_data_local):
 
     subprocess.check_call(['chmod', '+x', qsub_script_name])
     qsub_cmd = ['qsub', '-lnodes=1:gpus=1', '-lwalltime=%s' % walltime]
+    if mem is not None:
+        qsub_cmd.append('-lmem=%s' % mem)
     qsub_cmd.extend(
             ['-e', os.path.expanduser('~/.qsub/%s.err' % qsub_script_name)])
     qsub_cmd.extend(
