@@ -195,8 +195,7 @@ def worth_calculating_view2(ctrl, loss, thresh_rank=3):
 
 
 @scope.define
-def lfw_view2_results(data, pipeline, results,
-        ):
+def lfw_view2_results(data, pipeline, results):
     """
     """
 
@@ -270,6 +269,13 @@ def lfw_view2_results(data, pipeline, results,
     results['attachments'].update(attachments)
 
     return results
+
+@scope.define
+def do_view2_if_promising(result, ctrl, devtst_erate, view2_xy, pipeline):
+    if worth_calculating_view2(ctrl, devtst_erate):
+        return lfw_view2_results(view2_xy, pipeline, result)
+    else:
+        return result
 
 
 @hyperopt.as_bandit(
@@ -428,9 +434,17 @@ def lfw_bandit(
             pd = pairs_dataset('fold_%i' % fold, comparison, n_view2_per_split)
             view2_xy.setdefault(fold, {}).setdefault(comparison, pd)
 
-    result = scope.switch(
-        scope.worth_calculating_view2(ctrl, devtst_erate),
-        result,
-        scope.lfw_view2_results(view2_xy, pipeline, result))
+    if 1:
+        # -- this is done without using switch to work around the
+        # cycle-creating bug
+        result = scope.do_view2_if_promising(result,
+                                         ctrl, devtst_erate, view2_xy, pipeline)
+    else:
+        # --  the switch here triggers cycle-creation in
+        # hyperopt.vectorize_helper.
+        result = scope.switch(
+            scope.worth_calculating_view2(ctrl, devtst_erate),
+            result,
+            scope.lfw_view2_results(view2_xy, pipeline, result))
 
     return result
