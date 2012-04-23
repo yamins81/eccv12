@@ -327,7 +327,7 @@ def lfw_bandit(
         pipeline_timeout=90.0,
         svm_solver=('asgd.BinarySubsampledTheanoOVA', {
                 'dtype': 'float32',
-                'verbose': 1,
+                'verbose': 0,  # -1 is silent, 0 is terse, 1 is verbose
                 'bfgs_factr': 1e8,
                 'feature_bytes': 500 * (1024 ** 2),  # unit: bytes
                 }),
