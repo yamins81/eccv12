@@ -137,6 +137,7 @@ class PairFeaturesFn(object):
         self.X = X
         self.fn = getattr(comparisons, fn_name)
         self.n_calls = 0
+        self.t_total = 0.0
         self.fn_name = fn_name
         self.timelimit = timelimit
 
@@ -150,18 +151,19 @@ class PairFeaturesFn(object):
         raise AttributeError()
 
     def __call__(self, li, ri):
-        if self.timelimit:
-            t0 = time.time()
+        t0 = time.time()
         self.n_calls += 1
         if 0 == (self.n_calls % 100):
-            print ('PairFeatureFn{%s} %i calls' % (self.fn_name,
-                self.n_calls))
+            print ('PairFeatureFn{%s} %i calls in %f seconds' % (self.fn_name,
+                self.n_calls, self.t_total))
         lx = self.X[li]
         rx = self.X[ri]
         rval = self.fn(lx, rx)
+        t1 = time.time()
+        self.t_total += t1 - t0
         if self.timelimit:
-            t1 = time.time()
-            if t1 - t0 > self.timelimit:
+            if (self.n_calls > 100
+                    and (self.t_total / self.n_calls > self.timelimit)):
                 raise RuntimeError("pair features taking too long", t1 - t0)
         return rval
 
@@ -333,7 +335,7 @@ def lfw_bandit(
         max_n_features=16000,
         max_layer_sizes=[64, 128],
         pipeline_timeout=90.0,
-        pair_timelimit=0.25, # -- seconds per image pair
+        pair_timelimit=0.20, # -- seconds per image pair
         svm_solver=('asgd.BinarySubsampledTheanoOVA', {
                 'dtype': 'float32',
                 'verbose': 0,  # -1 is silent, 0 is terse, 1 is verbose
