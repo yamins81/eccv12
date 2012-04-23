@@ -16,7 +16,7 @@ import eccv12.lfw2 as lfw2
 from eccv12.experiments import InterleaveAlgo
 
 def lfw2_bandit_sample(rseed=1):
-    bandit = lfw2.lfw_bandit(n_train=100, n_test=100)
+    bandit = lfw2.lfw_bandit(n_train=10, n_test=10, n_view2_per_split=10)
     #print 'EXPR'
     #print bandit.expr
     result = pyll.stochastic.sample(bandit.expr,

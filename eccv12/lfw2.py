@@ -1,3 +1,4 @@
+import cPickle
 import sys
 import numpy as np
 import comparisons
@@ -14,6 +15,7 @@ from hyperopt.pyll_utils import hp_choice
 #from hyperopt.pyll_utils import hp_lognormal
 
 from .slm import choose_pipeline
+import pyll_slm
 
 # -- pyll.scope import
 pyll.scope.import_(globals(),
@@ -179,7 +181,9 @@ def worth_calculating_view2(ctrl, loss, thresh_rank=3):
     Return True iff `loss` might be in the stop `thresh_rank` trials at the
     end of the experiment.
     """
-    if ctrl is not None:
+    if ctrl is None:
+        return True
+    else:
         ctrl.trials.refresh()
         results = ctrl.trials.results
         losses = [r['loss']
@@ -187,16 +191,17 @@ def worth_calculating_view2(ctrl, loss, thresh_rank=3):
         losses.sort()
         if len(losses) == 0 or loss < max(losses[:thresh_rank]):
             return True
-
-    return False
+        return False
 
 
 @scope.define
-def lfw_view2_results(data, pipeline, results):
+def lfw_view2_results(data, pipeline, results,
+        ):
     """
     """
 
-    cmps = data[0].keys()
+    cmps = list(data[0].keys())
+    cmps.sort()
 
     train_errs = []
     test_errs = []
@@ -206,19 +211,19 @@ def lfw_view2_results(data, pipeline, results):
         train_inds = range(10)
         del train_inds[ind]
         print ('Constructing stuff for split %d ...' % ind)
-        test_y = data[ind][cc][1]
-        train_y = np.concatenate([data[ii][cc][1] for ii in train_inds])
+        test_y = data[ind][cmps[0]][1]
+        train_y = np.concatenate([data[ii][cmps[0]][1] for ii in train_inds])
 
         test_X = np.hstack([data[ind][cc][0][:] for cc in cmps])
         train_X = np.hstack([
             np.vstack([data[ii][cc][0][:] for ii in train_inds])
                 for cc in cmps])
 
-        xmean, xstd = mean_and_std(train_X,
+        xmean, xstd = pyll_slm.mean_and_std(train_X,
                 remove_std0=pipeline['remove_std0'])
-        print_ndarray_summary('Xmean', xmean)
-        print_ndarray_summary('Xstd', xstd)
-        xstd = sqrt(xstd ** 2 + pipeline['varthresh'])
+        pyll_slm.print_ndarray_summary('Xmean', xmean)
+        pyll_slm.print_ndarray_summary('Xstd', xstd)
+        xstd = np.sqrt(xstd ** 2 + pipeline['varthresh'])
 
         train_X -= xmean
         train_X /= xstd
@@ -226,7 +231,7 @@ def lfw_view2_results(data, pipeline, results):
         test_X /= xstd
 
         print ('Training svm %d ...' % ind)
-        svm = scope.fit_linear_svm(
+        svm = pyll_slm.fit_linear_svm(
                 [train_X, train_y],
                 verbose=True,
                 l2_regularization=pipeline['l2_reg'],
@@ -243,11 +248,11 @@ def lfw_view2_results(data, pipeline, results):
         train_errs.append(train_err)
         test_errs.append(test_err)
 
-        attachments['view2_trn_%i.npy.pkl' % ind] = scope.pickle_dumps(
-                    scope.asarray(train_predictions, dtype='float32'),
+        attachments['view2_trn_%i.npy.pkl' % ind] = cPickle.dumps(
+                    np.asarray(train_predictions, dtype='float32'),
                     protocol=-1)
-        attachments['view2_tst_%i.npy.pkl' % ind] = scope.pickle_dumps(
-                    scope.asarray(test_predictions, dtype='float32'),
+        attachments['view2_tst_%i.npy.pkl' % ind] = cPickle.dumps(
+                    np.asarray(test_predictions, dtype='float32'),
                     protocol=-1)
 
     train_err_mean = np.mean(train_errs)
@@ -300,6 +305,7 @@ def lfw_view2_results(data, pipeline, results):
 def lfw_bandit(
         n_train=2200,
         n_test=1000,
+        n_view2_per_split=600,
         batchsize=1,
         n_patches=50000,
         n_imgs_for_patches=2000,
@@ -419,7 +425,7 @@ def lfw_bandit(
     view2_xy = {}
     for fold in range(10):
         for comparison in ['mult', 'sqdiff', 'sqrtabsdiff', 'absdiff']:
-            pd = pairs_dataset('fold_%i' % fold, comparison)
+            pd = pairs_dataset('fold_%i' % fold, comparison, n_view2_per_split)
             view2_xy.setdefault(fold, {}).setdefault(comparison, pd)
 
     result = scope.switch(
