@@ -199,6 +199,9 @@ def worth_calculating_view2(ctrl, loss, thresh_rank=3):
     if ctrl is None:
         return True
     else:
+        if loss > .4:
+            # -- terrible performance, just bail.
+            return False
         trials = ctrl.trials
         query = {
                 'result.status': hyperopt.STATUS_OK,
@@ -217,8 +220,7 @@ def worth_calculating_view2(ctrl, loss, thresh_rank=3):
 
 @scope.define
 def lfw_view2_results(data, pipeline, result, solver):
-    """
-    """
+    """ """
 
     cmps = list(data[0].keys())
     cmps.sort()
