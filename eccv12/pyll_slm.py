@@ -22,11 +22,21 @@ from .utils import linear_kernel
 from .utils import mean_and_std
 from asgd import LinearSVM
 
+
+# -- Define theano versions of dot because my numpy installation is screwed up
+# and does not use a good blas.
 _theano_fA = tensor.fmatrix()
 _theano_fB = tensor.fmatrix()
 dot_f32 = theano.function(
         [_theano_fA, _theano_fB],
         tensor.dot(_theano_fA, _theano_fB),
+        allow_input_downcast=True)
+
+_theano_dA = tensor.dmatrix()
+_theano_dB = tensor.dmatrix()
+dot_f64 = theano.function(
+        [_theano_dA, _theano_dB],
+        tensor.dot(_theano_dA, _theano_dB),
         allow_input_downcast=True)
 
 
@@ -92,7 +102,7 @@ def boxconv((x, x_shp), kershp, channels=False):
     try:
         rval = tensor.reshape(
                 conv.conv2d(x,
-                    kerns,
+                    theano.shared(kerns),
                     image_shape=x_shp,
                     filter_shape=kerns.shape,
                     border_mode='valid'),
@@ -290,6 +300,7 @@ def slm_fbncc_chmaj((x, x_shp), m_fb, remove_mean, beta, hard_beta):
     whitening step.
 
     """
+    # -- just to make sure things will run on GPU
     assert x.dtype == 'float32'
     w_means, w_fb = m_fb
 
@@ -613,11 +624,11 @@ def patch_whitening_filterbank_X(patches, o_ndim, gamma,
     Xm = X - M
     assert Xm.shape == X.shape
     print 'patch_whitening_filterbank_X starting ZCA: dot', Xm.shape
-    C = dot_f32(Xm.T, Xm) / (Xm.shape[0] - 1)
+    C = dot_f64(Xm.T, Xm) / (Xm.shape[0] - 1)
     print 'patch_whitening_filterbank_X starting ZCA: eigh'
     D, V = np.linalg.eigh(C)
-    print 'patch_whitening_filterbank_X starting ZCA: done'
-    P = np.dot(np.sqrt(1.0 / (D + gamma)) * V, V.T)
+    print 'patch_whitening_filterbank_X starting ZCA: dot', V.shape
+    P = dot_f32(np.sqrt(1.0 / (D + gamma)) * V, V.T)
 
     # -- return to image space
     if o_ndim == 4:
@@ -629,6 +640,7 @@ def patch_whitening_filterbank_X(patches, o_ndim, gamma,
     else:
         raise ValueError('o_ndim not in (2, 4)', o_ndim)
 
+    print 'patch_whitening_filterbank_X -> done'
     return M, P, X
 
 
@@ -646,7 +658,7 @@ def fb_whitened_projections(patches, pwfX, n_filters, rseed, dtype):
     rng = np.random.RandomState(rseed)
     D = rng.randn(n_filters, patches_cn.shape[1])
     D = D / (np.sqrt((D ** 2).sum(axis=1))[:, None] + 1e-20)
-    fb = np.dot(D, P)
+    fb = dot_f32(D, P)
     fb.shape = (n_filters,) + patches.shape[1:]
     M.shape = patches.shape[1:]
     M = M.astype(dtype)
@@ -665,9 +677,9 @@ def fb_whitened_patches(patches, pwfX, n_filters, rseed, dtype):
     M, P, patches_cn = pwfX
     rng = np.random.RandomState(rseed)
     d_elems = rng.randint(len(patches_cn), size=n_filters)
-    D = np.dot(patches_cn[d_elems] - M, P)
+    D = dot_f64(patches_cn[d_elems] - M, P)
     D = D / (np.sqrt((D ** 2).sum(axis=1))[:, None] + 1e-20)
-    fb = np.dot(D, P)
+    fb = dot_f32(D, P)
     fb.shape = (n_filters,) + patches.shape[1:]
     M.shape = patches.shape[1:]
     M = M.astype(dtype)
@@ -713,10 +725,12 @@ def pyll_theano_batched_lmap(pipeline, seq, batchsize,
     # but does all internal computations using a fixed number of elements,
     # because convolutions are fastest when they're hard-coded to a certain
     # size.
+    print 'pyll_theano_batched_lmap compiling fn'
     fn = theano.function([s_xi], s_obatch[:s_N],
             updates={
                 s_ibatch: s_X, # this allows the inc_subtensor to be in-place
                 })
+    print 'pyll_theano_batched_lmap compiling fn -> done'
 
     def fn_1(x):
         if _debug_call_counts:

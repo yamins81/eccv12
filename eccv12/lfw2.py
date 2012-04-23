@@ -1,21 +1,22 @@
 import cPickle
 import sys
+import time
+
 import numpy as np
-import comparisons
-from .utils import ImgLoaderResizer
+
 import skdata.lfw
 from skdata import larray
+
 import pyll
 from pyll import scope
+
 import hyperopt
 from hyperopt.pyll_utils import hp_choice
-#from hyperopt.pyll_utils import hp_uniform
-#from hyperopt.pyll_utils import hp_quniform
-#from hyperopt.pyll_utils import hp_normal
-#from hyperopt.pyll_utils import hp_lognormal
 
-from .slm import choose_pipeline
 import pyll_slm
+import comparisons
+from .utils import ImgLoaderResizer
+from .slm import choose_pipeline
 
 # -- pyll.scope import
 pyll.scope.import_(globals(),
@@ -132,11 +133,12 @@ class PairFeaturesFn(object):
     # -- mimic how function objects are named
     __name__  = 'PairFeaturesFn'
 
-    def __init__(self, X, fn_name):
+    def __init__(self, X, fn_name, timelimit):
         self.X = X
         self.fn = getattr(comparisons, fn_name)
         self.n_calls = 0
         self.fn_name = fn_name
+        self.timelimit = timelimit
 
     def rval_getattr(self, attr, objs):
         if attr == 'shape':
@@ -148,6 +150,8 @@ class PairFeaturesFn(object):
         raise AttributeError()
 
     def __call__(self, li, ri):
+        if self.timelimit:
+            t0 = time.time()
         self.n_calls += 1
         if 0 == (self.n_calls % 100):
             print ('PairFeatureFn{%s} %i calls' % (self.fn_name,
@@ -155,11 +159,15 @@ class PairFeaturesFn(object):
         lx = self.X[li]
         rx = self.X[ri]
         rval = self.fn(lx, rx)
+        if self.timelimit:
+            t1 = time.time()
+            if t1 - t0 > self.timelimit:
+                raise RuntimeError("pair features taking too long", t1 - t0)
         return rval
 
 
 @scope.define_info(o_len=2)
-def cache_feature_pairs(pair_labels, X, comparison_name):
+def cache_feature_pairs(pair_labels, X, comparison_name, pair_timelimit):
     """
     pair_labels    - something like comes out of verification_pairs
     X              - feature vectors to be combined
@@ -167,7 +175,7 @@ def cache_feature_pairs(pair_labels, X, comparison_name):
     """
     lidxs, ridxs, matches = pair_labels
     pf = larray.lmap(
-            PairFeaturesFn(X, comparison_name),
+            PairFeaturesFn(X, comparison_name, timelimit=pair_timelimit),
             lidxs,
             ridxs)
     pf_cache = larray.cache_memory(pf)
@@ -325,6 +333,7 @@ def lfw_bandit(
         max_n_features=16000,
         max_layer_sizes=[64, 128],
         pipeline_timeout=90.0,
+        pair_timelimit=0.25, # -- seconds per image pair
         svm_solver=('asgd.BinarySubsampledTheanoOVA', {
                 'dtype': 'float32',
                 'verbose': 0,  # -1 is silent, 0 is terse, 1 is verbose
@@ -388,7 +397,8 @@ def lfw_bandit(
                 subset=subset,
                 interleaved=True),
             image_features,
-            comparison_name=comparison_name)
+            comparison_name=comparison_name,
+            pair_timelimit=pair_timelimit)
 
     result = {}
 
@@ -445,8 +455,11 @@ def lfw_bandit(
             subset=n_view2_per_split,
             interleaved=True)
         for comparison in ['mult', 'sqdiff', 'sqrtabsdiff', 'absdiff']:
+            # if we could get view1 extracted in time, then assume it's fast
+            # enough here. Don't want view2 results cancelled by a delay that
+            # puts one feature calculation over the limit.
             pd = scope.cache_feature_pairs(fold_vp, image_features,
-                comparison_name=comparison)
+                comparison_name=comparison, pair_timelimit=None)
             view2_xy.setdefault(fold, {}).setdefault(comparison, pd)
 
     if 1:
