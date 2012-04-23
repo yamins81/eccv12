@@ -199,12 +199,18 @@ def worth_calculating_view2(ctrl, loss, thresh_rank=3):
     if ctrl is None:
         return True
     else:
-        ctrl.trials.refresh()
-        results = ctrl.trials.results
-        losses = [r['loss']
-                for r in results if r['status'] == hyperopt.STATUS_OK]
+        trials = ctrl.trials
+        query = {
+                'result.status': hyperopt.STATUS_OK,
+                'exp_key': trials._exp_key,
+                }
+        docs = list(trials.handle.jobs.find(query,
+            {'result.loss': 1}))
+        losses = [d['result']['loss'] for d in docs]
         losses.sort()
-        if len(losses) == 0 or loss < max(losses[:thresh_rank]):
+        rank = np.searchsorted(losses, loss)
+        print 'worth_calculating_view2: loss ranked', rank, 'among', len(losses)
+        if len(losses) == 0 or rank < thresh_rank:
             return True
         return False
 
@@ -290,6 +296,11 @@ def lfw_view2_results(data, pipeline, results, solver):
 def do_view2_if_promising(result, ctrl, devtst_erate, view2_xy, pipeline,
         solver):
     if worth_calculating_view2(ctrl, devtst_erate):
+        # write the loss to the database now before embarking on view2, so
+        # that the optimizer can use that information.
+        ctrl.checkpoint(dict(result,
+            loss=devtst_erate,
+            status=hyperopt.STATUS_OK))
         return lfw_view2_results(view2_xy, pipeline, result, solver)
     else:
         return result
@@ -331,11 +342,11 @@ def lfw_bandit(
         n_view2_per_split=600,
         batchsize=1,
         n_patches=50000,
-        n_imgs_for_patches=2000,
+        n_imgs_for_patches=1000,
         max_n_features=16000,
         max_layer_sizes=[64, 128],
         pipeline_timeout=90.0,
-        pair_timelimit=0.20, # -- seconds per image pair
+        pair_timelimit=15 * 60 / 3200.0, # -- seconds per image pair
         svm_solver=('asgd.BinarySubsampledTheanoOVA', {
                 'dtype': 'float32',
                 'verbose': 0,  # -1 is silent, 0 is terse, 1 is verbose
