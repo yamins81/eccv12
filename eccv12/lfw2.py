@@ -216,7 +216,7 @@ def worth_calculating_view2(ctrl, loss, thresh_rank=3):
 
 
 @scope.define
-def lfw_view2_results(data, pipeline, results, solver):
+def lfw_view2_results(data, pipeline, result, solver):
     """
     """
 
@@ -281,16 +281,16 @@ def lfw_view2_results(data, pipeline, results, solver):
     test_err_mean = np.mean(test_errs)
     print 'test err mean', test_err_mean
 
-    assert 'view2' not in results
-    results['view2'] = {
+    assert 'view2' not in result
+    result['view2'] = {
             'train_err_mean': train_err_mean,
             'test_err_mean': test_err_mean,
             'train_errs': train_errs,
             'test_errs': test_errs,
             }
-    results['attachments'].update(attachments)
+    result['attachments'].update(attachments)
 
-    return results
+    return result
 
 @scope.define
 def do_view2_if_promising(result, ctrl, devtst_erate, view2_xy, pipeline,
@@ -298,9 +298,11 @@ def do_view2_if_promising(result, ctrl, devtst_erate, view2_xy, pipeline,
     if worth_calculating_view2(ctrl, devtst_erate):
         # write the loss to the database now before embarking on view2, so
         # that the optimizer can use that information.
-        ctrl.checkpoint(dict(result,
-            loss=devtst_erate,
-            status=hyperopt.STATUS_OK))
+        temp_result = dict(result,
+                loss=devtst_erate,
+                status=hyperopt.STATUS_OK)
+        del temp_result['attachments']
+        ctrl.checkpoint(temp_result)
         return lfw_view2_results(view2_xy, pipeline, result, solver)
     else:
         return result
