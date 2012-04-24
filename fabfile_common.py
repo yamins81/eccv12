@@ -51,13 +51,18 @@ def show_history(host, port, dbname, key=None):
                     if d['result']['loss'] == minloss and d['exp_key'] == k]
             plt.subplot(ROWS, 5, iii)
             plt.title(k)
-            plt.scatter(range(len(losses)), losses)
+            plt.scatter(range(len(losses)), losses, c='b')
+            plt.scatter(
+                    [i for i, v in enumerate(by_key_true_loss[k]) if v != None],
+                    [v for i, v in enumerate(by_key_true_loss[k]) if v != None],
+                    c='g')
             plt.ylim(0, 1)
             iii += 1
     else:
         losses = by_key[key]
         plt.title(key)
-        plt.scatter(range(len(losses)), losses)
+        plt.scatter(range(len(losses)), losses, c='b')
+        plt.scatter(range(len(losses)), by_key_true_loss[key], c='g')
         plt.ylim(0, 1)
 
     plt.show()

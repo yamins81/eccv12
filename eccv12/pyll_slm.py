@@ -663,6 +663,8 @@ def fb_whitened_projections(patches, pwfX, n_filters, rseed, dtype):
     M.shape = patches.shape[1:]
     M = M.astype(dtype)
     fb = fb.astype(dtype)
+    if fb.size == 0:
+        raise ValueError('filterbank had size 0')
     return M, fb
 
 
@@ -684,6 +686,8 @@ def fb_whitened_patches(patches, pwfX, n_filters, rseed, dtype):
     M.shape = patches.shape[1:]
     M = M.astype(dtype)
     fb = fb.astype(dtype)
+    if fb.size == 0:
+        raise ValueError('filterbank had size 0')
     return M, fb
 
 
@@ -821,12 +825,15 @@ def print_ndarray_summary(msg, X):
 @pyll.scope.define_info(o_len=2)
 def slm_uniform_M_FB(nfilters, size, channels, rseed, normalize, dtype,
         ret_cmajor):
+    print 'Allocating uniform filterbank', nfilters, size, channels
     M = np.asarray(0).reshape((1, 1, 1)).astype(dtype)
     FB = alloc_random_uniform_filterbank(
                     nfilters, size, size, channels,
                     dtype=dtype,
                     rseed=rseed,
                     normalize=normalize)
+    if FB.size == 0:
+        raise ValueError('filterbank had size 0')
     if ret_cmajor:
         return M, FB.transpose(0, 3, 1, 2)
     else:
@@ -836,3 +843,8 @@ def slm_uniform_M_FB(nfilters, size, channels, rseed, normalize, dtype,
 @pyll.scope.define
 def larray_cache_memory(obj):
     return larray.cache_memory(obj)
+
+
+@pyll.scope.define
+def ceildiv(a, b):
+    return int(np.ceil(float(a) / float(b)))

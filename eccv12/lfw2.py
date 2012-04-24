@@ -191,12 +191,13 @@ def get_decisions(ctrl):
     return 0, 0
 
 @scope.define_info(o_len=2)
-def worth_calculating_view2(ctrl, loss, thresh_rank=3):
+def worth_calculating_view2(ctrl, loss, thresh_rank=5):
     """
     Return True iff `loss` might be in the stop `thresh_rank` trials at the
     end of the experiment.
     """
     if ctrl is None:
+        # -- this is the debugging scenario
         return True
     else:
         if loss > .4:
@@ -290,6 +291,7 @@ def lfw_view2_results(data, pipeline, result, solver):
             'train_errs': train_errs,
             'test_errs': test_errs,
             }
+    result['true_loss'] = test_err_mean
     result['attachments'].update(attachments)
 
     return result
@@ -300,11 +302,12 @@ def do_view2_if_promising(result, ctrl, devtst_erate, view2_xy, pipeline,
     if worth_calculating_view2(ctrl, devtst_erate):
         # write the loss to the database now before embarking on view2, so
         # that the optimizer can use that information.
-        temp_result = dict(result,
-                loss=devtst_erate,
-                status=hyperopt.STATUS_OK)
-        del temp_result['attachments']
-        ctrl.checkpoint(temp_result)
+        if ctrl:
+            temp_result = dict(result,
+                    loss=devtst_erate,
+                    status=hyperopt.STATUS_OK)
+            del temp_result['attachments']
+            ctrl.checkpoint(temp_result)
         return lfw_view2_results(view2_xy, pipeline, result, solver)
     else:
         return result
