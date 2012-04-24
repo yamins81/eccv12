@@ -164,7 +164,8 @@ class PairFeaturesFn(object):
         if self.timelimit:
             if (self.n_calls > 100
                     and (self.t_total / self.n_calls > self.timelimit)):
-                raise RuntimeError("pair features taking too long", t1 - t0)
+                raise RuntimeError("pair features taking too long",
+                        (self.t_total, self.n_calls, self.timelimit))
         return rval
 
 
