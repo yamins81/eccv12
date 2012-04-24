@@ -47,7 +47,7 @@ def lfw2_tpe_l3(host, port, dbname, N=3):
                 gamma=.25
                 )
         algos.append(algo)
-        keys.append('tpe_l3_%i' % i)
+        keys.append('tpe_l3_exit3_%i' % i)
     algo = InterleaveAlgo(algos, keys)
     exp = hyperopt.Experiment(trials, algo, poll_interval_secs=.1)
     exp.run(sys.maxint, block_until_done=True)
