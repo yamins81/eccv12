@@ -53,6 +53,24 @@ def lfw2_tpe_l3(host, port, dbname, N=3):
     exp.run(sys.maxint, block_until_done=True)
 
 
+def lfw2_rerun(host, port, dbname, _id):
+    conn = pm.Connection(host=host, port=int(port))
+    J = conn[dbname]['jobs']
+    doc = J.find_one({'_id': bson.objectid.ObjectId(_id)})
+    spec = hyperopt.base.spec_from_misc(doc['misc'])
+    print 'SPEC', spec
+    cmd = doc['misc']['cmd']
+    assert cmd[0] == 'bandit_json evaluate'
+    bandit = hyperopt.utils.json_call(cmd[1])
+    result = bandit.evaluate(config=spec, ctrl=None)
+    attachments = result.pop('attachments', {})
+    print 'RESULT', result
+    if attachments:
+        print "RESULT attachments keys"
+        for k, v in attachments.items():
+            print '  name=%s, size=%i' % (k, len(v))
+
+
 def lfw2_bandit_sample(rseed=1):
     bandit = lfw2.lfw_bandit(n_train=10, n_test=10, n_view2_per_split=10)
     #print 'EXPR'
