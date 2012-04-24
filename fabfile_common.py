@@ -28,13 +28,16 @@ def show_history(host, port, dbname, key=None):
     # XXX: Does not use bandit.loss
     query = {'result.status': hyperopt.STATUS_OK}
     docs = list(trials.handle.jobs.find( query,
-        {'tid': 1, 'result.loss': 1, 'exp_key': 1}))
+        {'tid': 1, 'result.loss': 1, 'result.true_loss': 1, 'exp_key': 1}))
     #tdocs = [(d['tid'], d) for d in docs if d['exp_key'].startswith('tpe_l3')]
     tdocs = [(d['tid'], d) for d in docs]
     tdocs.sort()
     by_key = {}
+    by_key_true_loss = {}
     for tid, d in tdocs:
         by_key.setdefault(d['exp_key'], []).append(d['result']['loss'])
+        by_key_true_loss.setdefault(d['exp_key'], []).append(
+                d['result'].get('true_loss'))
 
     if key is None:
         print len(by_key)
@@ -52,18 +55,21 @@ def show_history(host, port, dbname, key=None):
             plt.subplot(ROWS, 5, iii)
             plt.title(k)
             plt.scatter(range(len(losses)), losses, c='b')
-            plt.scatter(
-                    [i for i, v in enumerate(by_key_true_loss[k]) if v != None],
-                    [v for i, v in enumerate(by_key_true_loss[k]) if v != None],
-                    c='g')
-            plt.ylim(0, 1)
+            xlist = [i for i, v in enumerate(by_key_true_loss[k]) if v != None]
+            ylist = [v for i, v in enumerate(by_key_true_loss[k]) if v != None]
+            if xlist:
+                plt.scatter(xlist, ylist, c='g')
+            plt.ylim(0, 1.02)
             iii += 1
     else:
         losses = by_key[key]
         plt.title(key)
         plt.scatter(range(len(losses)), losses, c='b')
-        plt.scatter(range(len(losses)), by_key_true_loss[key], c='g')
-        plt.ylim(0, 1)
+        xlist = [i for i, v in enumerate(by_key_true_loss[key]) if v != None]
+        ylist = [v for i, v in enumerate(by_key_true_loss[key]) if v != None]
+        if xlist:
+            plt.scatter(xlist, ylist, c='g')
+        plt.ylim(0, 1.02)
 
     plt.show()
 
