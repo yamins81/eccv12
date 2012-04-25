@@ -327,6 +327,8 @@ def do_view2_if_promising(result, ctrl, devtst_erate, view2_xy, pipeline,
                     or (isinstance(e, ValueError)
                         and 'had size 0' in str(e))
                     or (isinstance(e, ValueError)
+                        and 'size on that axis is 0' in str(e))
+                    or (isinstance(e, ValueError)
                         and 'low >= high' in str(e))
                     or (isinstance(e, RuntimeError)
                         and 'taking too long' in str(e))
