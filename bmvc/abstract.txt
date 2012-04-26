@@ -24,7 +24,11 @@ exciting direction for future work. A meta-model
    in what combinations.
 
 
+XXX Should citations be dropped from abstract?
+
 ================================================================================
+
+Not to be submitted:
 
 [1] Pinto & Cox (FG11)
 [2] Coates & Ng (ICML11)
