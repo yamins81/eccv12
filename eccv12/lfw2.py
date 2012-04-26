@@ -241,20 +241,30 @@ def lfw_view2_results(data, pipeline, result, solver):
     for ind in range(10):
         train_inds = range(10)
         del train_inds[ind]
-        print ('Constructing stuff for split %d ...' % ind)
+        print ('Constructing train/test for split %d ...' % ind)
         test_y = data[ind][cmps[0]][1]
         train_y = np.concatenate([data[ii][cmps[0]][1] for ii in train_inds])
+
+        remove_std0 = pipeline['remove_std0']
+        varthresh = pipeline['varthresh']
+        l2_reg = pipeline['l2_reg']
+
+        print 'remove_std0', remove_std0
+        print 'varthresh', varthresh
+        print 'l2_reg', l2_reg
 
         test_X = np.hstack([data[ind][cc][0][:] for cc in cmps])
         train_X = np.hstack([
             np.vstack([data[ii][cc][0][:] for ii in train_inds])
                 for cc in cmps])
 
+        # XXX: assuming here that what was good for sqrtabsdiff is also good
+        # for the rest.
         xmean, xstd = pyll_slm.mean_and_std(train_X,
-                remove_std0=pipeline['remove_std0'])
+                remove_std0=remove_std0)
         pyll_slm.print_ndarray_summary('Xmean', xmean)
         pyll_slm.print_ndarray_summary('Xstd', xstd)
-        xstd = np.sqrt(xstd ** 2 + pipeline['varthresh'])
+        xstd = np.sqrt(xstd ** 2 + varthresh)
 
         train_X -= xmean
         train_X /= xstd
@@ -265,7 +275,7 @@ def lfw_view2_results(data, pipeline, result, solver):
         svm = pyll_slm.fit_linear_svm(
                 [train_X, train_y],
                 verbose=True,
-                l2_regularization=pipeline['l2_reg'],
+                l2_regularization=l2_reg,
                 solver=solver,
                 )
 
