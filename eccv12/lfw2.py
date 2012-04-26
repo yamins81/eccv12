@@ -39,13 +39,20 @@ pyll.scope.import_(globals(),
     'pickle_dumps',
     )
 
+SVM_SOLVER = ('asgd.BinarySubsampledTheanoOVA', {
+                'dtype': 'float32',
+                'verbose': 0,  # 0 is silent, 1 is terse, 2 is verbose
+                'bfgs_factr': 1e8,
+                'feature_bytes': 500 * (1024 ** 2),  # unit: bytes
+                })
+
+
 _Aligned = None
 def Aligned():
     global _Aligned
     if _Aligned is None:
         _Aligned = skdata.lfw.Aligned()
     return _Aligned
-
 
 
 @scope.define
@@ -357,12 +364,7 @@ def lfw_bandit(
         max_layer_sizes=[64, 128],
         pipeline_timeout=90.0,
         pair_timelimit=20 * 60 / 3200.0, # -- seconds per image pair
-        svm_solver=('asgd.BinarySubsampledTheanoOVA', {
-                'dtype': 'float32',
-                'verbose': 0,  # -1 is silent, 0 is terse, 1 is verbose
-                'bfgs_factr': 1e8,
-                'feature_bytes': 500 * (1024 ** 2),  # unit: bytes
-                }),
+        svm_solver=SVM_SOLVER,
         screen_comparison='sqrtabsdiff',
         ):
     """
