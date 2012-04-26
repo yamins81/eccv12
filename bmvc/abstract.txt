@@ -1,34 +1,57 @@
+Many computer vision algorithms are actually whole algorithm families
+characterized by various parameters (both discrete and continuous) that govern
+how the algorithm will operate.  Recent work has demonstrated that for many
+standard approaches to image labeling tasks, choosing the right parameters
+often matters as much if not more to final performance than any given special
+conceptual addition to the model. In fact, random search on fairly simple model
+families can often set new records on competitive benchmarks, without
+significant innovative modeling.
 
-Making a science of model search
+However, smart hyper-parameter optimization is difficult to carry out by hand,
+while massive grid search is easy but inefficient.  In this work, we propose an
+meta-model for enabling automated intelligent hyperparameter optimization, and
+demonstrate its utility in a range of computer vision tasks.
 
-Many computer vision algorithms for scene classification take the form of a
-pipeline of processing steps such as contrast normalization, linear filtering,
-thresholding, subsampling, and reduction by histogram. Particular sequences,
-with particular threshold levels and filters (or particular algorithms for
-choosing them), make up the models that represent the state of the art
-across a variety of image labeling tasks.  This paper describes a meta-model
-for this sort of sequential signal processing approach. Our meta-model was
-designed to span the approaches of [1] and [2], which are superficially quite
-different and designed for very different tasks: object recognition in
-thumbnail-sized images, and face-match verification [5,6].  We compare two
-search procedures for exploring the meta-model space: random search and the
-Tree of Parzen Estimators (TPE)[4].  By combining the approaches of [1] and
-[2] we find several points in the meta-model search space that outperform the
-approaches that were our inspiration.  More broadly, we argue that the
-formalization of a meta-model confers several advantages and represents an
-exciting direction for future work. A meta-model
-1) can be searched by an algorithm, rather than a person;
-2) provides an objective approach to establishing baselines on new tasks;
-3) yeilds better-performing models;
-4) provides an objective measure of which techniques work, how often, and
-   in what combinations.
+The basic idea behind our approach is what we term the "Bandit / Bandit
+Algorithm" architecture.  A "bandit" is a program that accepts parameter values
+and emits performance results that are to be optimized; while a "bandit
+algorithm" is the optimization routine, a program that accepts temporal
+sequences of parameter value / performance result pairs and emits suggestions
+for next pameters for the bandit to try.
 
+However, in addition to simply computing performance results for given input
+parameter values, a bandit is also required to expose the underlying abstract
+expression graph of how the final performance value depends on the formal input
+parameters to be optimized over. This allows the bandit algorithm to inspect
+the structure of the bandit and automatically determine which optimization
+techniques to use for which variable and how to integrate results across many
+kinds of parameters. This in turn enables bandits expressing different
+algorithms for the same task to be composed, so that individual components of
+each algorithm can be easily "mixed and matched" without having to change
+optimization code.
 
-XXX Should citations be dropped from abstract?
+Having implemented a version of this meta-model, we apply it to compare and
+integrate two recent model families that have been demonstrated on to yield
+state-of-the-art results on two widely diverging problems: Pinto et. al.'s
+approach to face verification [1] and Coates' approach to object recognition in
+thumbnail images [2]. Characterizing each algorithm family as a bandit, we show
+that use of a Tree of Parzen Estimator (TPE) [3] as bandit algorithm yields
+high-performing parameters significantly more efficiently than random search in
+both cases. Morever, synthesizing between the two bandits, we find several
+points in the meta-model search space that outperform either of the individual
+approaches alone.
+
+Our results show that the meta-model: 1) can be searched by an algorithm,
+rather than a person; 2) is easy enough to use that whenever a paramteried
+algorithm is coded, it requires little extra effort to automatically apply
+parameter optimization; 3) provides an objective approach to establishing
+baselines on new tasks 4) yields better-performing models; and 5) provides an
+objective measure of which techniques work, how often, and in what
+combinations. More broadly, we argue that the formalization of a meta-model
+represents an exciting direction for future work.
 
 ================================================================================
-
-Not to be submitted:
+XXXX figure how these are to be included
 
 [1] Pinto & Cox (FG11)
 [2] Coates & Ng (ICML11)
