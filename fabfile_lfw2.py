@@ -43,7 +43,7 @@ def lfw2_tpe_l3(host, port, dbname, N=3):
         algo = TreeParzenEstimator(
                 bandit,
                 cmd=cmd,
-                n_startup_jobs=20, # -- random draws fail a lot
+                n_startup_jobs=50,
                 gamma=.25
                 )
         algos.append(algo)
