@@ -59,9 +59,7 @@ def lfw2_rerun(host, port, dbname, _id):
     doc = J.find_one({'_id': bson.objectid.ObjectId(_id)})
     spec = hyperopt.base.spec_from_misc(doc['misc'])
     print 'SPEC', spec
-    cmd = doc['misc']['cmd']
-    assert cmd[0] == 'bandit_json evaluate'
-    bandit = hyperopt.utils.json_call(cmd[1])
+    bandit = lfw2.lfw_bandit(memmap_name='lfw2_rerun_%s' % _id)
     result = bandit.evaluate(config=spec, ctrl=None)
     attachments = result.pop('attachments', {})
     print 'RESULT', result
@@ -87,5 +85,51 @@ def lfw2_bandit_sample(rseed=1):
         for k, v in attachments.items():
             print '  name=%s, size=%i' % (k, len(v))
 
-if __name__ == '__main__':
-    lfw2_bandit_sample(sys.argv[1])
+
+def lfw2_rerun_view2_from_memmap(host, port, dbname, _id):
+    conn = pm.Connection(host=host, port=int(port))
+    J = conn[dbname]['jobs']
+    doc = J.find_one({'_id': bson.objectid.ObjectId(_id)})
+    spec = hyperopt.base.spec_from_misc(doc['misc'])
+    print 'SPEC', spec
+    pipeline = {}
+    for key in spec:
+        if key.endswith('remove_std0'):
+            print key
+            pipeline['remove_std0'] = spec[key]
+        if key.endswith('varthresh'):
+            print key
+            pipeline['varthresh'] = spec[key]
+        if key.endswith('l2_reg'):
+            print key
+            pipeline['l2_reg'] = spec[key]
+
+    from skdata import larray
+    image_features = larray.cache_memmap(None, name='lfw2_rerun_%s' % _id)
+
+    view2_xy = {}
+    for fold in range(10):
+        fold_vp = lfw2.lfw_verification_pairs(split='fold_%i' % fold,
+            subset=None,
+            interleaved=True)
+        for comparison in ['mult', 'sqdiff', 'sqrtabsdiff', 'absdiff']:
+        #for comparison in ['sqrtabsdiff']:
+        #for comparison in ['mult']:
+            # if we could get view1 extracted in time, then assume it's fast
+            # enough here. Don't want view2 results cancelled by a delay that
+            # puts one feature calculation over the limit.
+            pd = lfw2.cache_feature_pairs(fold_vp, image_features,
+                comparison_name=comparison, pair_timelimit=None)
+            view2_xy.setdefault(fold, {}).setdefault(comparison, pd)
+
+    # N.B. Not patching in any decisions to the solver
+    result = {'attachments': {}}
+    result = lfw2.lfw_view2_results(view2_xy, pipeline, result,
+            trace_normalize=True,
+            solver=(lfw2.SVM_SOLVER[0],
+                dict(lfw2.SVM_SOLVER[1],
+                    n_runs=1,
+                    #bfgs_factr=1e3, # -- tried once, no effect
+                    )))
+
+
