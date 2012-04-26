@@ -160,7 +160,7 @@ class PairFeaturesFn(object):
     def __call__(self, li, ri):
         t0 = time.time()
         self.n_calls += 1
-        if 0 == (self.n_calls % 100):
+        if 0 == (self.n_calls % 300):
             print ('PairFeatureFn{%s} %i calls in %f seconds' % (self.fn_name,
                 self.n_calls, self.t_total))
         lx = self.X[li]
