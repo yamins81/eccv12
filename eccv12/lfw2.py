@@ -366,6 +366,7 @@ def lfw_bandit(
         pair_timelimit=20 * 60 / 3200.0, # -- seconds per image pair
         svm_solver=SVM_SOLVER,
         screen_comparison='sqrtabsdiff',
+        memmap_name='',
         ):
     """
     High-throughput screening setup for classification of Aligned LFW images.
@@ -406,8 +407,13 @@ def lfw_bandit(
     #print pipeline
 
     ### XXX Why are pair features sorted? if they are interlevaed?
+    if memmap_name:
+        feature_cache_fn = \
+                lambda obj: scope.larray_cache_memmap(obj, memmap_name)
+    else:
+        feature_cache_fn = scope.larray_cache_memory
 
-    image_features = scope.larray_cache_memory(
+    image_features = feature_cache_fn(
             pyll_theano_batched_lmap(
                 partial(callpipe1, pipeline['pipe']),
                 images,
