@@ -1,54 +1,37 @@
 Many computer vision algorithms are actually whole algorithm families
 characterized by various parameters (both discrete and continuous) that govern
 how the algorithm will operate.  Recent work has demonstrated that for many
-standard approaches to image labeling tasks, choosing the right parameters
-often matters as much if not more to final performance than any given special
-conceptual addition to the model. In fact, random search on fairly simple model
-families can often set new records on competitive benchmarks, without
-significant innovative modeling.
+standard approaches to image labeling tasks, choosing the right parameters can
+matter as much to final performance as any given conceptual additions to the
+model. In fact, random search on fairly simple model families have set new
+records on competitive benchmarks. 
 
-However, smart hyper-parameter optimization is difficult to carry out by hand,
+However, hyper-parameter optimization is difficult to carry out by hand,
 while massive grid search is easy but inefficient.  In this work, we propose an
-meta-model for enabling automated intelligent hyperparameter optimization, and
+meta-model for enabling automated hyperparameter optimization, and
 demonstrate its utility in a range of computer vision tasks.
 
-The basic idea behind our approach is what we term the "Bandit / Bandit
-Algorithm" architecture.  A "bandit" is a program that accepts parameter values
-and emits performance results that are to be optimized; while a "bandit
-algorithm" is the optimization routine, a program that accepts temporal
-sequences of parameter value / performance result pairs and emits suggestions
-for next pameters for the bandit to try.
+The basis of our approach is the idea of a "Bandit," a program that accepts
+parameter values and emits the performance value to be optimized. However, in
+addition to simply computing performance, a bandit is required to explicitly
+expose the underlying abstract expression graph of how the final performance
+value is computed from the parameters to be optimized over. This allows
+optimization algorithms to inspect the structure of the bandit and
+automatically determine which optimization techniques to use for which variable
+and how to integrate results across parameters. This in turn enables bandits
+expressing different algorithms for the same task to be composed, so that
+individual components of each algorithm can be easily "mixed and matched"
+without having to change optimization code.
 
-However, in addition to simply computing performance results for given input
-parameter values, a bandit is also required to expose the underlying abstract
-expression graph of how the final performance value depends on the formal input
-parameters to be optimized over. This allows the bandit algorithm to inspect
-the structure of the bandit and automatically determine which optimization
-techniques to use for which variable and how to integrate results across many
-kinds of parameters. This in turn enables bandits expressing different
-algorithms for the same task to be composed, so that individual components of
-each algorithm can be easily "mixed and matched" without having to change
-optimization code.
-
-Having implemented a version of this meta-model, we apply it to compare and
-integrate two recent model families that have been demonstrated on to yield
-state-of-the-art results on two widely diverging problems: Pinto et. al.'s
-approach to face verification [1] and Coates' approach to object recognition in
-thumbnail images [2]. Characterizing each algorithm family as a bandit, we show
-that use of a Tree of Parzen Estimator (TPE) [3] as bandit algorithm yields
-high-performing parameters significantly more efficiently than random search in
-both cases. Morever, synthesizing between the two bandits, we find several
-points in the meta-model search space that outperform either of the individual
-approaches alone.
-
-Our results show that the meta-model: 1) can be searched by an algorithm,
-rather than a person; 2) is easy enough to use that whenever a paramteried
-algorithm is coded, it requires little extra effort to automatically apply
-parameter optimization; 3) provides an objective approach to establishing
-baselines on new tasks 4) yields better-performing models; and 5) provides an
-objective measure of which techniques work, how often, and in what
-combinations. More broadly, we argue that the formalization of a meta-model
-represents an exciting direction for future work.
+We implement this idea apply it to compare and integrate two recent model
+families that have been demonstrated on to yield state-of-the-art results on
+face verification and object recognition, respectively. Characterizing each
+algorithm family as a bandit, we show that use of a Tree Parzen Estimator
+optimizer yields high-performing parameters significantly more efficiently than
+random search in both cases.  Morever, synthesizing between the two, we find
+several points in the meta-model search space that outperform either of the
+individual approaches alone.  More broadly, our results show that the
+formalization of a meta-model represents an exciting direction for future work.
 
 ================================================================================
 XXXX figure how these are to be included
