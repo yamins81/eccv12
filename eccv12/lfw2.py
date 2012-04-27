@@ -260,29 +260,79 @@ def lfw_view2_results(data, pipeline, result, solver,
         print 'varthresh', varthresh
         print 'l2_reg', l2_reg
 
-        test_X = np.hstack([data[ind][cc][0][:] for cc in cmps])
-        train_X = np.hstack([
-            np.vstack([data[ii][cc][0][:] for ii in train_inds])
-                for cc in cmps])
+        if 0:
+            test_X = np.hstack([data[ind][cc][0][:] for cc in cmps])
+            train_X = np.hstack([
+                np.vstack([data[ii][cc][0][:] for ii in train_inds])
+                    for cc in cmps])
 
-        # XXX: assuming here that what was good for sqrtabsdiff is also good
-        # for the rest.
-        xmean, xstd = pyll_slm.mean_and_std(train_X,
-                remove_std0=remove_std0)
-        pyll_slm.print_ndarray_summary('Xmean', xmean)
-        pyll_slm.print_ndarray_summary('Xstd', xstd)
-        xstd = np.sqrt(xstd ** 2 + varthresh)
+            # XXX: assuming here that what was good for sqrtabsdiff is also good
+            # for the rest.
+            xmean, xstd = pyll_slm.mean_and_std(train_X,
+                    remove_std0=remove_std0)
+            pyll_slm.print_ndarray_summary('Xmean', xmean)
+            pyll_slm.print_ndarray_summary('Xstd', xstd)
+            xstd = np.sqrt(xstd ** 2 + varthresh)
 
-        train_X -= xmean
-        train_X /= xstd
-        test_X -= xmean
-        test_X /= xstd
+            train_X -= xmean
+            train_X /= xstd
+            test_X -= xmean
+            test_X /= xstd
+        else:
 
-        print ('Training svm %d ...' % ind)
+            train_Xlist = []
+            test_Xlist = []
+            mean_xnorms = []
+
+            # aim to make the other comparison feature matrices (cc !=
+            # sqrtabsdiff) look as much like sqrtabsdiff as possible, so that
+            # the l2_reg makes sense
+            for cc in cmps:
+                trn = np.vstack([data[ii][cc][0][:] for ii in train_inds])
+                tst = data[ind][cc][0][:] * 1.0
+                if cc == 'sqrtabsdiff':
+                    xmean, xstd = pyll_slm.mean_and_std(trn,
+                            remove_std0=remove_std0)
+                    xstd = np.sqrt(xstd ** 2 + varthresh)
+                else:
+                    xmean, xstd = pyll_slm.mean_and_std(trn,
+                            remove_std0=True)
+                    xstd = np.sqrt(xstd ** 2 + 1e-16)
+
+                trn -= xmean
+                trn /= xstd
+                tst -= xmean
+                tst /= xstd
+
+                train_Xlist.append(trn)
+                test_Xlist.append(tst)
+
+                if trace_normalize:
+                    mean_xnorm = np.sqrt((trn ** 2).sum(axis=1)).mean()
+                    print 'Trace normalizing', mean_xnorm
+                    trn /= mean_xnorm
+                    tst /= mean_xnorm
+                    mean_xnorms.append(mean_xnorm)
+                else:
+                    mean_xnorms.append(1.0)
+
+            test_X = np.hstack(test_Xlist)
+            train_X = np.hstack(train_Xlist)
+            test_X /= len(cmps)
+            train_X /= len(cmps)
+            # -- consider using len(cmps) to do something here.
+            #    mean_xnorm is used to modify the l2_regularization; if there
+            #    were a lot of nearly-identical features being added, we would
+            #    want the effective l2_regularization to stay about the same.
+            #    XXX
+            #    To achieve that effect, what to do?
+            mean_xnorm = np.mean(mean_xnorms)
+
+        print ('Training svm %d ...' % (ind))
         svm = pyll_slm.fit_linear_svm(
                 [train_X, train_y],
                 verbose=True,
-                l2_regularization=l2_reg,
+                l2_regularization=l2_reg / (mean_xnorm ** 2),
                 solver=solver,
                 )
 
