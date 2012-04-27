@@ -129,6 +129,7 @@ def lfw2_rerun_view2_from_memmap(host, port, dbname, _id):
             solver=(lfw2.SVM_SOLVER[0],
                 dict(lfw2.SVM_SOLVER[1],
                     n_runs=1,
+                    dtype='float64',
                     #bfgs_factr=1e3, # -- tried once, no effect
                     )))
 

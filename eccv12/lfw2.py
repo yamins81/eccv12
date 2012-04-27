@@ -46,6 +46,12 @@ SVM_SOLVER = ('asgd.BinarySubsampledTheanoOVA', {
                 'feature_bytes': 500 * (1024 ** 2),  # unit: bytes
                 })
 
+VIEW2_SOLVER = ('asgd.BinarySubsampledTheanoOVA', {
+                'dtype': 'float64',
+                'verbose': 0,  # 0 is silent, 1 is terse, 2 is verbose
+                'bfgs_factr': 1e0,
+                'n_runs': 1,
+                })
 
 _Aligned = None
 def Aligned():
@@ -228,7 +234,8 @@ def worth_calculating_view2(ctrl, loss, thresh_rank=5):
 
 
 @scope.define
-def lfw_view2_results(data, pipeline, result, solver):
+def lfw_view2_results(data, pipeline, result, solver,
+        trace_normalize):
     """ """
 
     cmps = list(data[0].keys())
@@ -326,7 +333,8 @@ def do_view2_if_promising(result, ctrl, devtst_erate, view2_xy, pipeline,
                     status=hyperopt.STATUS_OK)
             del temp_result['attachments']
             ctrl.checkpoint(temp_result)
-        return lfw_view2_results(view2_xy, pipeline, result, solver)
+        return lfw_view2_results(view2_xy, pipeline, result, solver,
+                trace_normalize=True)
     else:
         return result
 
@@ -377,6 +385,7 @@ def lfw_bandit(
         pipeline_timeout=90.0,
         pair_timelimit=20 * 60 / 3200.0, # -- seconds per image pair
         svm_solver=SVM_SOLVER,
+        view2_solver=VIEW2_SOLVER,
         screen_comparison='sqrtabsdiff',
         memmap_name='',
         ):
@@ -508,15 +517,19 @@ def lfw_bandit(
     if 1:
         # -- this is done without using switch to work around the
         # cycle-creating bug
+
+        # XXX: TODO: add decisions to view2_solver
         result = scope.do_view2_if_promising(result,
                                          ctrl, devtst_erate, view2_xy,
-                                         pipeline, svm_solver)
+                                         pipeline, view2_solver)
     else:
         # --  the switch here triggers cycle-creation in
         # hyperopt.vectorize_helper.
         result = scope.switch(
             scope.worth_calculating_view2(ctrl, devtst_erate),
             result,
-            scope.lfw_view2_results(view2_xy, pipeline, result))
+            scope.lfw_view2_results(view2_xy, pipeline, result,
+                solver=view2_solver,
+                trace_normalize=True))
 
     return result
