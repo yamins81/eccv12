@@ -125,17 +125,15 @@ def cifar10_img_classification_task(dtype, n_train, n_valid, n_test,
                         and 'rowlen' in str(e)
                         and 'exceeds limit' in str(e))
                     or (isinstance(e, ValueError)
+                        and 'dimension mis-match' in str(e)
+                        and '= 0' in str(e))
+                    or (isinstance(e, ValueError)
+                        and 'had size 0' in str(e))
+                    or (isinstance(e, ValueError)
+                        and 'size on that axis is 0' in str(e))
+                    or (isinstance(e, ValueError)
                         and 'low >= high' in str(e))
-                ),
-                lambda e: {
-                    'loss': float(1.0),
-                    'status': hyperopt.STATUS_FAIL,
-                    'failure': repr(e)
-                }
-            ),
-            (
-                lambda e: (
-                    (isinstance(e, RuntimeError)
+                    or (isinstance(e, RuntimeError)
                         and 'taking too long' in str(e))
                     or (isinstance(e, RuntimeError)
                         and 'allocate memory' in str(e))
@@ -146,12 +144,13 @@ def cifar10_img_classification_task(dtype, n_train, n_valid, n_test,
                         and 'CudaNdarray has dim 0' in str(e))
                 ),
                 lambda e: {
-                    'loss': float('inf'),
+                    'loss': float(1.0),
                     'status': hyperopt.STATUS_FAIL,
                     'failure': repr(e)
                 }
             ),
-        ])
+        ],
+        )
 def cifar10bandit(
         n_train=40000,
         n_valid=10000,
