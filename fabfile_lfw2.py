@@ -87,6 +87,27 @@ def lfw2_bandit_sample(rseed=1):
         for k, v in attachments.items():
             print '  name=%s, size=%i' % (k, len(v))
 
+
+def lfw2_show_result(host, port, dbname, _id):
+    trials = MongoTrials(
+            'mongo://%s:%s/%s/jobs' % (host, port, dbname),
+            refresh=False)
+
+    J = trials.handle.jobs
+    doc = J.find_one({'_id': bson.objectid.ObjectId(_id)})
+    #trials.handle.update(doc, dict(state=2))
+    spec = hyperopt.base.spec_from_misc(doc['misc'])
+    print 'SPEC', spec
+    print 'STATE', doc['state']
+    print 'ERROR', doc.get('error')
+    result = doc['result']
+    attachments = result.pop('attachments', {})
+    print 'RESULT', result
+    if attachments:
+        print "RESULT attachments keys"
+        for k, v in attachments.items():
+            print '  name=%s, size=%i' % (k, len(v))
+
 if __name__ == '__main__':
     lfw2_bandit_sample(sys.argv[1])
 
