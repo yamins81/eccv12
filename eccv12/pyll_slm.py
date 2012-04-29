@@ -846,5 +846,10 @@ def larray_cache_memory(obj):
 
 
 @pyll.scope.define
+def larray_cache_memmap(obj, name, basedir=None, msg=None):
+    return larray.cache_memmap(obj, name, basedir=basedir, msg=msg)
+
+
+@pyll.scope.define
 def ceildiv(a, b):
     return int(np.ceil(float(a) / float(b)))

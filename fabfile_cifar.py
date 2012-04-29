@@ -97,15 +97,15 @@ def cifar10_run_large(host, port, dbname, _id):
     print result
 
 
-def cifar10_bandit1_sample(n_train=100, n_valid=100, n_test=10):
+def cifar10_bandit1_sample(n_train=100, n_valid=100, n_test=10, rseed=34):
     bandit = ec10.cifar10bandit(
             n_train=int(n_train),
             n_valid=int(n_valid),
             n_test=int(n_test))
-    print 'EXPR'
-    print bandit.expr
+    #print 'EXPR'
+    #print bandit.expr
     result = pyll.stochastic.sample(bandit.expr,
-            np.random.RandomState(34))
+            np.random.RandomState(int(rseed)))
     # attachments are big and binary,
     # don't print them explicitly
     attachments = result.pop('attachments', {})

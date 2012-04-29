@@ -39,13 +39,26 @@ pyll.scope.import_(globals(),
     'pickle_dumps',
     )
 
+SVM_SOLVER = ('asgd.BinarySubsampledTheanoOVA', {
+                'dtype': 'float32',
+                'verbose': 0,  # 0 is silent, 1 is terse, 2 is verbose
+                'bfgs_factr': 1e8,
+                'feature_bytes': 500 * (1024 ** 2),  # unit: bytes
+                })
+
+VIEW2_SOLVER = ('asgd.BinarySubsampledTheanoOVA', {
+                'dtype': 'float64',
+                'verbose': 0,  # 0 is silent, 1 is terse, 2 is verbose
+                'bfgs_factr': 1e0,
+                'n_runs': 1,
+                })
+
 _Aligned = None
 def Aligned():
     global _Aligned
     if _Aligned is None:
         _Aligned = skdata.lfw.Aligned()
     return _Aligned
-
 
 
 @scope.define
@@ -153,7 +166,7 @@ class PairFeaturesFn(object):
     def __call__(self, li, ri):
         t0 = time.time()
         self.n_calls += 1
-        if 0 == (self.n_calls % 100):
+        if 0 == (self.n_calls % 300):
             print ('PairFeatureFn{%s} %i calls in %f seconds' % (self.fn_name,
                 self.n_calls, self.t_total))
         lx = self.X[li]
@@ -221,7 +234,8 @@ def worth_calculating_view2(ctrl, loss, thresh_rank=5):
 
 
 @scope.define
-def lfw_view2_results(data, pipeline, result, solver):
+def lfw_view2_results(data, pipeline, result, solver,
+        trace_normalize):
     """ """
 
     cmps = list(data[0].keys())
@@ -234,31 +248,91 @@ def lfw_view2_results(data, pipeline, result, solver):
     for ind in range(10):
         train_inds = range(10)
         del train_inds[ind]
-        print ('Constructing stuff for split %d ...' % ind)
+        print ('Constructing train/test for split %d ...' % ind)
         test_y = data[ind][cmps[0]][1]
         train_y = np.concatenate([data[ii][cmps[0]][1] for ii in train_inds])
 
-        test_X = np.hstack([data[ind][cc][0][:] for cc in cmps])
-        train_X = np.hstack([
-            np.vstack([data[ii][cc][0][:] for ii in train_inds])
-                for cc in cmps])
+        remove_std0 = pipeline['remove_std0']
+        varthresh = pipeline['varthresh']
+        l2_reg = pipeline['l2_reg']
 
-        xmean, xstd = pyll_slm.mean_and_std(train_X,
-                remove_std0=pipeline['remove_std0'])
-        pyll_slm.print_ndarray_summary('Xmean', xmean)
-        pyll_slm.print_ndarray_summary('Xstd', xstd)
-        xstd = np.sqrt(xstd ** 2 + pipeline['varthresh'])
+        print 'remove_std0', remove_std0
+        print 'varthresh', varthresh
+        print 'l2_reg', l2_reg
 
-        train_X -= xmean
-        train_X /= xstd
-        test_X -= xmean
-        test_X /= xstd
+        if 0:
+            test_X = np.hstack([data[ind][cc][0][:] for cc in cmps])
+            train_X = np.hstack([
+                np.vstack([data[ii][cc][0][:] for ii in train_inds])
+                    for cc in cmps])
 
-        print ('Training svm %d ...' % ind)
+            # XXX: assuming here that what was good for sqrtabsdiff is also good
+            # for the rest.
+            xmean, xstd = pyll_slm.mean_and_std(train_X,
+                    remove_std0=remove_std0)
+            pyll_slm.print_ndarray_summary('Xmean', xmean)
+            pyll_slm.print_ndarray_summary('Xstd', xstd)
+            xstd = np.sqrt(xstd ** 2 + varthresh)
+
+            train_X -= xmean
+            train_X /= xstd
+            test_X -= xmean
+            test_X /= xstd
+        else:
+
+            train_Xlist = []
+            test_Xlist = []
+            mean_xnorms = []
+
+            # aim to make the other comparison feature matrices (cc !=
+            # sqrtabsdiff) look as much like sqrtabsdiff as possible, so that
+            # the l2_reg makes sense
+            for cc in cmps:
+                trn = np.vstack([data[ii][cc][0][:] for ii in train_inds])
+                tst = data[ind][cc][0][:] * 1.0
+                if cc == 'sqrtabsdiff':
+                    xmean, xstd = pyll_slm.mean_and_std(trn,
+                            remove_std0=remove_std0)
+                    xstd = np.sqrt(xstd ** 2 + varthresh)
+                else:
+                    xmean, xstd = pyll_slm.mean_and_std(trn,
+                            remove_std0=True)
+                    xstd = np.sqrt(xstd ** 2 + 1e-16)
+
+                trn -= xmean
+                trn /= xstd
+                tst -= xmean
+                tst /= xstd
+
+                train_Xlist.append(trn)
+                test_Xlist.append(tst)
+
+                if trace_normalize:
+                    mean_xnorm = np.sqrt((trn ** 2).sum(axis=1)).mean()
+                    print 'Trace normalizing', mean_xnorm
+                    trn /= mean_xnorm
+                    tst /= mean_xnorm
+                    mean_xnorms.append(mean_xnorm)
+                else:
+                    mean_xnorms.append(1.0)
+
+            test_X = np.hstack(test_Xlist)
+            train_X = np.hstack(train_Xlist)
+            test_X /= len(cmps)
+            train_X /= len(cmps)
+            # -- consider using len(cmps) to do something here.
+            #    mean_xnorm is used to modify the l2_regularization; if there
+            #    were a lot of nearly-identical features being added, we would
+            #    want the effective l2_regularization to stay about the same.
+            #    XXX
+            #    To achieve that effect, what to do?
+            mean_xnorm = np.mean(mean_xnorms)
+
+        print ('Training svm %d ...' % (ind))
         svm = pyll_slm.fit_linear_svm(
                 [train_X, train_y],
                 verbose=True,
-                l2_regularization=pipeline['l2_reg'],
+                l2_regularization=l2_reg / (mean_xnorm ** 2),
                 solver=solver,
                 )
 
@@ -309,7 +383,8 @@ def do_view2_if_promising(result, ctrl, devtst_erate, view2_xy, pipeline,
                     status=hyperopt.STATUS_OK)
             del temp_result['attachments']
             ctrl.checkpoint(temp_result)
-        return lfw_view2_results(view2_xy, pipeline, result, solver)
+        return lfw_view2_results(view2_xy, pipeline, result, solver,
+                trace_normalize=True)
     else:
         return result
 
@@ -326,6 +401,8 @@ def do_view2_if_promising(result, ctrl, devtst_erate, view2_xy, pipeline,
                         and 'exceeds limit' in str(e))
                     or (isinstance(e, ValueError)
                         and 'had size 0' in str(e))
+                    or (isinstance(e, ValueError)
+                        and 'size on that axis is 0' in str(e))
                     or (isinstance(e, ValueError)
                         and 'low >= high' in str(e))
                     or (isinstance(e, RuntimeError)
@@ -357,13 +434,10 @@ def lfw_bandit(
         max_layer_sizes=[64, 128],
         pipeline_timeout=90.0,
         pair_timelimit=20 * 60 / 3200.0, # -- seconds per image pair
-        svm_solver=('asgd.BinarySubsampledTheanoOVA', {
-                'dtype': 'float32',
-                'verbose': 0,  # -1 is silent, 0 is terse, 1 is verbose
-                'bfgs_factr': 1e8,
-                'feature_bytes': 500 * (1024 ** 2),  # unit: bytes
-                }),
+        svm_solver=SVM_SOLVER,
+        view2_solver=VIEW2_SOLVER,
         screen_comparison='sqrtabsdiff',
+        memmap_name='',
         ):
     """
     High-throughput screening setup for classification of Aligned LFW images.
@@ -404,8 +478,13 @@ def lfw_bandit(
     #print pipeline
 
     ### XXX Why are pair features sorted? if they are interlevaed?
+    if memmap_name:
+        feature_cache_fn = \
+                lambda obj: scope.larray_cache_memmap(obj, memmap_name)
+    else:
+        feature_cache_fn = scope.larray_cache_memory
 
-    image_features = scope.larray_cache_memory(
+    image_features = feature_cache_fn(
             pyll_theano_batched_lmap(
                 partial(callpipe1, pipeline['pipe']),
                 images,
@@ -488,15 +567,19 @@ def lfw_bandit(
     if 1:
         # -- this is done without using switch to work around the
         # cycle-creating bug
+
+        # XXX: TODO: add decisions to view2_solver
         result = scope.do_view2_if_promising(result,
                                          ctrl, devtst_erate, view2_xy,
-                                         pipeline, svm_solver)
+                                         pipeline, view2_solver)
     else:
         # --  the switch here triggers cycle-creation in
         # hyperopt.vectorize_helper.
         result = scope.switch(
             scope.worth_calculating_view2(ctrl, devtst_erate),
             result,
-            scope.lfw_view2_results(view2_xy, pipeline, result))
+            scope.lfw_view2_results(view2_xy, pipeline, result,
+                solver=view2_solver,
+                trace_normalize=True))
 
     return result

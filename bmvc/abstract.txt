@@ -1,0 +1,27 @@
+Many computer vision algorithms are actually whole algorithm families characterized by various parameters (both discrete and continuous) that govern how the algorithm will operate.  Recent work has demonstrated that for many standard approaches to image labeling tasks, choosing the right parameters can matter as much to final performance as any given conceptual additions to the model.  When we allow the hyperparameters to govern structural choices such as even which algorithms to use, then hyperparameter optimization is nothing less than the search for programs that succeed in well-defined tasks.  Manual optimization, grid search, and random search represent the state of the art.
+
+In this work, we propose a meta-modelling approach to support automated hyperparameter optimization.  Our approach is expose the underlying expression graph of how a performance metric (e.g. classification accuracy on validation examples) is computed from hyperparameters. Nodes in this graph represent choices such as whether to use one algorithm or another to initialize a filterbank, how much to regularize a support vector machine, and where to put the threshold of a point-wise non-linearity. A hyperparameter optimization algorithm transforms this graph into a program for optimizing that performance metric.
+
+We apply this technique to compare and integrate two recent model families that have been demonstrated to yield state-of-the-art results on face verification and object recognition, respectively.  We show that use of a Tree Parzen Estimator (TPE) hyperparameter optimizer finds state-of-the-art performance significantly more efficiently than random search in both cases.  Morever, synthesizing between the two approaches, we find several points in the meta-model search space that outperform either of the individual approaches alone.  More broadly, our results show that the formalization of a meta-model represents an exciting direction for future work.
+
+================================================================================
+Many computer vision algorithms are actually whole algorithm families characterized by various parameters (both discrete and continuous) that govern how the algorithm will operate. Recent work has demonstrated that for many standard approaches to image labeling tasks, choosing the right parameters can matter as much to final performance as any given conceptual additions to the model. However, hyperparameter optimization is notoriously difficult to do by hand and grid search is prohibitively inefficient, leaving random search the state of the art.
+
+
+In this work, we propose a meta-modelling approach to support automated hyperparameter optimization, and demonstrate its utility in a range of computer vision tasks. The basis of our approach is to explicitly expose the underlying expression graph of how the final performance metric to be optimized is computed from the parameters to be optimized over. This allows generic hyperparameter optimization algorithms to automatically determine which techniques to use for which parameters and how to integrate results across parameters. This in turn enables metrics expressing different algorithms for the same task to be composed, so that individual components of each algorithm can be easily "mixed and matched" without having to change hyperparameter optimization code.
+
+
+We apply this technique to compare and integrate two recent model families that have been demonstrated to yield state-of-the-art results on face verification and object recognition, respectively. We show that use of a Tree Parzen Estimator (TPE) hyperparameter optimizer finds state-of-the-art performance significantly more efficiently than random search in both cases.  Morever, synthesizing between the two approaches, we find several points in the meta-model search space that outperform either of the individual approaches alone. More broadly, our results show that the formalization of a meta-model represents an exciting direction for future work.
+
+
+
+================================================================================
+XXXX figure how these are to be included
+
+[1] Pinto & Cox (FG11)
+[2] Coates & Ng (ICML11)
+[3] Bergstra & Bengio (JMLR)
+[4] Bergstra, Bardenet, Bengio, Kegl (NIPS11)
+[5] Krizhevsky (for CIFAR10)
+[6] ... Learned-Miller (for LFW)
+
