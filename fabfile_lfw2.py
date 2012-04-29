@@ -89,3 +89,43 @@ def lfw2_bandit_sample(rseed=1):
 
 if __name__ == '__main__':
     lfw2_bandit_sample(sys.argv[1])
+
+def lfw2_fig_tpe_vs_random():
+    host='honeybadger.rowland.org'
+    port=44556
+    dbname='lfw_apr_20'
+
+    import matplotlib.pyplot as plt
+    trials = MongoTrials(
+            'mongo://%s:%s/%s/jobs' % (host, port, dbname),
+            refresh=False)
+    query = {'result.status': hyperopt.STATUS_OK}
+    docs = list(trials.handle.jobs.find( query,
+        {'tid': 1, 'result.loss': 1, 'result.true_loss': 1, 'exp_key': 1}))
+    tdocs = [(d['tid'], d) for d in docs]
+    tdocs.sort()
+    by_key = {}
+    by_key_true_loss = {}
+    for tid, d in tdocs:
+        by_key.setdefault(d['exp_key'], []).append(d['result']['loss'])
+        by_key_true_loss.setdefault(d['exp_key'], []).append(
+                d['result'].get('true_loss'))
+
+    plt.title('Random vs. TPE: LFW-A')
+    losses = by_key['random_l3_exit3_0']
+    plt.scatter(range(len(losses)),
+            np.minimum(losses, .5),
+            c=(.5, .5, .5), label='Random')
+    losses = by_key['tpe_l3_exit3_0']
+    plt.scatter(range(len(losses)),
+            np.minimum(losses, .5),
+            c=(.1, .9, .1), label='TPE')
+    plt.ylim(0, .52)
+    plt.xlabel('n. trials')
+    plt.ylabel('validation error')
+    plt.legend(loc='upper right')
+    if 0:
+        plt.show()
+    else:
+        plt.savefig('lfw2_fig_tpe_vs_random.svg')
+

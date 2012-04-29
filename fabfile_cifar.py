@@ -300,3 +300,40 @@ def coates_classif():
     import eccv12.sc_vq_demo
     eccv12.sc_vq_demo.coates_classif()
 
+
+def cifar10_fig_tpe_vs_random():
+    host='honeybadger.rowland.org'
+    port=44556
+    dbname='cifar10_apr_12'
+
+    import matplotlib.pyplot as plt
+    trials = MongoTrials(
+            'mongo://%s:%s/%s/jobs' % (host, port, dbname),
+            refresh=False)
+    query = {'result.status': hyperopt.STATUS_OK}
+    docs = list(trials.handle.jobs.find( query,
+        {'tid': 1, 'result.loss': 1, 'result.true_loss': 1, 'exp_key': 1}))
+    tdocs = [(d['tid'], d) for d in docs]
+    tdocs.sort()
+    by_key = {}
+    by_key_true_loss = {}
+    for tid, d in tdocs:
+        by_key.setdefault(d['exp_key'], []).append(d['result']['loss'])
+        by_key_true_loss.setdefault(d['exp_key'], []).append(
+                d['result'].get('true_loss'))
+
+    plt.title('Random vs. TPE: CIFAR-10')
+    losses = by_key['random_l3_exit3_0']
+    plt.scatter(range(len(losses)), losses, c=(.5, .5, .5), label='Random')
+    losses = by_key['l3_0']
+    plt.scatter(range(len(losses)), losses, c=(.1, .9, .1), label='TPE')
+    plt.ylim(0, 1.02)
+    plt.xlabel('n. trials')
+    plt.ylabel('validation error')
+    plt.legend(loc='upper right')
+    if 0:
+        plt.show()
+    else:
+        plt.savefig('cifar10_fig_tpe_vs_random.svg')
+
+
