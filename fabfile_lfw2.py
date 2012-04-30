@@ -129,7 +129,68 @@ def lfw2_rerun_view2_from_memmap(host, port, dbname, _id):
             solver=(lfw2.SVM_SOLVER[0],
                 dict(lfw2.SVM_SOLVER[1],
                     n_runs=1,
+                    dtype='float64',
                     #bfgs_factr=1e3, # -- tried once, no effect
                     )))
 
+
+def lfw2_show_result(host, port, dbname, _id):
+    trials = MongoTrials(
+            'mongo://%s:%s/%s/jobs' % (host, port, dbname),
+            refresh=False)
+
+    J = trials.handle.jobs
+    doc = J.find_one({'_id': bson.objectid.ObjectId(_id)})
+    #trials.handle.update(doc, dict(state=2))
+    spec = hyperopt.base.spec_from_misc(doc['misc'])
+    print 'SPEC', spec
+    print 'STATE', doc['state']
+    print 'ERROR', doc.get('error')
+    result = doc['result']
+    attachments = result.pop('attachments', {})
+    print 'RESULT', result
+    if attachments:
+        print "RESULT attachments keys"
+        for k, v in attachments.items():
+            print '  name=%s, size=%i' % (k, len(v))
+
+
+def lfw2_fig_tpe_vs_random():
+    host='honeybadger.rowland.org'
+    port=44556
+    dbname='lfw_apr_20'
+
+    import matplotlib.pyplot as plt
+    trials = MongoTrials(
+            'mongo://%s:%s/%s/jobs' % (host, port, dbname),
+            refresh=False)
+    query = {'result.status': hyperopt.STATUS_OK}
+    docs = list(trials.handle.jobs.find( query,
+        {'tid': 1, 'result.loss': 1, 'result.true_loss': 1, 'exp_key': 1}))
+    tdocs = [(d['tid'], d) for d in docs]
+    tdocs.sort()
+    by_key = {}
+    by_key_true_loss = {}
+    for tid, d in tdocs:
+        by_key.setdefault(d['exp_key'], []).append(d['result']['loss'])
+        by_key_true_loss.setdefault(d['exp_key'], []).append(
+                d['result'].get('true_loss'))
+
+    plt.title('Random vs. TPE: LFW-A')
+    losses = by_key['random_l3_exit3_0']
+    plt.scatter(range(len(losses)),
+            np.minimum(losses, .5),
+            c=(.5, .5, .5), label='Random')
+    losses = by_key['tpe_l3_exit3_0']
+    plt.scatter(range(len(losses)),
+            np.minimum(losses, .5),
+            c=(.1, .9, .1), label='TPE')
+    plt.ylim(0, .52)
+    plt.xlabel('n. trials')
+    plt.ylabel('validation error')
+    plt.legend(loc='upper right')
+    if 0:
+        plt.show()
+    else:
+        plt.savefig('lfw2_fig_tpe_vs_random.svg')
 
