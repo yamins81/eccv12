@@ -14,7 +14,7 @@
    id="svg6327"
    version="1.1"
    inkscape:version="0.48.2 r9819"
-   sodipodi:docname="New document 17">
+   sodipodi:docname="fig_bmvc12_prog.svg">
   <defs
      id="defs6329" />
   <sodipodi:namedview
@@ -24,16 +24,16 @@
      borderopacity="1.0"
      inkscape:pageopacity="0.0"
      inkscape:pageshadow="2"
-     inkscape:zoom="0.5"
-     inkscape:cx="512"
-     inkscape:cy="382"
+     inkscape:zoom="0.56851516"
+     inkscape:cx="517.90847"
+     inkscape:cy="396.5"
      inkscape:current-layer="layer1"
      inkscape:document-units="px"
      showgrid="false"
-     inkscape:window-width="815"
-     inkscape:window-height="637"
-     inkscape:window-x="220"
-     inkscape:window-y="19"
+     inkscape:window-width="1050"
+     inkscape:window-height="660"
+     inkscape:window-x="191"
+     inkscape:window-y="9"
      inkscape:window-maximized="0" />
   <metadata
      id="metadata6332">
@@ -43,7 +43,7 @@
         <dc:format>image/svg+xml</dc:format>
         <dc:type
            rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
-        <dc:title></dc:title>
+        <dc:title />
       </cc:Work>
     </rdf:RDF>
   </metadata>
@@ -54,80 +54,115 @@
     <text
        xml:space="preserve"
        style="font-size:40px;font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;text-align:start;line-height:125%;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;font-family:Latin Modern Sans;-inkscape-font-specification:Latin Modern Sans"
-       x="88"
-       y="202"
+       x="48"
+       y="272"
        id="text6335"
        sodipodi:linespacing="125%"><tspan
          sodipodi:role="line"
-         id="tspan6337"
-         x="88"
-         y="202">Screening Program:</tspan><tspan
+         x="48"
+         y="272"
+         id="tspan6357">c = classifier(</tspan><tspan
          sodipodi:role="line"
-         x="88"
-         y="252"
-         id="tspan6355" /><tspan
+         x="48"
+         y="322"
+         id="tspan3113">        regularization=<tspan
+   style="fill:#ff0000"
+   id="tspan3903">U(0, 2)</tspan>,</tspan><tspan
          sodipodi:role="line"
-         x="88"
-         y="302"
-         id="tspan6357">f = features(U(2), U(5))</tspan><tspan
+         x="48"
+         y="372"
+         id="tspan3115">        variance_threshold=<tspan
+   style="fill:#808000"
+   id="tspan3905">U(0, 5)</tspan>)</tspan><tspan
          sodipodi:role="line"
-         x="88"
-         y="352"
-         id="tspan6341">c = classifier(</tspan><tspan
+         x="48"
+         y="422"
+         id="tspan6341">f = features(</tspan><tspan
          sodipodi:role="line"
-         x="88"
-         y="402"
-         id="tspan6365">        either(</tspan><tspan
+         x="48"
+         y="472"
+         id="tspan6365">        algo=<tspan
+   style="fill:#008000"
+   id="tspan3907">either</tspan>(</tspan><tspan
          sodipodi:role="line"
-         x="88"
-         y="452"
-         id="tspan6343">            ['algo1', U(3), logN(10), N(1, 5)],</tspan><tspan
+         x="48"
+         y="522"
+         id="tspan6343">            algo1(<tspan
+   style="fill:#008080"
+   id="tspan3909">U(3)</tspan>, <tspan
+   style="fill:#000080"
+   id="tspan3911">logN(10)</tspan>, <tspan
+   style="fill:#0000ff"
+   id="tspan3913">N(1, 5)</tspan>),</tspan><tspan
          sodipodi:role="line"
-         x="88"
-         y="502"
-         id="tspan6351">            ['algo2', U(1), either(4, 10)]),</tspan><tspan
+         x="48"
+         y="572"
+         id="tspan6351">            algo2(<tspan
+   style="fill:#800080"
+   id="tspan3915">U(1)</tspan>, <tspan
+   style="fill:#ff00ff"
+   id="tspan3917">either</tspan>(4, 10))),</tspan><tspan
          sodipodi:role="line"
-         x="88"
-         y="552"
-         id="tspan6349">        U(100),</tspan><tspan
+         x="48"
+         y="622"
+         id="tspan6349">        n_dimensions=<tspan
+   style="fill:#ff6600"
+   id="tspan3919">U(11, 100, quantize=10)</tspan>,</tspan><tspan
          sodipodi:role="line"
-         x="88"
-         y="602"
-         id="tspan6369">        N(5, 1))</tspan><tspan
+         x="48"
+         y="672"
+         id="tspan6369">        other_param=<tspan
+   style="fill:#800000"
+   id="tspan3921">N(5, 1)</tspan>)</tspan><tspan
          sodipodi:role="line"
-         x="88"
-         y="652"
+         x="48"
+         y="722"
          id="tspan6371">score = error_rate(f, c)</tspan></text>
     <rect
-       style="opacity:0.5;fill:none;stroke:#000000;stroke-width:1.90094352;stroke-miterlimit:4;stroke-opacity:0.50196078;stroke-dasharray:none"
+       style="opacity:0.5;fill:none;stroke:#000000;stroke-width:1.6338737;stroke-miterlimit:4;stroke-opacity:0.50196078;stroke-dasharray:none"
        id="rect6373"
        width="368"
-       height="245.72386"
-       x="626"
-       y="76"
-       ry="22.579891" />
+       height="181.52895"
+       x="646"
+       y="76.194923"
+       ry="16.680935" />
     <text
        xml:space="preserve"
        style="font-size:40px;font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;text-align:start;line-height:125%;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;font-family:Latin Modern Sans;-inkscape-font-specification:Latin Modern Sans"
-       x="662"
-       y="142"
+       x="682"
+       y="130"
        id="text6375"
        sodipodi:linespacing="125%"><tspan
          sodipodi:role="line"
-         x="662"
-         y="142"
+         x="682"
+         y="130"
          id="tspan6379">U: Uniform</tspan><tspan
          sodipodi:role="line"
-         x="662"
-         y="192"
+         x="682"
+         y="180"
          id="tspan6385">N: Normal</tspan><tspan
          sodipodi:role="line"
-         x="662"
-         y="242"
-         id="tspan6381">logN: log-Normal</tspan><tspan
+         x="682"
+         y="230"
+         id="tspan6387">logN: log-Normal</tspan></text>
+    <rect
+       style="fill:none;stroke:#000000;stroke-width:1.79392743;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none;stroke-dashoffset:0"
+       id="rect3925"
+       width="518.20605"
+       height="154.20607"
+       x="21.896963"
+       y="11.896964"
+       ry="9.5295887" />
+    <text
+       xml:space="preserve"
+       style="font-size:40px;font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;text-align:start;line-height:125%;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;font-family:Latin Modern Sans;-inkscape-font-specification:Latin Modern Sans"
+       x="52"
+       y="94"
+       id="text3938"
+       sodipodi:linespacing="125%"><tspan
          sodipodi:role="line"
-         x="662"
-         y="292"
-         id="tspan6387">either: Bernoulli</tspan></text>
+         id="tspan3940"
+         x="52"
+         y="94">Screening Program Sketch</tspan></text>
   </g>
 </svg>
