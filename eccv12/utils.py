@@ -6,15 +6,18 @@ import Image
 class ImgLoaderResizer(object):
     """ Load 250x250 greyscale images, return normalized 200x200 float32 ones.
     """
-    def __init__(self, shape=None, ndim=None, dtype='float32', normalize=True,
+    def __init__(self, inshape, 
+                 shape=None, ndim=None, dtype='float32', normalize=True,
                  crop=None):
+        self.inshape = inshape
+        assert len(shape) == 2
         shape = tuple(shape)
         assert len(crop) == 4
         crop = tuple(crop)
         l, t, r, b = crop
-        assert 0 <= l < r <= 250
-        assert 0 <= t < b <= 250
-        self._crop = crop
+        assert 0 <= l < r <= self.inshape[0]
+        assert 0 <= t < b <= self.inshape[1]
+        self._crop = crop   
         assert dtype == 'float32'
         self._shape = shape
         if ndim is None:
@@ -35,23 +38,20 @@ class ImgLoaderResizer(object):
 
     def __call__(self, file_path):
         im = Image.open(file_path)
-        assert im.size == (250, 250)
-        if self._crop != (0, 0, 250, 250):
+        if im.mode != 'L':
+            im = im.convert('L')
+        assert im.size == self.inshape
+        if self._crop != (0, 0,) + self.inshape:
             im = im.crop(self._crop)
         l, t, r, b = self._crop
         assert im.size == (r - l, b - t)
-        try:
-            o_rows, o_cols = self._shape
-            o_channels = 1
-        except:
-            o_channels, o_rows, o_cols = self._shape
-        if max(im.size) != o_rows:
-            m = o_rows/float(max(im.size))
+        if max(im.size) != self._shape[0]:
+            m = self._shape[0]/float(max(im.size))
             new_shape = (int(round(im.size[0]*m)), int(round(im.size[1]*m)))
             im = im.resize(new_shape, Image.ANTIALIAS)
         imval = np.asarray(im, 'float32')
-        rval = np.zeros((o_rows, o_cols), dtype=self._dtype)
-        ctr = o_rows/2
+        rval = np.zeros(self._shape)
+        ctr = self._shape[0]/2
         cxmin = ctr - imval.shape[0] / 2
         cxmax = ctr - imval.shape[0] / 2 + imval.shape[0]
         cymin = ctr - imval.shape[1] / 2
@@ -62,11 +62,10 @@ class ImgLoaderResizer(object):
             rval /= max(rval.std(), 1e-3)
         else:
             rval /= 255.0
-        if len(self._shape) == 3:
-            rval = rval[None, :, :]
         assert rval.shape == self._shape
-        assert rval.dtype == self._dtype
         return rval
+
+
 
 
 DOT_MAX_NDIMS = 256
