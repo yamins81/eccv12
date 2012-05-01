@@ -62,9 +62,9 @@ def pubfig83_random_experiment(dbname, host, port):
     exp_key = 'random'
     N = 
     bandit_args = ()
-    bandit_kwargs = {'ntrain':30,
-                     'nvalidate': 40,
-                     'ntest': 30,
+    bandit_kwargs = {'ntrain':20,
+                     'nvalidate': 60,
+                     'ntest': 20,
                      'nfolds': 3,
                      'use_decisions': False,
                      'use_raw_decisions': False,

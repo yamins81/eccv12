@@ -31,7 +31,19 @@ pyll.scope.import_(globals(),
     'pyll_theano_batched_lmap',
     )
     
-    
+
+@scope.define
+def pubfig83_dataset(ntrain, nvalidate, ntest, nfolds):
+    return skdata.pubfig83.PubFig83(
+                                   ntrain=ntrain, 
+                                   nvalidate=nvalidate,
+                                   ntest=ntest,
+                                   nfolds=nfolds)
+
+@scope.define                                   
+def get_dataset_splits(dataset):
+    return dataset.classification_splits
+
 #####pre and post process######
 @scope.define_info(o_len=2)
 def get_decisions(ctrl, use_decisions):
@@ -148,6 +160,7 @@ def get_pubfig83_images(dataset, dtype, preproc):
         crop - (l, t, r, b)
 
     """
+    
     all_paths = dataset.raw_classification_task()[0]
     rval = larray.lmap(
                 ImgLoaderResizer(
@@ -234,6 +247,24 @@ def result_classifier_stats(
     return result
 
 
+@scope.define
+def get_pipeline(images, splits, n_imgs_for_patches,
+                 n_patches, batchsize, max_n_featuers, max_layer_sizes,
+                 pipeline_timeout):
+                 
+    can_use = list(set(list(itertools.chain(*[s[k] for s in splits if 
+                                  s.startswith(('Train', 'Validate'))]))))
+    can_use.sort()
+    assert len(can_use) >= n_imgs_for_patches
+    return choose_pipeline(
+            Xcm=scope.asarray(images[can_use[:n_imgs_for_patches]]),
+            n_patches=n_patches,
+            batchsize=batchsize,
+            max_n_features=max_n_features,
+            max_layer_sizes=max_layer_sizes,
+            time_limit=pipeline_timeout,
+            )
+
 def combine_results(split_results, tt_idxs_list, new_ds, 
                     decisions, y, labelset, dataset, use_decisions):
     """
@@ -295,41 +326,24 @@ def pubfig83_bandit(ntrain,
 
     if namebase is None:
         namebase = 'memmap_' + str(np.random.randint(1e8))    
-
-    dataset = skdata.pubfig83.PubFig83(
-                                       ntrain=ntrain, 
-                                       nvalidate=nvalidate,
-                                       ntest=ntest,
-                                       nfolds=nfolds)
-                                       
-    all_paths, all_labels, _ = dataset.raw_classification_task()
-    labelset = np.unique(all_labels).tolist()
-  
-    images = scope.get_pubfig83_images(dataset=dataset, dtype='float32',
-                        preproc=hp_choice('preproc',
-                [
-                    {
-                    'global_normalize': 0,
-                    'size': [1, 200, 200],
-                    'crop': [0, 0, 250, 250],
-                    },
-                    # XXX: verify cropping logic in sclas, add crops here.
-                ]))
-                        
-    splits = dataset.classification_splits
-    all_i = np.arange(len(dataset.meta))
-    can_use = all_i[np.invert(fast_isin(all_i, splits['Test']))]
-    assert len(can_use) >= n_imgs_for_patches
+        
+    dataset = scope.pubfig83_dataset(ntrain, nvalidate, ntest, nfolds)
+    splits = scope.get_dataset_splits(dataset)
     
-    pipeline = choose_pipeline(
-            Xcm=scope.asarray(images[can_use[:n_imgs_for_patches]]),
-            n_patches=n_patches,
-            batchsize=batchsize,
-            max_n_features=max_n_features,
-            max_layer_sizes=max_layer_sizes,
-            time_limit=pipeline_timeout,
-            )
-            
+    images = scope.get_pubfig83_images(dataset, dtype='float32',
+                                       preproc=hp_choice('preproc',
+                                    [
+                                        {
+                                        'global_normalize': 0,
+                                        'size': [1, 200, 200],
+                                        'crop': [0, 0, 250, 250],
+                                        },
+                                    ]))
+                        
+    pipeline = scope.get_pipeline(images, splits, n_imgs_for_patches,
+                 n_patches, batchsize, max_n_featuers, max_layer_sizes,
+                 pipeline_timeout)
+                
     image_features = scope.larray_cache_memmap(
             pyll_theano_batched_lmap(
                 partial(callpipe1, pipeline['pipe']),
@@ -339,19 +353,24 @@ def pubfig83_bandit(ntrain,
                 abort_on_rows_larger_than=max_n_features,
                 ), memmap_name)                
                 
-    result = traintest_stuff(decisions, predictions, nfolds, ntrain, splits,
-            image_features, all_labels, labelset, use_raw_decisions)
+    result = scope.traintest_stuff(decisions, predictions, splits, dataset,
+                   image_features, use_raw_decisions)
     
-    scope.validate_pubfig83_result(result, use_decisions, decision_dims, decisions, predictions)
+    scope.validate_pubfig83_result(result, use_decisions, decision_dims, 
+                                   decisions, predictions)
     scope.postprocess_pubfig83_result(result) 
     
     return result
 
 
 @scope.define
-def traintest_stuff(decisions, predictions, nfolds, ntrain, splits, image_features, 
-                    all_labels, labelset, use_raw_decisions):
+def traintest_stuff(decisions, predictions, splits, dataset, image_features, 
+                    use_raw_decisions):
 
+
+    _, all_labels, _1 = dataset.raw_classification_task()
+    labelset = np.unique(all_labels).tolist()
+    
     split_results = []
     new_ds = []
     tt_idxs_list = []
@@ -360,7 +379,8 @@ def traintest_stuff(decisions, predictions, nfolds, ntrain, splits, image_featur
     
     image_features = image_features[idxs0]
     all_labels = all_labels[idxs0]
-
+    
+    nfolds = len(splits)
     for fold_idx in range(nfolds):
         if decisions is not None:
             split_decisions = np.asarray(decisions[fold_idx])
