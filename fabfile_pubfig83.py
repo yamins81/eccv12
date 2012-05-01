@@ -1,3 +1,4 @@
+import cPickle
 import os
 import time
 import subprocess
@@ -11,6 +12,7 @@ import pyll
 import hyperopt
 from hyperopt import TreeParzenEstimator, Random
 from hyperopt.mongoexp import MongoTrials
+from hyperopt.utils import json_call
 
 import eccv12.pubfig83 as pubfig83
 from eccv12.experiments import InterleaveAlgo
@@ -60,7 +62,7 @@ def pubfig83_random_experiment(dbname, host, port):
     bandit_algo_name = 'hyperopt.Random'
     bandit_name = 'eccv12.pubfig83.pubfig83_bandit'
     exp_key = 'random'
-    N = 
+    N = None
     bandit_args = ()
     bandit_kwargs = {'ntrain':20,
                      'nvalidate': 60,
@@ -73,14 +75,16 @@ def pubfig83_random_experiment(dbname, host, port):
                      'max_n_features': 16000,
                      'max_layer_sizes': [64, 128],
                      'pipeline_timeout': 90.0,
+                     'batchsize': 1,
                      'memmap_name': ''
                     }
     bandit_algo_args = ()
     bandit_algo_kwargs = {}
-    suggest_from_name(dbname, host, port,
+    exp = suggest_from_name(dbname, host, port,
                      bandit_algo_name, bandit_name, 
                      exp_key, N, bandit_args, bandit_kwargs, 
                      bandit_algo_args, bandit_algo_kwargs)
+    return exp
 
     
     

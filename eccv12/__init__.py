@@ -24,7 +24,8 @@ if 'THEANO_FLAGS' not in os.environ:
     else:
         NEW_THEANO_FLAGS = []
     if os.path.exists('/scratch_local'):
-        NEW_THEANO_FLAGS += ['base_compiledir=/scratch_local/bergstra/eccv12.theano']
+        user = os.environ['USER']
+        NEW_THEANO_FLAGS += ['base_compiledir=/scratch_local/' + user + '/eccv12.theano']
     os.environ['THEANO_FLAGS'] = ','.join(NEW_THEANO_FLAGS)
 
     print 'N.B. HACKING IN env["THEANO_FLAGS"] =', os.environ['THEANO_FLAGS']

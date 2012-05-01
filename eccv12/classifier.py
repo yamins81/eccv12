@@ -26,7 +26,7 @@ except ImportError:
     print("Can't import scikits stuff")
 
 
-def train_scikits(train_Xyd,
+def train_scikits(train_Xydp,
                   labelset,
                   model_type,
                   model_kwargs=None,
@@ -50,7 +50,7 @@ def train_scikits(train_Xyd,
     if fit_kwargs is None:
         fit_kwargs = {}
 
-    train_features, train_labels, train_decisions = train_Xyd
+    train_features, train_labels, train_decisions, train_predictions = train_Xyd
     assert labelset == [-1, 1] or labelset == range(len(labels)), labels
     assert set(train_labels) == set(labelset)
 

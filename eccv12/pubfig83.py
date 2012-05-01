@@ -341,7 +341,7 @@ def pubfig83_bandit(ntrain,
                                     ]))
                         
     pipeline = scope.get_pipeline(images, splits, n_imgs_for_patches,
-                 n_patches, batchsize, max_n_featuers, max_layer_sizes,
+                 npatches, batchsize, max_n_features, max_layer_sizes,
                  pipeline_timeout)
                 
     image_features = scope.larray_cache_memmap(
