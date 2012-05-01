@@ -118,28 +118,38 @@ def sample_weights_from_decisions(decisions,
                                   labels,
                                   labelset,
                                   use_raw_decisions,
-                                  alpha):
-
+                                  alpha
+                                  ):
+                                  
     assert labelset == [-1, 1] or labelset == range(len(labelset))
-    assert decisions.shape[0] == labels.shape[0]
-
-    if labelset == [-1, 1]:
-        decisions = np.column_stack([-decisions, decisions]) / 2.
-        labels = ((1 + labels) / 2).astype(np.int)
-
-    if use_raw_decisions:
-        actual = decisions[range(len(labels)), labels]
-        decisions_c = decisions.copy()
-        decisions_c[range(len(labels)), labels] = -np.inf
-        max_c = decisions_c.max(1)
-        margins = actual - max_c
-    else:
+    if decisions is not None:
+        assert decisions.shape[0] == labels.shape[0]
+    
+        if labelset == [-1, 1]:
+            decisions = np.column_stack([-decisions, decisions]) / 2.
+            labels = ((1 + labels) / 2).astype(np.int)
+    
         predictions = decisions.argmax(1)
-        margins = 2 * (predictions == labels).astype(np.int) - 1
-    weights = np.exp(-alpha * margins)
-    weights = weights / weights.sum()
+        if use_raw_decisions:
+            actual = decisions[range(len(labels)), labels]
+            decisions_c = decisions.copy()
+            decisions_c[range(len(labels)), labels] = -np.inf
+            max_c = decisions_c.max(1)
+            margins = actual - max_c
+        else:
+            margins = 2 * (predictions == labels).astype(np.int) - 1  
+        
+        er = (predictions != labels).astype(int).sum()  / float(len(labels))
+        C = len(labelset)
+        #alpha = 0.5 * log(((1 - er) / er) * (C - 1))
+        weights = np.exp(-alpha * margins)
+        weights = weights / weights.sum() * len(weights)
+        print weights, weights.shape
+    else:
+        weights = np.ones((len(labels),))
 
     return weights
+
 
 
 #########
@@ -279,7 +289,7 @@ def normalize(feats, trace_normalize=False, data=None):
     if trace_normalize:
         if data is None:
             train_f = feats[0]
-            tr = np.maximum(np.sqrt((train_f ** 2).sum(axis=1)).mean(), 1e-8)
+            tr = np.maximum(np.sqrt((train_f ** 2).sum(axis=1)).mean(), 1e-20)
         else:
             tr = data['trace']
     else:
