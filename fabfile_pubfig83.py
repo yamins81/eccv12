@@ -86,5 +86,32 @@ def pubfig83_random_experiment(dbname, host, port):
                      bandit_algo_args, bandit_algo_kwargs)
     return exp
 
-    
+
+def pubfig83_bandit_sample(rseed=1):
+    kwargs = {'ntrain':20,
+                     'nvalidate': 60,
+                     'ntest': 20,
+                     'nfolds': 3,
+                     'use_decisions': False,
+                     'use_raw_decisions': False,
+                     'npatches': 100,
+                     'n_imgs_for_patches': 200,
+                     'max_n_features': 16000,
+                     'max_layer_sizes': [64, 128],
+                     'pipeline_timeout': 90.0,
+                     'batchsize': 1,
+                     'memmap_name': ''
+                    }
+    bandit = pubfig83.pubfig83_bandit(**kwargs
+    result = pyll.stochastic.sample(bandit.expr,
+            np.random.RandomState(int(rseed)),
+            print_trace=False)
+    # attachments are big and binary,
+    # don't print them explicitly
+    attachments = result.pop('attachments', {})
+    print 'RESULT', result
+    if attachments:
+        print "RESULT attachments keys"
+        for k, v in attachments.items():
+            print '  name=%s, size=%i' % (k, len(v))
     
