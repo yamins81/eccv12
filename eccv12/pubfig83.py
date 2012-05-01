@@ -40,9 +40,13 @@ def pubfig83_dataset(ntrain, nvalidate, ntest, nfolds):
                                    ntest=ntest,
                                    nfolds=nfolds)
 
-@scope.define                                   
+@scope.define_info(o_len=2)                                 
 def get_dataset_splits(dataset):
-    return dataset.classification_splits
+    splits = dataset.classification_splits
+    can_use = list(set(list(itertools.chain(*[s[k] for s in splits if 
+                                  s.startswith(('Train', 'Validate'))]))))
+    can_use.sort()
+    return splits, can_use
 
 #####pre and post process######
 @scope.define_info(o_len=2)
@@ -247,24 +251,6 @@ def result_classifier_stats(
     return result
 
 
-@scope.define
-def get_pipeline(images, splits, n_imgs_for_patches,
-                 n_patches, batchsize, max_n_featuers, max_layer_sizes,
-                 pipeline_timeout):
-                 
-    can_use = list(set(list(itertools.chain(*[s[k] for s in splits if 
-                                  s.startswith(('Train', 'Validate'))]))))
-    can_use.sort()
-    assert len(can_use) >= n_imgs_for_patches
-    return choose_pipeline(
-            Xcm=scope.asarray(images[can_use[:n_imgs_for_patches]]),
-            n_patches=n_patches,
-            batchsize=batchsize,
-            max_n_features=max_n_features,
-            max_layer_sizes=max_layer_sizes,
-            time_limit=pipeline_timeout,
-            )
-
 def combine_results(split_results, tt_idxs_list, new_ds, 
                     decisions, y, labelset, dataset, use_decisions):
     """
@@ -328,7 +314,7 @@ def pubfig83_bandit(ntrain,
         namebase = 'memmap_' + str(np.random.randint(1e8))    
         
     dataset = scope.pubfig83_dataset(ntrain, nvalidate, ntest, nfolds)
-    splits = scope.get_dataset_splits(dataset)
+    splits, can_use = scope.get_dataset_splits(dataset)
     
     images = scope.get_pubfig83_images(dataset, dtype='float32',
                                        preproc=hp_choice('preproc',
@@ -339,10 +325,15 @@ def pubfig83_bandit(ntrain,
                                         'crop': [0, 0, 250, 250],
                                         },
                                     ]))
-                        
-    pipeline = scope.get_pipeline(images, splits, n_imgs_for_patches,
-                 npatches, batchsize, max_n_features, max_layer_sizes,
-                 pipeline_timeout)
+                                         
+    pipeline = choose_pipeline(
+            Xcm=scope.asarray(images[can_use[:n_imgs_for_patches]]),
+            n_patches=n_patches,
+            batchsize=batchsize,
+            max_n_features=max_n_features,
+            max_layer_sizes=max_layer_sizes,
+            time_limit=pipeline_timeout,
+            )
                 
     image_features = scope.larray_cache_memmap(
             pyll_theano_batched_lmap(
